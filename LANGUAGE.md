@@ -55,7 +55,7 @@ fn greet(name) {
 }
 ```
 
-An explicit `fn main()` entry point is the current leading option for executable programs, but it is not locked yet.
+Every executable NixScript program must have exactly one `nix main()` entry point. The keyword `nix` is reserved for this purpose only; ordinary functions continue to use `fn`.
 
 ## Loops
 
@@ -95,8 +95,7 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Open decisions
 
-1. What language to implement the compiler/interpreter in.
 2. The exact type system and rules for uninitialized variables.
 3. How modules export and import names.
 4. What happens when typed `uin` input is invalid.
-5. The final entry-point and class-construction syntax.
+5. Class-construction syntax.
