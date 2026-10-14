@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta charset="utf-8">
+<style>
+:root{color-scheme:dark;--bg:#303030;--panel:#242424;--line:#454545;--text:#d6d6d6;--muted:#858585;--orange:#d88743;--blue:#82b6e7;--green:#83b66b}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Roboto,"Arial",sans-serif;overflow:hidden}
+#app{height:100dvh;display:flex;flex-direction:column}.top{height:76px;background:#242424;display:flex;align-items:center;padding:0 20px;gap:22px;flex-shrink:0}
+.brand{font-size:25px;font-weight:500;flex:1;line-height:1.15}.status{display:block;font-size:14px;color:#aaa;margin-top:5px;font-weight:400}
+.action{font-size:15px;border:0;background:transparent;color:#fff;padding:12px 3px;font-weight:500}
+.editor-wrap{flex:1;min-height:0;position:relative;display:flex;font:15px/1.72 "Roboto Mono",monospace}
+#gutter{width:40px;flex-shrink:0;text-align:right;padding:5px 6px 8px 0;color:#858585;white-space:pre;overflow:hidden;user-select:none;background:#303030}
+#edit{flex:1;min-width:0;overflow:auto;position:relative}
+#highlight,#code{margin:0;padding:5px 12px 24px 0;font:inherit;line-height:1.72;letter-spacing:0;white-space:pre;tab-size:4}
+#highlight{pointer-events:none;min-height:100%;color:var(--text);overflow:visible}
+#code{position:absolute;inset:0;width:100%;height:100%;resize:none;border:0;outline:0;background:transparent;color:transparent;caret-color:#fff;-webkit-text-fill-color:transparent;overflow:auto;white-space:pre;tab-size:4}
+#code::selection{background:#597a9a88}
+.kw{color:var(--orange)}.num{color:var(--blue)}.str{color:var(--green)}.comment{color:#8b8b8b}.fn{color:#b5a0d5}
+#output{display:none;max-height:28%;overflow:auto;background:#202020;border-top:1px solid #4a4a4a;padding:10px 14px;font:13px/1.5 "Roboto Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+#output.visible{display:block}.output-head{display:flex;justify-content:space-between;color:#aaa;font:12px Arial,sans-serif;margin-bottom:8px}
+.symbols{background:#252525;display:grid;grid-template-columns:repeat(7,1fr);padding:4px 2px calc(4px + env(safe-area-inset-bottom));flex-shrink:0}
+.symbols button{height:34px;color:#ccc;background:transparent;border:0;font-size:17px}
+#menu{display:none;position:absolute;z-index:5;right:10px;top:65px;background:#252525;border:1px solid #555;box-shadow:0 8px 24px #0008;min-width:190px;padding:6px}
+#menu button{display:block;width:100%;text-align:left;color:#eee;background:transparent;border:0;padding:13px;font-size:14px}
+#menu button:active,.symbols button:active{background:#444}
+</style>
+</head>
+<body><div id="app">
+<header class="top"><div class="brand">NixScript<span class="status" id="status">Ready</span></div><button class="action" id="run">RUN</button><button class="action" id="menuButton">MENU</button></header>
+<div id="menu">
+<button id="newFile">New file</button><button id="saveFile">Download .ns file</button><button id="loadFile">Open .ns file</button><button id="clearOutput">Clear output</button><button id="about">About NixScript</button><input id="filePicker" type="file" accept=".ns,.txt,text/plain" hidden>
+</div>
+<section class="editor-wrap"><div id="gutter">1</div><div id="edit"><pre id="highlight" aria-hidden="true"></pre><textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="NixScript code"></textarea></div></section>
+<section id="output"><div class="output-head"><span>OUTPUT</span><button id="closeOutput" style="background:none;border:0;color:#aaa">CLOSE</button></div><div id="outputText"></div></section>
+<nav class="symbols">
+<button data-insert="    " title="Indent">Tab</button><button data-insert="{}">{}</button><button data-insert="&quot;&quot;">“”</button><button data-insert=";">;</button><button data-insert="()">()</button><button data-insert="⇧">⇧</button><button data-insert="↻">↻</button>
+<button data-insert="=">=</button><button data-insert="\\">\</button><button data-insert="&amp;">&amp;</button><button data-insert="," >,</button><button data-insert="←">⇦</button><button data-insert="↓">↓</button><button data-insert="→">⇨</button>
+</nav></div>
+<script>
+const code=document.getElementById('code'), highlight=document.getElementById('highlight'), gutter=document.getElementById('gutter'), output=document.getElementById('output'), outputText=document.getElementById('outputText'), status=document.getElementById('status'), menu=document.getElementById('menu');
+const starter='nix main() {\n    print("Hello, NixScript!");\n}\n';
+code.value=starter;
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function paint(){
+ let s=escapeHtml(code.value);
+ s=s.replace(/(\/\/.*)$/gm,'<span class="comment">$1</span>');
+ s=s.replace(/(&quot;.*?&quot;)/g,'<span class="str">$1</span>');
+ s=s.replace(/\b(nix|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\b/g,'<span class="kw">$1</span>');
+ s=s.replace(/\b(print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g,'<span class="fn">$1</span>');
+ s=s.replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="num">$1</span>');
+ highlight.innerHTML=s+'\n';gutter.textContent=Array.from({length:Math.max(1,code.value.split('\n').length)},(_,i)=>i+1).join('\n');
+ syncScroll();
+}
+function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+'px)';gutter.scrollTop=code.scrollTop;}
+code.addEventListener('input',()=>{paint();status.textContent='Edited';});
+code.addEventListener('scroll',syncScroll);
+code.addEventListener('keydown',e=>{
+ if(e.key==='Tab'){e.preventDefault();insertText('    ');}
+ if(e.key==='Enter'){const p=code.selectionStart,line=code.value.slice(0,p).split('\n').pop(),indent=(line.match(/^\s*/)||[''])[0];if(indent){e.preventDefault();insertText('\n'+indent);}}
+});
+function insertText(text){const a=code.selectionStart,b=code.selectionEnd;code.setRangeText(text,a,b,'end');code.focus();paint();}
+document.querySelectorAll('[data-insert]').forEach(b=>b.addEventListener('click',()=>{const v=b.getAttribute('data-insert');if(v==='⇧'||v==='↻'||v==='←'||v==='↓'||v==='→')return;insertText(v.replace(/&amp;/g,'&').replace(/&quot;/g,'"'));}));
+document.getElementById('run').addEventListener('click',()=>{
+ status.textContent='Running…';output.classList.add('visible');outputText.textContent='';menu.style.display='none';
+ setTimeout(()=>{try{const result=window.Nix.run(code.value);outputText.textContent=result;status.textContent='Finished';}catch(e){outputText.textContent=String(e);status.textContent='Error';}},20);
+});
+document.getElementById('menuButton').onclick=()=>menu.style.display=menu.style.display==='block'?'none':'block';
+document.getElementById('newFile').onclick=()=>{code.value='nix main() {\n    \n}\n';paint();status.textContent='New file';menu.style.display='none';};
+document.getElementById('saveFile').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([code.value],{type:'text/plain'}));a.download='main.ns';a.click();URL.revokeObjectURL(a.href);menu.style.display='none';};
+document.getElementById('loadFile').onclick=()=>document.getElementById('filePicker').click();
+document.getElementById('filePicker').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{code.value=String(r.result);paint();status.textContent=f.name;};r.readAsText(f);menu.style.display='none';};
+document.getElementById('clearOutput').onclick=()=>{outputText.textContent='';output.classList.remove('visible');menu.style.display='none';};
+document.getElementById('closeOutput').onclick=()=>output.classList.remove('visible');
+document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\nWrite and run .ns programs on your device.';menu.style.display='none';};
+paint();
+</script></body></html>
