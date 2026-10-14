@@ -171,7 +171,7 @@ public:
             consume(TokenKind::Semicolon, "Expected ';' after use statement.");
         }
 
-        consumeIdentifierExact("fn", "Expected 'fn main()' as the program entry point.");
+        consumeIdentifierExact("nix", "Every executable NixScript file must begin with 'nix main()'.");
         consumeIdentifierExact("main", "Expected main function.");
         consume(TokenKind::LeftParen, "Expected '(' after main.");
         consume(TokenKind::RightParen, "Expected ')' after main.");
@@ -354,10 +354,7 @@ private:
         if (matchIdentifier("uin")) {
             fail(token, "uin() is planned but not implemented in this first prototype.");
         }
-        if (matchIdentifier("unused_sentinel")) {
-            // Keeps keyword-like identifiers on the normal variable path below.
-        }
-        if (match(TokenKind::Identifier)) {
+                if (match(TokenKind::Identifier)) {
             auto expr = std::make_unique<Expr>();
             expr->kind = Expr::Kind::Variable;
             expr->name = token.text;
