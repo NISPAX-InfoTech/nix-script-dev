@@ -44,7 +44,19 @@ nix main() {
     }
     print(score);
 
-    print(toLower("NIX"), ":", sq(3), ":", pow(2, 3), ":", isSpace(" "));
+    print(toLower("NIX"), ":", toUpper("abc"), ":", sq(3), ":", pow(2, 3),
+          ":", sqrt(16), ":", isUpper("ABC"), ":", isLower("abc"), ":", isSpace(" "),
+          ":", abs(-2), ":", floor(2.8), ":", ceil(2.2), ":", round(2.5));
+
+    var branch = 0;
+    if (false) {
+        branch = 1;
+    } else if (true) {
+        branch = 2;
+    } else {
+        branch = 3;
+    }
+    print(branch);
 
     var counter = Counter();
     counter.value = 10;
