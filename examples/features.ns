@@ -8,7 +8,7 @@ public:
     }
 
     ~Counter() {
-        // Destructor runs automatically when the last local scope releases this object.
+        print("destroyed");
     }
 
     int add(int amount);
