@@ -265,6 +265,7 @@ public:
         consume(TokenKind::RightParen, "Expected ')' after main.");
         consume(TokenKind::LeftBrace, "Expected '{' to begin main.");
         auto mainBody = statementsUntilBrace();
+        resolveOutOfClassDefinitions();
         consume(TokenKind::End, "Unexpected content after main.");
         for (auto& stmt : mainBody) program.push_back(std::move(stmt));
         return program;
@@ -405,6 +406,7 @@ private:
         }
         consume(TokenKind::RightBrace, "Expected '}' after class body.");
         consume(TokenKind::Semicolon, "Expected ';' after class declaration.");
+        classDefinitions_[klass->name] = klass;
         Stmt stmt;
         stmt.kind = Stmt::Kind::Class;
         stmt.name = klass->name;
@@ -452,6 +454,39 @@ private:
         int line;
     };
     std::vector<OutDefinition> outOfClass_;
+    std::unordered_map<std::string, std::shared_ptr<ClassDef>> classDefinitions_;
+
+    void resolveOutOfClassDefinitions() {
+        for (auto& definition : outOfClass_) {
+            auto klassIt = classDefinitions_.find(definition.className);
+            if (klassIt == classDefinitions_.end())
+                fail(Token{TokenKind::Identifier, definition.className, definition.line},
+                     "Unknown class '" + definition.className + "' in qualified method definition.");
+            auto& klass = klassIt->second;
+            ClassMember* member = nullptr;
+            for (auto& candidate : klass->members) {
+                if (candidate.name == definition.methodName) { member = &candidate; break; }
+            }
+            if (!member) {
+                ClassMember added;
+                added.kind = ClassMember::Kind::Method;
+                added.name = definition.methodName;
+                added.owner = klass->name;
+                added.typeName = definition.returnType;
+                added.access = Access::Public;
+                added.isConstructor = definition.methodName == klass->name;
+                added.isDestructor = definition.destructor;
+                klass->members.push_back(std::move(added));
+                member = &klass->members.back();
+            }
+            member->parameters = std::move(definition.params);
+            member->body = std::move(definition.body);
+            member->defined = true;
+            if (!definition.returnType.empty()) member->typeName = definition.returnType;
+            member->isConstructor = member->name == klass->name;
+            member->isDestructor = definition.destructor;
+        }
+    }
 
     Stmt variableStatement(bool requireSemicolon = true) {
         const Token start = previous();
@@ -665,7 +700,7 @@ private:
 
     std::unique_ptr<Expr> expression() { return logicalOr(); }
     std::unique_ptr<Expr> binary(std::unique_ptr<Expr> left, Token op, std::unique_ptr<Expr> right) {
-        auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Binary; expr->op = op.kind;
+        auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Binary; expr->op = op.kind; expr->name = op.text;
         expr->left = std::move(left); expr->right = std::move(right); expr->line = op.line; return expr;
     }
     std::unique_ptr<Expr> logicalOr() {
@@ -1139,6 +1174,7 @@ private:
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
         for (const auto& pair : scopes_[index]) {
+            if (pair.first == "this") continue;
             if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&pair.second))
                 if (*instance && std::find(instances.begin(), instances.end(), *instance) == instances.end()) instances.push_back(*instance);
         }
@@ -1188,7 +1224,11 @@ private:
                 if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable &&
                     exists(expr.items[0]->name)) {
                     const std::string target = expr.items[0]->name;
-                    Value current = lookup(target, expr.line);
+                    Value current = std::monostate{};
+                    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                        auto found = it->find(target);
+                        if (found != it->end()) { current = found->second; break; }
+                    }
                     if (std::holds_alternative<double>(current)) type = "number";
                     else if (std::holds_alternative<bool>(current)) type = "bool";
                     else type = "string";
