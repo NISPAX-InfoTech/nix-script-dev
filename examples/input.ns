@@ -1,0 +1,8 @@
+nix main() {
+    var name;
+    uin(name);
+    print(name);
+
+    var age = uin("Age: ", int);
+    print(age);
+}
