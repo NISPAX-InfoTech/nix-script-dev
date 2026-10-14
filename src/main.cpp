@@ -461,9 +461,8 @@ private:
                 variables_[stmt.name] = evaluate(*stmt.expression);
                 break;
             case Stmt::Kind::Print:
-                for (std::size_t i = 0; i < stmt.expression->items.size(); ++i) {
-                    if (i > 0) std::cout << ' ';
-                    std::cout << stringify(evaluate(*stmt.expression->items[i]));
+                for (const auto& item : stmt.expression->items) {
+                    std::cout << stringify(evaluate(*item));
                 }
                 std::cout << '\n';
                 break;
