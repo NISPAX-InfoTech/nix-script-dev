@@ -1,0 +1,57 @@
+class Counter {
+public:
+    int value = 0;
+    static int created = 0;
+
+    Counter() {
+        Counter::created = Counter::created + 1;
+    }
+
+    ~Counter() {
+        // Destructor runs automatically when the last local scope releases this object.
+    }
+
+    int add(int amount);
+    static int made() {
+        return Counter::created;
+    }
+};
+
+class BonusCounter : Counter {
+public:
+    int twice() {
+        return this.add(this.value);
+    }
+};
+
+int Counter::add(int amount) {
+    value = value + amount;
+    return value;
+}
+
+nix main() {
+    var score = 0;
+    if (sqrt(81) == 9 and isUpper("ABC")) {
+        score = 1;
+    } else if (false) {
+        score = 99;
+    } else {
+        score = 2;
+    }
+
+    for (var i = 0; i < 3; i++) {
+        score = score + i;
+    }
+    print(score);
+
+    print(toLower("NIX"), ":", sq(3), ":", pow(2, 3), ":", isSpace(" "));
+
+    var counter = Counter();
+    counter.value = 10;
+    print(counter.add(5));
+    print(Counter::made());
+
+    var bonus = BonusCounter();
+    bonus.value = 4;
+    print(bonus.twice());
+}
