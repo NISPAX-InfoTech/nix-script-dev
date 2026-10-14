@@ -8,7 +8,7 @@
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_com_nixscript_ide_MainActivity_runNixScript(JNIEnv* env, jclass, jstring input) {
+Java_in_nispax_nix_MainActivity_runNixScript(JNIEnv* env, jobject, jstring input) {
     const char* chars = env->GetStringUTFChars(input, nullptr);
     if (chars == nullptr) return env->NewStringUTF("Could not read source text.");
 
