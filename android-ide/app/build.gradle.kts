@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "`in`.nispax.nix"
+    namespace = "in.nispax.nix"
     compileSdk = 35
     defaultConfig {
         applicationId = "in.nispax.nix"
