@@ -911,7 +911,7 @@ private:
         }
         runtimeError(line, "Unknown variable '" + name + "'.");
     }
-    std::string interpolate(const std::string& input, int line) const {
+    std::string interpolate(const std::string& input, int line) {
         std::string output;
         for (std::size_t i = 0; i < input.size();) {
             if (input[i] == '{' && i + 2 < input.size() && input[i + 1] == '$') {
