@@ -44,6 +44,16 @@ jobs:
             exit 1
           fi
 
+      - name: Test private member access is rejected
+        shell: bash
+        run: |
+          if ./build/nix examples/access_error.ns >access-error.log 2>&1; then
+            echo "Private member access unexpectedly succeeded" >&2
+            exit 1
+          fi
+          cat access-error.log
+          grep -q "not accessible" access-error.log
+
       - name: Test string and typed input
         shell: bash
         run: |
