@@ -1,4 +1,4 @@
-fn main() {
+nix main() {
     var name = "NixScript";
     print("Hello, " + name + "!");
 
