@@ -45,13 +45,24 @@ var age = uin("Enter your age: ", int);
 
 The behavior for invalid typed input still needs a decision.
 
+## Output and string interpolation
+
+`print()` accepts one or more comma-separated values. Values are printed in order, separated by a single space, followed by a newline. Double-quoted strings also support interpolation with `{$variable}`; both styles can be used wherever appropriate.
+
+```ns
+var name = "Alex";
+print("Hello, ", name, "!");
+print("Hello, {$name}!");
+```
+
 ## Functions and program entry point
 
 Function direction:
 
 ```ns
 fn greet(name) {
-    print("Hello, " + name);
+    print("Hello, ", name, "!");
+    print("Hello, {$name}!");
 }
 ```
 
