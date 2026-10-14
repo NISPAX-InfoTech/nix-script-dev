@@ -1,6 +1,6 @@
 # NixScript Language Notes
 
-> Early working draft. This records the current design direction, not a finalized language specification. Features marked planned are not necessarily implemented in the interpreter.
+> Working draft. This describes the current prototype and its intended direction; syntax and semantics may still evolve.
 
 ## Goal
 
@@ -29,11 +29,14 @@ var name;
 
 ## Input
 
-Planned `uin()` behavior:
-- `uin()` reads input as a string by default.
-- `uin("Enter age: ", int)` reads typed input.
-- `uin(existing_variable)` reads input directly into that variable.
-- Invalid typed input behavior still needs a decision.
+Implemented `uin()` behavior:
+- `uin()` reads one line as a string.
+- `uin("Enter age: ", int)` reads numeric input and truncates it to a whole number.
+- `uin("Enter value: ", float)` and `uin("Enter value: ", double)` read numeric input.
+- `uin("Continue? ", bool)` accepts `true`/`false` or `1`/`0`.
+- `uin(existing_variable)` reads directly into an existing variable, preserving its basic string/number/boolean category.
+- Invalid typed input raises a readable runtime error.
+- Input is read from standard input; interactive input in the Android app still needs a UI integration.
 
 ```ns
 var name;
@@ -82,39 +85,46 @@ Planned syntax includes:
 - `ClassName::member` scope resolution and out-of-class member definitions.
 - `this` to refer to the current object.
 
-Illustrative syntax only; classes are not implemented in the current prototype:
+The prototype implements the core of this syntax. For example:
 
 ```ns
 class Player {
 public:
-    var name;
-    var health = 100;
+    int health = 100;
+    static int created = 0;
 
-    Player(name) {
-        this.name = name;
+    Player(int startingHealth) {
+        this.health = startingHealth;
+        Player::created = Player::created + 1;
     }
 
     ~Player() {
         print("Player destroyed");
     }
 
-    fn damage(amount) {
-        health = health - amount;
+    int damage(int amount);
+
+    static int count() {
+        return Player::created;
     }
 };
 
-fn Player::damage(amount) {
+int Player::damage(int amount) {
     health = health - amount;
+    return health;
 }
 
 nix main() {
-    Player player("Knight");
+    Player player(100);
     player.damage(20);
     print(player.health);
+    print(Player::count());
 }
 ```
 
-The exact interaction between C++-style object lifetime and NixScript's intended automatic memory cleanup must be specified carefully. C++ syntax is the design reference; it does not mean the interpreter already has C++ semantics.
+Implemented class features include fields, typed or inferred field declarations, constructors, destructors, methods with parameters and `return`, `public`/`private`/`protected`, single inheritance, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Constructors and destructors are invoked by the interpreter; destructor timing follows local scope cleanup in this prototype.
+
+This is an interpreter implementation, not full C++ compatibility. Multiple inheritance, overloaded methods/operators, references, C++ initializer lists for base constructors, and complete C++ object-lifetime rules are not implemented. Use `this.member` where clarity matters; unqualified access to the current class's fields is also supported inside methods.
 
 ## Native built-in functions
 
@@ -122,14 +132,14 @@ NixScript should provide useful built-ins for common string and math operations 
 
 ### String and character helpers
 
-Planned functions:
-- `isUpper(value)` — checks whether a character/string is uppercase.
-- `isLower(value)` — checks whether a character/string is lowercase.
-- `toUpper(value)` — converts letters to uppercase.
-- `toLower(value)` — converts letters to lowercase.
-- `isSpace(value)` — checks whether a character is whitespace.
+Implemented functions:
+- `isUpper(value)` — returns numeric `1` if the string has at least one letter and no lowercase letters; otherwise `0`.
+- `isLower(value)` — returns numeric `1` if the string has at least one letter and no uppercase letters; otherwise `0`.
+- `toUpper(value)` — converts ASCII letters to uppercase.
+- `toLower(value)` — converts ASCII letters to lowercase.
+- `isSpace(value)` — returns numeric `1` if the non-empty string consists entirely of whitespace; otherwise `0`.
 
-Predicate functions should produce numeric `0` or `1` in ordinary output/arithmetic contexts, while being usable naturally as conditions (displayed as `false`/`true` when rendered as a boolean condition). The precise type/coercion rule needs to be implemented consistently, rather than being special-cased only for printing.
+Predicate functions return numeric `0` or `1`; conditions treat zero as false and non-zero as true.
 
 Examples of intended usage:
 
@@ -144,16 +154,19 @@ if (isSpace(" ")) {
 
 ### Math helpers
 
-Planned built-ins include:
-- `sqrt(value)` — square root.
+Implemented math built-ins include:
+- `sqrt(value)` — square root of a non-negative number.
 - `sq(value)` — square of a value.
 - `pow(base, exponent)` — exponentiation.
+- `abs(value)`, `floor(value)`, `ceil(value)`, and `round(value)`.
 
 These should validate argument count and types and report readable runtime errors for invalid input (for example, a negative square-root argument if NixScript chooses real-number-only math).
 
-## Loops
+## Conditions and loops
 
-A simple `repeat` loop and a flexible `for` loop are wanted.
+`if` / `else if` / `else`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical operators (`and`, `or`, `not`, `&&`, `||`, `!`) are implemented.
+
+A `repeat` loop and C-style `for` loop are implemented.
 
 ```ns
 repeat(5) {
@@ -189,15 +202,14 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Implementation status
 
-The current C++17 interpreter prototype supports the required `nix main()` entry point, basic `var` declarations, output/interpolation, arithmetic, and `repeat`. The following are planned, not yet implemented: user-defined functions, classes/objects, `uin()`, `if`/general `for`, arrays, modules, and the built-in functions listed above.
+The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/else, `repeat`, C-style `for`, `uin()`, common string/math built-ins, and a subset of C++-style classes/objects. General top-level functions, arrays, and module loading remain unimplemented.
 
 ## Open decisions
 
 1. Exact type system and uninitialized-variable rules.
 2. Module exports and visibility.
-3. Invalid typed-input behavior for `uin()`.
-4. Exact function return-type rules.
-5. Consistent predicate result/coercion behavior (`0`/`1` versus boolean conditions).
-6. Object lifetime/destructor timing under automatic memory cleanup.
-7. Full C++-style class details, including inheritance and static member rules.
-8. Unicode behavior for string case conversion; initial implementation may be ASCII-only.
+3. Full type checking and exact return-type rules.
+4. Array syntax and memory/layout guarantees.
+5. Module loading and top-level function semantics.
+6. Full C++-style class details not covered by the current subset.
+7. Unicode behavior for string case conversion; current implementation is ASCII-only.
