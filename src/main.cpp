@@ -507,6 +507,7 @@ private:
 
 } // namespace nix
 
+#ifndef NIX_ANDROID
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::cerr << "Usage: nix <file.ns>\n";
@@ -534,3 +535,4 @@ int main(int argc, char** argv) {
 
     return 0;
 }
+#endif // NIX_ANDROID
