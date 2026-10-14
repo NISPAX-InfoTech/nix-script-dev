@@ -580,6 +580,24 @@ private:
         fail(Token{TokenKind::End, "", source.line}, "++/-- currently requires a variable or member target.");
     }
 
+    Stmt ifStatementAfterKeyword(int line) {
+        consume(TokenKind::LeftParen, "Expected '(' after if.");
+        auto condition = expression();
+        consume(TokenKind::RightParen, "Expected ')' after condition.");
+        consume(TokenKind::LeftBrace, "Expected '{' before if body.");
+        Stmt stmt; stmt.kind = Stmt::Kind::If; stmt.expression = std::move(condition);
+        stmt.body = statementsUntilBrace(); stmt.line = line;
+        if (matchIdentifier("else")) {
+            if (matchIdentifier("if")) {
+                stmt.elseBody.push_back(ifStatementAfterKeyword(previous().line));
+            } else {
+                consume(TokenKind::LeftBrace, "Expected '{' after else.");
+                stmt.elseBody = statementsUntilBrace();
+            }
+        }
+        return stmt;
+    }
+
     Stmt statement() {
         if (matchIdentifier("var")) return variableStatement();
         if (matchIdentifier("print")) {
@@ -607,27 +625,7 @@ private:
             stmt.body = statementsUntilBrace(); stmt.line = line;
             return stmt;
         }
-        if (matchIdentifier("if")) {
-            const int line = previous().line;
-            consume(TokenKind::LeftParen, "Expected '(' after if.");
-            auto condition = expression();
-            consume(TokenKind::RightParen, "Expected ')' after condition.");
-            consume(TokenKind::LeftBrace, "Expected '{' before if body.");
-            Stmt stmt; stmt.kind = Stmt::Kind::If; stmt.expression = std::move(condition);
-            stmt.body = statementsUntilBrace(); stmt.line = line;
-            if (matchIdentifier("else")) {
-                if (matchIdentifier("if")) {
-                    // Represent else-if as a single nested If statement.
-                    --current_;
-                    --current_;
-                    stmt.elseBody.push_back(statement());
-                } else {
-                    consume(TokenKind::LeftBrace, "Expected '{' after else.");
-                    stmt.elseBody = statementsUntilBrace();
-                }
-            }
-            return stmt;
-        }
+        if (matchIdentifier("if")) return ifStatementAfterKeyword(previous().line);
         if (matchIdentifier("for")) {
             const int line = previous().line;
             consume(TokenKind::LeftParen, "Expected '(' after for.");
@@ -636,11 +634,10 @@ private:
                 stmt.initializer = nullptr;
             } else if (matchIdentifier("var")) {
                 stmt.initializer = std::make_unique<Stmt>(variableStatement());
-            } else if (check(TokenKind::Identifier) && classNames_.count(peek().text) &&
-                       look(1).kind == TokenKind::Identifier) {
+            } else if (check(TokenKind::Identifier) && look(1).kind == TokenKind::Identifier &&
+                       (classNames_.count(peek().text) || isTypeName(peek().text))) {
                 advance();
-                stmt.initializer = std::make_unique<Stmt>(variableStatement(false));
-                consume(TokenKind::Semicolon, "Expected ';' after for initializer.");
+                stmt.initializer = std::make_unique<Stmt>(variableStatement());
             } else {
                 stmt.initializer = std::make_unique<Stmt>(incrementStatement(true));
             }
