@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/features.ns)"
-          expected="$(printf '4\nnix:9:8:1\n15\n1\n8\ndestroyed\ndestroyed')"
+          expected="$(printf '4\nnix:ABC:9:8:4:1:1:1:2:2:3:3\n2\n15\n1\n8\ndestroyed\ndestroyed')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/features.ns" >&2
