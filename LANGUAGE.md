@@ -160,7 +160,7 @@ Implemented math built-ins include:
 - `pow(base, exponent)` — exponentiation.
 - `abs(value)`, `floor(value)`, `ceil(value)`, and `round(value)`.
 
-These should validate argument count and types and report readable runtime errors for invalid input (for example, a negative square-root argument if NixScript chooses real-number-only math).
+These validate argument counts and types and report readable runtime errors for invalid input, including a negative square-root argument.
 
 ## Conditions and loops
 
