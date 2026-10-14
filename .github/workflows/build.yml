@@ -22,5 +22,13 @@ jobs:
       - name: Build interpreter
         run: cmake --build build --config Release --parallel
 
-      - name: Run example program
-        run: ./build/nix examples/hello.ns
+      - name: Run example and verify output
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/hello.ns)"
+          expected="$(printf 'Hello, NixScript!\n50\nKeep building!\nKeep building!\nKeep building!')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/hello.ns" >&2
+            exit 1
+          fi
