@@ -23,7 +23,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 
 ## Prototype features
 
-- `fn main() { ... }` as the executable entry point
+- `nix main() { ... }` as the required executable entry point
 - `var name = value;` and uninitialized `var name;`
 - `print(expression);`
 - arithmetic with numbers and `+` string concatenation
