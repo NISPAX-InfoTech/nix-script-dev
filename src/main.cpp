@@ -406,110 +406,7 @@ private:
     std::string interpolate(const std::string& input, int line) const {
         std::string output;
         for (std::size_t i = 0; i < input.size();) {
-            if (input[i] == '{' && i + 2 < input.size() && input[i + 1] == '
-        if (expr.kind == Expr::Kind::Literal) {
-            if (const auto* text = std::get_if<std::string>(&expr.value))
-                return interpolate(*text, expr.line);
-            return expr.value;
-        }
-        if (expr.kind == Expr::Kind::List)
-            runtimeError(expr.line, "A list of values can only be used by print().");
-        if (expr.kind == Expr::Kind::Variable) {
-            auto it = variables_.find(expr.name);
-            if (it == variables_.end()) runtimeError(expr.line, "Unknown variable '" + expr.name + "'.");
-            if (std::holds_alternative<std::monostate>(it->second))
-                runtimeError(expr.line, "Variable '" + expr.name + "' has not been initialized.");
-            return it->second;
-        }
-        if (expr.kind == Expr::Kind::Unary) {
-            Value value = evaluate(*expr.right);
-            if (!isNumber(value)) runtimeError(expr.line, "Unary '-' requires a number.");
-            return -std::get<double>(value);
-        }
-
-        Value left = evaluate(*expr.left);
-        Value right = evaluate(*expr.right);
-        if (expr.op == TokenKind::Plus) {
-            if (std::holds_alternative<std::string>(left) || std::holds_alternative<std::string>(right))
-                return stringify(left) + stringify(right);
-            if (isNumber(left) && isNumber(right))
-                return std::get<double>(left) + std::get<double>(right);
-            runtimeError(expr.line, "'+' requires two numbers or at least one string.");
-        }
-        if (!isNumber(left) || !isNumber(right))
-            runtimeError(expr.line, "Arithmetic operators require numbers.");
-        const double a = std::get<double>(left);
-        const double b = std::get<double>(right);
-        switch (expr.op) {
-            case TokenKind::Minus: return a - b;
-            case TokenKind::Star: return a * b;
-            case TokenKind::Slash:
-                if (b == 0) runtimeError(expr.line, "Division by zero.");
-                return a / b;
-            default: runtimeError(expr.line, "Unsupported operator.");
-        }
-    }
-
-    void execute(const Stmt& stmt) {
-        switch (stmt.kind) {
-            case Stmt::Kind::Var:
-                if (variables_.count(stmt.name)) runtimeError(stmt.line, "Variable '" + stmt.name + "' is already declared.");
-                variables_[stmt.name] = stmt.expression ? evaluate(*stmt.expression) : Value{std::monostate{}};
-                break;
-            case Stmt::Kind::Assign:
-                if (!variables_.count(stmt.name)) runtimeError(stmt.line, "Unknown variable '" + stmt.name + "'.");
-                variables_[stmt.name] = evaluate(*stmt.expression);
-                break;
-            case Stmt::Kind::Print:
-                for (const auto& item : stmt.expression->items) {
-                    std::cout << stringify(evaluate(*item));
-                }
-                std::cout << '\n';
-                break;
-            case Stmt::Kind::Repeat: {
-                Value countValue = evaluate(*stmt.expression);
-                if (!isNumber(countValue) || std::get<double>(countValue) < 0 ||
-                    std::floor(std::get<double>(countValue)) != std::get<double>(countValue))
-                    runtimeError(stmt.line, "repeat() expects a non-negative whole number.");
-                const auto count = static_cast<std::size_t>(std::get<double>(countValue));
-                if (count > 1000000) runtimeError(stmt.line, "repeat() limit is 1,000,000 iterations in this prototype.");
-                for (std::size_t i = 0; i < count; ++i) run(stmt.body);
-                break;
-            }
-        }
-    }
-};
-
-} // namespace nix
-
-int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: nix <file.ns>\n";
-        return 2;
-    }
-
-    std::ifstream file(argv[1]);
-    if (!file) {
-        std::cerr << "Could not open file: " << argv[1] << '\n';
-        return 2;
-    }
-
-    std::ostringstream source;
-    source << file.rdbuf();
-
-    try {
-        nix::Lexer lexer(source.str());
-        nix::Parser parser(lexer.scan());
-        nix::Interpreter interpreter;
-        interpreter.run(parser.parseMain());
-    } catch (const std::exception& error) {
-        std::cerr << "NixScript error: " << error.what() << '\n';
-        return 1;
-    }
-
-    return 0;
-}
-) {
+            if (input[i] == '{' && i + 2 < input.size() && input[i + 1] == '$') {
                 const std::size_t close = input.find('}', i + 2);
                 if (close == std::string::npos)
                     runtimeError(line, "Unclosed interpolation; expected '}' after variable name.");
@@ -589,7 +486,10 @@ int main(int argc, char** argv) {
                 variables_[stmt.name] = evaluate(*stmt.expression);
                 break;
             case Stmt::Kind::Print:
-                std::cout << stringify(evaluate(*stmt.expression)) << '\n';
+                for (const auto& item : stmt.expression->items) {
+                    std::cout << stringify(evaluate(*item));
+                }
+                std::cout << '\n';
                 break;
             case Stmt::Kind::Repeat: {
                 Value countValue = evaluate(*stmt.expression);
