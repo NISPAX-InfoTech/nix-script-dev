@@ -1,8 +1,8 @@
 # NixScript
 
-NixScript is an early experiment in a readable, multi-paradigm programming language. Its source files use the `.ns` extension.
+NixScript is an early experiment in a readable, multi-paradigm, general-purpose programming language. Its source files use the `.ns` extension.
 
-The current implementation is a small **C++17 interpreter prototype**. It is not yet a compiler and does not implement the full language design.
+The current implementation is a small **C++17 interpreter prototype**, not a native compiler. It does not yet implement the full language design.
 
 ## Build
 
@@ -21,15 +21,21 @@ cmake --build build
 
 On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix.exe`, depending on the generator.
 
-## Prototype features
+## Currently implemented
 
 - `nix main() { ... }` as the required executable entry point
 - `var name = value;` and uninitialized `var name;`
-- `print(expression);`
-- arithmetic with numbers and `+` string concatenation
+- `print(...);` with multiple values and string interpolation
+- Basic arithmetic and `+` string concatenation
 - `repeat(count) { ... }`
 - `//` line comments
+- Parser/runtime errors with line numbers
 
-Module loading, `uin()`, arrays, classes, `if`/loops beyond `repeat`, and static type checking are not implemented yet.
+## Planned
 
-See [LANGUAGE.md](LANGUAGE.md) for the working design notes.
+- C++-style classes and objects, including constructors, destructors, access specifiers, inheritance, static members, and `::` scope resolution
+- Native string helpers: `isUpper()`, `isLower()`, `toUpper()`, `toLower()`, `isSpace()`
+- Native math helpers: `sqrt()`, `sq()`, `pow()`, and other useful math functions
+- `uin()`, user-defined functions, `if`/else, general `for` loops, arrays, and module loading
+
+See [LANGUAGE.md](LANGUAGE.md) for the current design notes and implementation status.
