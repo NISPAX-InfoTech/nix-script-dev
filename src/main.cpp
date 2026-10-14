@@ -18,7 +18,7 @@ namespace nix {
 enum class TokenKind {
     Identifier, Number, String,
     LeftParen, RightParen, LeftBrace, RightBrace,
-    Semicolon, Equal, Plus, Minus, Star, Slash,
+    Semicolon, Comma, Equal, Plus, Minus, Star, Slash,
     End
 };
 
@@ -46,6 +46,7 @@ public:
                 case '{': tokens.push_back({TokenKind::LeftBrace, "{", tokenLine}); break;
                 case '}': tokens.push_back({TokenKind::RightBrace, "}", tokenLine}); break;
                 case ';': tokens.push_back({TokenKind::Semicolon, ";", tokenLine}); break;
+                case ',': tokens.push_back({TokenKind::Comma, ",", tokenLine}); break;
                 case '=': tokens.push_back({TokenKind::Equal, "=", tokenLine}); break;
                 case '+': tokens.push_back({TokenKind::Plus, "+", tokenLine}); break;
                 case '-': tokens.push_back({TokenKind::Minus, "-", tokenLine}); break;
@@ -141,13 +142,14 @@ private:
 using Value = std::variant<std::monostate, double, std::string, bool>;
 
 struct Expr {
-    enum class Kind { Literal, Variable, Binary, Unary };
+    enum class Kind { Literal, Variable, Binary, Unary, List };
     Kind kind;
     Value value{};
     std::string name;
     TokenKind op = TokenKind::Plus;
     std::unique_ptr<Expr> left;
     std::unique_ptr<Expr> right;
+    std::vector<std::unique_ptr<Expr>> items;
     int line = 1;
 };
 
@@ -246,10 +248,14 @@ private:
         if (matchIdentifier("print")) {
             const int line = previous().line;
             consume(TokenKind::LeftParen, "Expected '(' after print.");
-            auto expr = expression();
-            consume(TokenKind::RightParen, "Expected ')' after print expression.");
+            auto values = std::make_unique<Expr>();
+            values->kind = Expr::Kind::List;
+            values->line = line;
+            values->items.push_back(expression());
+            while (match(TokenKind::Comma)) values->items.push_back(expression());
+            consume(TokenKind::RightParen, "Expected ')' after print values.");
             consume(TokenKind::Semicolon, "Expected ';' after print.");
-            return Stmt{Stmt::Kind::Print, "", std::move(expr), {}, line};
+            return Stmt{Stmt::Kind::Print, "", std::move(values), {}, line};
         }
 
         if (matchIdentifier("repeat")) {
@@ -397,8 +403,146 @@ private:
 
     static bool isNumber(const Value& value) { return std::holds_alternative<double>(value); }
 
+    std::string interpolate(const std::string& input, int line) const {
+        std::string output;
+        for (std::size_t i = 0; i < input.size();) {
+            if (input[i] == '{' && i + 2 < input.size() && input[i + 1] == '
+        if (expr.kind == Expr::Kind::Literal) {
+            if (const auto* text = std::get_if<std::string>(&expr.value))
+                return interpolate(*text, expr.line);
+            return expr.value;
+        }
+        if (expr.kind == Expr::Kind::List)
+            runtimeError(expr.line, "A list of values can only be used by print().");
+        if (expr.kind == Expr::Kind::Variable) {
+            auto it = variables_.find(expr.name);
+            if (it == variables_.end()) runtimeError(expr.line, "Unknown variable '" + expr.name + "'.");
+            if (std::holds_alternative<std::monostate>(it->second))
+                runtimeError(expr.line, "Variable '" + expr.name + "' has not been initialized.");
+            return it->second;
+        }
+        if (expr.kind == Expr::Kind::Unary) {
+            Value value = evaluate(*expr.right);
+            if (!isNumber(value)) runtimeError(expr.line, "Unary '-' requires a number.");
+            return -std::get<double>(value);
+        }
+
+        Value left = evaluate(*expr.left);
+        Value right = evaluate(*expr.right);
+        if (expr.op == TokenKind::Plus) {
+            if (std::holds_alternative<std::string>(left) || std::holds_alternative<std::string>(right))
+                return stringify(left) + stringify(right);
+            if (isNumber(left) && isNumber(right))
+                return std::get<double>(left) + std::get<double>(right);
+            runtimeError(expr.line, "'+' requires two numbers or at least one string.");
+        }
+        if (!isNumber(left) || !isNumber(right))
+            runtimeError(expr.line, "Arithmetic operators require numbers.");
+        const double a = std::get<double>(left);
+        const double b = std::get<double>(right);
+        switch (expr.op) {
+            case TokenKind::Minus: return a - b;
+            case TokenKind::Star: return a * b;
+            case TokenKind::Slash:
+                if (b == 0) runtimeError(expr.line, "Division by zero.");
+                return a / b;
+            default: runtimeError(expr.line, "Unsupported operator.");
+        }
+    }
+
+    void execute(const Stmt& stmt) {
+        switch (stmt.kind) {
+            case Stmt::Kind::Var:
+                if (variables_.count(stmt.name)) runtimeError(stmt.line, "Variable '" + stmt.name + "' is already declared.");
+                variables_[stmt.name] = stmt.expression ? evaluate(*stmt.expression) : Value{std::monostate{}};
+                break;
+            case Stmt::Kind::Assign:
+                if (!variables_.count(stmt.name)) runtimeError(stmt.line, "Unknown variable '" + stmt.name + "'.");
+                variables_[stmt.name] = evaluate(*stmt.expression);
+                break;
+            case Stmt::Kind::Print:
+                for (std::size_t i = 0; i < stmt.expression->items.size(); ++i) {
+                    if (i > 0) std::cout << ' ';
+                    std::cout << stringify(evaluate(*stmt.expression->items[i]));
+                }
+                std::cout << '\n';
+                break;
+            case Stmt::Kind::Repeat: {
+                Value countValue = evaluate(*stmt.expression);
+                if (!isNumber(countValue) || std::get<double>(countValue) < 0 ||
+                    std::floor(std::get<double>(countValue)) != std::get<double>(countValue))
+                    runtimeError(stmt.line, "repeat() expects a non-negative whole number.");
+                const auto count = static_cast<std::size_t>(std::get<double>(countValue));
+                if (count > 1000000) runtimeError(stmt.line, "repeat() limit is 1,000,000 iterations in this prototype.");
+                for (std::size_t i = 0; i < count; ++i) run(stmt.body);
+                break;
+            }
+        }
+    }
+};
+
+} // namespace nix
+
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        std::cerr << "Usage: nix <file.ns>\n";
+        return 2;
+    }
+
+    std::ifstream file(argv[1]);
+    if (!file) {
+        std::cerr << "Could not open file: " << argv[1] << '\n';
+        return 2;
+    }
+
+    std::ostringstream source;
+    source << file.rdbuf();
+
+    try {
+        nix::Lexer lexer(source.str());
+        nix::Parser parser(lexer.scan());
+        nix::Interpreter interpreter;
+        interpreter.run(parser.parseMain());
+    } catch (const std::exception& error) {
+        std::cerr << "NixScript error: " << error.what() << '\n';
+        return 1;
+    }
+
+    return 0;
+}
+) {
+                const std::size_t close = input.find('}', i + 2);
+                if (close == std::string::npos)
+                    runtimeError(line, "Unclosed interpolation; expected '}' after variable name.");
+                const std::string name = input.substr(i + 2, close - (i + 2));
+                if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+                    runtimeError(line, "Invalid variable name in string interpolation.");
+                for (char c : name) {
+                    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+                        runtimeError(line, "Invalid variable name in string interpolation.");
+                }
+                auto it = variables_.find(name);
+                if (it == variables_.end())
+                    runtimeError(line, "Unknown variable '" + name + "' in string interpolation.");
+                if (std::holds_alternative<std::monostate>(it->second))
+                    runtimeError(line, "Variable '" + name + "' has not been initialized.");
+                output += stringify(it->second);
+                i = close + 1;
+            } else {
+                output.push_back(input[i++]);
+            }
+        }
+        return output;
+    }
+
     Value evaluate(const Expr& expr) {
-        if (expr.kind == Expr::Kind::Literal) return expr.value;
+        if (expr.kind == Expr::Kind::Literal) {
+            if (const auto* text = std::get_if<std::string>(&expr.value))
+                return interpolate(*text, expr.line);
+            return expr.value;
+        }
+        if (expr.kind == Expr::Kind::List)
+            runtimeError(expr.line, "A list of values can only be used by print().");
         if (expr.kind == Expr::Kind::Variable) {
             auto it = variables_.find(expr.name);
             if (it == variables_.end()) runtimeError(expr.line, "Unknown variable '" + expr.name + "'.");
