@@ -22,7 +22,7 @@ jobs:
       - name: Build interpreter
         run: cmake --build build --config Release --parallel
 
-      - name: Run example and verify output
+      - name: Run existing example and verify output
         shell: bash
         run: |
           actual="$(./build/nix examples/hello.ns)"
@@ -30,5 +30,27 @@ jobs:
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/hello.ns" >&2
+            exit 1
+          fi
+
+      - name: Test control flow, built-ins, classes, inheritance and static methods
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/features.ns)"
+          expected="$(printf '4\nnix:9:8:1\n15\n1\n8')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/features.ns" >&2
+            exit 1
+          fi
+
+      - name: Test string and typed input
+        shell: bash
+        run: |
+          actual="$(printf 'Alex\n17\n' | ./build/nix examples/input.ns)"
+          expected="$(printf 'Alex\nAge: 17')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/input.ns" >&2
             exit 1
           fi
