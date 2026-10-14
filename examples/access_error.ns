@@ -1,0 +1,13 @@
+class Secret {
+public:
+    Secret() {
+    }
+
+private:
+    int code = 7;
+};
+
+nix main() {
+    var secret = Secret();
+    print(secret.code);
+}
