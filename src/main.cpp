@@ -265,6 +265,10 @@ public:
         consume(TokenKind::RightParen, "Expected ')' after main.");
         consume(TokenKind::LeftBrace, "Expected '{' to begin main.");
         auto mainBody = statementsUntilBrace();
+        while (!atEnd()) {
+            if (looksLikeOutOfClassDefinition()) parseOutOfClassDefinition();
+            else fail(peek(), "Only qualified class method definitions may appear after 'nix main()'.");
+        }
         resolveOutOfClassDefinitions();
         consume(TokenKind::End, "Unexpected content after main.");
         for (auto& stmt : mainBody) program.push_back(std::move(stmt));
