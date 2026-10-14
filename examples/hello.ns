@@ -1,6 +1,7 @@
 nix main() {
     var name = "NixScript";
-    print("Hello, " + name + "!");
+    print("Hello, ", name, "!");
+    print("Hello, {$name}!");
 
     var total = 10 + 20 * 2;
     print(total);
