@@ -687,7 +687,7 @@ private:
             rhs->right = std::move(one);
             consume(TokenKind::Semicolon, "Expected ';' after ++/--.");
             Stmt stmt; stmt.kind = Stmt::Kind::Assign; stmt.target = std::move(left);
-            stmt.expression = std::move(rhs); stmt.line = rhs->line;
+            stmt.line = rhs->line; stmt.expression = std::move(rhs);
             return stmt;
         }
         consume(TokenKind::Semicolon, "Expected ';' after expression.");
@@ -848,7 +848,7 @@ private:
         if (const auto* s = std::get_if<std::string>(&value)) return !s->empty();
         return true;
     }
-    Value lookup(const std::string& name, int line) const {
+    Value lookup(const std::string& name, int line) {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
             if (found != it->end()) {
@@ -859,6 +859,23 @@ private:
         }
         auto classIt = classes_.find(name);
         if (classIt != classes_.end()) return classIt->second;
+        if (!currentClass_.empty()) {
+            for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                auto thisIt = scope->find("this");
+                if (thisIt == scope->end()) continue;
+                if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
+                    ClassMember* member = findMember((*instance)->klass, name);
+                    if (member && member->kind == ClassMember::Kind::Field)
+                        return getMember(*instance, name, line);
+                    if (member && member->kind == ClassMember::Kind::Method) {
+                        checkAccess(*member, line);
+                        auto bound = std::make_shared<BoundMethod>();
+                        bound->instance = *instance; bound->klass = (*instance)->klass; bound->member = member;
+                        return bound;
+                    }
+                }
+            }
+        }
         runtimeError(line, "Unknown variable '" + name + "'.");
     }
     bool exists(const std::string& name) const {
@@ -875,6 +892,22 @@ private:
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
             if (found != it->end()) { found->second = std::move(value); return; }
+        }
+        if (!currentClass_.empty()) {
+            for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                auto thisIt = scope->find("this");
+                if (thisIt == scope->end()) continue;
+                if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
+                    ClassMember* member = findMember((*instance)->klass, name);
+                    if (member && member->kind == ClassMember::Kind::Field) {
+                        Expr target; target.kind = Expr::Kind::Member; target.name = name; target.line = line;
+                        target.left = std::make_unique<Expr>(); target.left->kind = Expr::Kind::Variable;
+                        target.left->name = "this"; target.left->line = line;
+                        setTarget(target, std::move(value), line);
+                        return;
+                    }
+                }
+            }
         }
         runtimeError(line, "Unknown variable '" + name + "'.");
     }
@@ -1242,9 +1275,19 @@ private:
                 }
                 return inputValue(prompt, type, expr.line);
             }
+            static const std::vector<std::string> builtins = {
+                "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
+                "isUpper", "isLower", "isSpace", "toUpper", "toLower"
+            };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
-            return builtin(name, args, expr.line);
+            if (std::find(builtins.begin(), builtins.end(), name) != builtins.end())
+                return builtin(name, args, expr.line);
+            if (currentClass_.empty()) runtimeError(expr.line, "Unknown built-in function '" + name + "'.");
+            Value possibleMethod = lookup(name, expr.line);
+            if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
+                return callMethod(*bound, args, expr.line);
+            runtimeError(expr.line, "'" + name + "' is not callable.");
         }
 
         Value callee = evaluate(*expr.left);
