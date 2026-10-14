@@ -26,16 +26,24 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - `nix main() { ... }` as the required executable entry point
 - `var name = value;` and uninitialized `var name;`
 - `print(...);` with multiple values and string interpolation
-- Basic arithmetic and `+` string concatenation
-- `repeat(count) { ... }`
-- `//` line comments
-- Parser/runtime errors with line numbers
-
-## Planned
-
-- C++-style classes and objects, including constructors, destructors, access specifiers, inheritance, static members, and `::` scope resolution
+- Basic arithmetic, comparisons, logical conditions, and `+` string concatenation
+- `repeat(count) { ... }` and C-style `for` loops, including `i++`/`i--`
+- `if` / `else if` / `else`
+- `uin()` string input, direct input into an existing variable, and typed numeric/boolean input
 - Native string helpers: `isUpper()`, `isLower()`, `toUpper()`, `toLower()`, `isSpace()`
-- Native math helpers: `sqrt()`, `sq()`, `pow()`, and other useful math functions
-- `uin()`, user-defined functions, `if`/else, general `for` loops, arrays, and module loading
+- Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
+- C++-style class declarations, fields, constructors/destructors, methods, access labels, single inheritance, static members, and `ClassName::member`
+- `this`, typed method parameters, `return`, in-class and out-of-class method definitions
+- `//` line comments and parser/runtime errors with line numbers
 
-See [LANGUAGE.md](LANGUAGE.md) for the current design notes and implementation status.
+## Still planned
+
+- General top-level user-defined functions
+- Fixed-size arrays
+- Module loading and `use` imports
+
+Try the expanded features with `./build/nix examples/features.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+
+The interpreter is still an evolving prototype: arrays, module loading, and general top-level functions are not implemented yet. String case conversion currently operates on ASCII characters.
+
+See [LANGUAGE.md](LANGUAGE.md) for syntax notes and limitations.
