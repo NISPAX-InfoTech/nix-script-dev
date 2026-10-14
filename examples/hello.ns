@@ -1,0 +1,11 @@
+fn main() {
+    var name = "NixScript";
+    print("Hello, " + name + "!");
+
+    var total = 10 + 20 * 2;
+    print(total);
+
+    repeat(3) {
+        print("Keep building!");
+    }
+}
