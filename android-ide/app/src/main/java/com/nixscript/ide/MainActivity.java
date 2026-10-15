@@ -7,16 +7,17 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
+import android.text.Spannable;
+import android.text.style.ForegroundColorSpan;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -24,6 +25,58 @@ public class MainActivity extends Activity {
     private TextView output, lineNumbers, status;
     private LinearLayout outputPanel;
     private int bg = Color.rgb(48,48,48), bar = Color.rgb(36,36,36), text = Color.rgb(215,215,215);
+    private boolean applyingHighlight = false;
+    private final int keywordColor = Color.rgb(224, 151, 91);
+    private final int stringColor = Color.rgb(143, 194, 125);
+    private final int numberColor = Color.rgb(129, 183, 231);
+    private final int functionColor = Color.rgb(190, 169, 224);
+    private final int commentColor = Color.rgb(139, 139, 139);
+
+    private void highlightCode(Editable e) {
+        if (applyingHighlight) return;
+        applyingHighlight = true;
+        ForegroundColorSpan[] old = e.getSpans(0, e.length(), ForegroundColorSpan.class);
+        for (ForegroundColorSpan span : old) e.removeSpan(span);
+        String source = e.toString();
+        applyPattern(e, source, "\\\"[^\\\"\\n]*\\\"|'[^'\\n]*'", stringColor);
+        applyPattern(e, source, "//[^\\n]*", commentColor);
+        applyPattern(e, source, "\\b(nix|fn|main|var|class|public|private|protected|static|return|if|elif|else|for|repeat|while|true|false|null|this|use|new|delete)\\b", keywordColor);
+        applyPattern(e, source, "\\b(print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\\b", functionColor);
+        applyPattern(e, source, "\\b\\d+(?:\\.\\d+)?\\b", numberColor);
+        applyingHighlight = false;
+    }
+
+    private void applyPattern(Editable e, String source, String regex, int color) {
+        Matcher m = Pattern.compile(regex).matcher(source);
+        while (m.find()) e.setSpan(new ForegroundColorSpan(color), m.start(), m.end(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
+    private void moveCursor(String direction) {
+        int start = Math.max(0, editor.getSelectionStart());
+        int end = Math.max(start, editor.getSelectionEnd());
+        int pos = end;
+        String source = editor.getText().toString();
+        if (direction.equals("left")) pos = Math.max(0, start - 1);
+        else if (direction.equals("right")) pos = Math.min(source.length(), end + 1);
+        else {
+            int lineStart = source.lastIndexOf('\\n', Math.max(0, pos - 1)) + 1;
+            int column = pos - lineStart;
+            int lineEnd = source.indexOf('\\n', pos);
+            if (lineEnd < 0) lineEnd = source.length();
+            if (direction.equals("up") && lineStart > 0) {
+                int previousEnd = lineStart - 1;
+                int previousStart = source.lastIndexOf('\\n', Math.max(0, previousEnd - 1)) + 1;
+                pos = Math.min(previousStart + column, previousEnd);
+            } else if (direction.equals("down") && lineEnd < source.length()) {
+                int nextStart = lineEnd + 1;
+                int nextEnd = source.indexOf('\\n', nextStart);
+                if (nextEnd < 0) nextEnd = source.length();
+                pos = Math.min(nextStart + column, nextEnd);
+            }
+        }
+        editor.setSelection(Math.max(0, Math.min(pos, source.length())));
+        editor.requestFocus();
+    }
 
     static { System.loadLibrary("nixscript"); }
     private static native String runNixScript(String source);
@@ -84,20 +137,36 @@ public class MainActivity extends Activity {
         editor.setHorizontallyScrolling(true);
         editor.setPadding(dp(8), dp(7), dp(8), dp(24));
         editor.setBackgroundColor(Color.rgb(48,48,48));
-        editor.setText("nix main() {\n    print(\"Hello from NixScript!\");\n    var answer = 40 + 2;\n    print(answer);\n}\n");
+        editor.setText("nix main() {\\n    print(\\\"Hello from NixScript!\\\");\\n    var answer = 40 + 2;\\n    print(answer);\\n}\\n");
         editorRow.addView(editor, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(editorRow, new LinearLayout.LayoutParams(-1, 0, 1));
 
         editor.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                int lines = Math.max(1, s.toString().split("\\n", -1).length);
+                int lines = Math.max(1, s.toString().split("\\\\n", -1).length);
                 StringBuilder nums = new StringBuilder();
-                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\n'); nums.append(i); }
+                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\\n'); nums.append(i); }
                 lineNumbers.setText(nums.toString());
                 status.setText("Edited");
             }
-            @Override public void afterTextChanged(Editable s) {}
+            @Override public void afterTextChanged(Editable s) { highlightCode(s); }
+        });
+
+        editor.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != android.view.KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+                int cursor = Math.max(0, editor.getSelectionStart());
+                int selectionEnd = Math.max(cursor, editor.getSelectionEnd());
+                String source = editor.getText().toString();
+                int lineStart = source.lastIndexOf('\\n', Math.max(0, cursor - 1)) + 1;
+                String before = source.substring(lineStart, cursor);
+                String indent = before.substring(0, before.length() - before.stripLeading().length());
+                if (before.trim().endsWith("{")) indent += "    ";
+                editor.getText().replace(cursor, selectionEnd, "\\n" + indent);
+                return true;
+            }
+            return false;
         });
 
         Button runWide = action("▶  RUN NIXSCRIPT");
@@ -125,7 +194,7 @@ public class MainActivity extends Activity {
         LinearLayout symbols = new LinearLayout(this);
         symbols.setOrientation(LinearLayout.VERTICAL);
         symbols.setBackgroundColor(bar);
-        String[][] rows = {{"Tab","{}","\"\"",";","()","⇧","↻"},{"=","|","&",",","←","↓","→"}};
+        String[][] rows = {{"Tab","{}","\\\"\\\"",";","()","⇧","↻"},{"=","|","&",",","←","↓","→"}};
         for (String[] row : rows) {
             LinearLayout symbolRow = new LinearLayout(this);
             for (String symbol : row) {
@@ -134,7 +203,11 @@ public class MainActivity extends Activity {
                 b.setTextSize(15);
                 symbolRow.addView(b, new LinearLayout.LayoutParams(0, dp(38), 1));
                 b.setOnClickListener(v -> {
-                    if (symbol.equals("⇧") || symbol.equals("↻") || symbol.equals("←") || symbol.equals("↓") || symbol.equals("→")) return;
+                    if (symbol.equals("⇧")) { moveCursor("up"); return; }
+                    if (symbol.equals("↓")) { moveCursor("down"); return; }
+                    if (symbol.equals("←")) { moveCursor("left"); return; }
+                    if (symbol.equals("→")) { moveCursor("right"); return; }
+                    if (symbol.equals("↻")) { highlightCode(editor.getText()); return; }
                     String insert = symbol.equals("Tab") ? "    " : symbol.equals("&") ? "&" : symbol;
                     int start = Math.max(0, editor.getSelectionStart());
                     int end = Math.max(start, editor.getSelectionEnd());
@@ -150,9 +223,9 @@ public class MainActivity extends Activity {
         runWide.setOnClickListener(v -> execute());
         menu.setOnClickListener(v -> {
             PopupMenu popup = new PopupMenu(this, menu);
-            popup.getMenu().add("New file").setOnMenuItemClickListener(item -> { editor.setText("nix main() {\n    \n}\n"); status.setText("New file"); return true; });
+            popup.getMenu().add("New file").setOnMenuItemClickListener(item -> { editor.setText("nix main() {\\n    \\n}\\n"); status.setText("New file"); return true; });
             popup.getMenu().add("Clear output").setOnMenuItemClickListener(item -> { output.setText(""); return true; });
-            popup.getMenu().add("About NixScript").setOnMenuItemClickListener(item -> { output.setText("NixScript IDE 0.1.1\nWrite and run .ns programs on your device."); return true; });
+            popup.getMenu().add("About NixScript").setOnMenuItemClickListener(item -> { output.setText("NixScript IDE 0.1.1\\nWrite and run .ns programs on your device."); return true; });
             popup.show();
         });
 
