@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\.ns]
+@="NixScript.Source"
+"Content Type"="text/plain"
+
+[HKEY_CURRENT_USER\Software\Classes\NixScript.Source]
+@="NixScript source file"
+
+[HKEY_CURRENT_USER\Software\Classes\NixScript.Source\DefaultIcon]
+@="%LOCALAPPDATA%\\NixScript\\nixscript-ns.ico"
+
+[HKEY_CURRENT_USER\Software\Classes\NixScript.Source\shell\open\command]
+@="notepad.exe \"%1\""
