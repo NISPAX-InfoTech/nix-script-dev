@@ -591,7 +591,9 @@ private:
         consume(TokenKind::LeftBrace, "Expected '{' before if body.");
         Stmt stmt; stmt.kind = Stmt::Kind::If; stmt.expression = std::move(condition);
         stmt.body = statementsUntilBrace(); stmt.line = line;
-        if (matchIdentifier("else")) {
+        if (matchIdentifier("elif")) {
+            stmt.elseBody.push_back(ifStatementAfterKeyword(previous().line));
+        } else if (matchIdentifier("else")) {
             if (matchIdentifier("if")) {
                 stmt.elseBody.push_back(ifStatementAfterKeyword(previous().line));
             } else {
