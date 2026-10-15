@@ -35,11 +35,16 @@ jobs:
       - name: Install Android build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.2.12479018"
 
+      - name: Set up Python for official artwork
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install artwork tooling
+        run: python -m pip install --disable-pip-version-check Pillow
+
       - name: Prepare official wolf artwork
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pil
-          python3 tools/prepare_brand_assets.py
+        run: python tools/prepare_brand_assets.py
 
       - name: Build debug APK
         working-directory: android-ide
