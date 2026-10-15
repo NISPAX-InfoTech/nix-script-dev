@@ -164,7 +164,19 @@ These validate argument counts and types and report readable runtime errors for 
 
 ## Conditions and loops
 
-`if` / `else if` / `else`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical operators (`and`, `or`, `not`, `&&`, `||`, `!`) are implemented.
+`if` / `elif` / `else if` / `else`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical operators (`and`, `or`, `not`, `&&`, `||`, `!`) are implemented. `elif` and `else if` behave identically; either can be used in a chain.
+```ns
+if (score >= 90) {
+    print("A");
+} elif (score >= 75) {
+    print("B");
+} else if (score >= 50) {
+    print("C");
+} else {
+    print("Try again");
+}
+```
+
 
 A `repeat` loop and C-style `for` loop are implemented.
 
