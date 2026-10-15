@@ -40,27 +40,27 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);c
 <section id="output"><div class="output-head"><span>OUTPUT</span><button id="closeOutput" style="background:none;border:0;color:#aaa">CLOSE</button></div><div id="outputText"></div></section>
 <nav class="symbols">
 <button data-insert="    " title="Indent">Tab</button><button data-insert="{}">{}</button><button data-insert="&quot;&quot;">“”</button><button data-insert=";">;</button><button data-insert="()">↶</button><button data-insert="⇧">⇧</button><button data-insert="↻">↻</button>
-<button data-insert="=">=</button><button data-insert="\\">\</button><button data-insert="&amp;">&amp;</button><button data-insert=",">,</button><button data-insert="←">⇦</button><button data-insert="↓">↓</button><button data-insert="→">⇨</button>
+<button data-insert="=">=</button><button data-insert="\">\</button><button data-insert="&amp;">&amp;</button><button data-insert=",">,</button><button data-insert="←">⇦</button><button data-insert="↓">↓</button><button data-insert="→">⇨</button>
 </nav></div>
 <script>
 const code=document.getElementById('code'),highlight=document.getElementById('highlight'),gutter=document.getElementById('gutter'),output=document.getElementById('output'),outputText=document.getElementById('outputText'),status=document.getElementById('status'),menu=document.getElementById('menu');
-const starter='nix main() {\\n    print("Hello from NixScript!");\\n    var answer = 40 + 2;\\n    print(answer);\\n}\\n';
+const starter='nix main() {\n    print("Hello from NixScript!");\n    var answer = 40 + 2;\n    print(answer);\n}\n';
 code.value=starter;
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function paint(){let s=escapeHtml(code.value);s=s.replace(/(\\/\\/.*)$/gm,'<span class="comment">$1</span>');s=s.replace(/(&quot;.*?&quot;)/g,'<span class="str">$1</span>');s=s.replace(/\\b(nix|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\\b/g,'<span class="kw">$1</span>');s=s.replace(/\\b(print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\\b/g,'<span class="fn">$1</span>');s=s.replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g,'<span class="num">$1</span>');highlight.innerHTML=s+'\\n';gutter.textContent=Array.from({length:Math.max(1,code.value.split('\\n').length)},(_,i)=>i+1).join('\\n');syncScroll()}
+function paint(){let s=escapeHtml(code.value);s=s.replace(/(\/\/.*)$/gm,'<span class="comment">$1</span>');s=s.replace(/(&quot;.*?&quot;)/g,'<span class="str">$1</span>');s=s.replace(/\b(nix|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\b/g,'<span class="kw">$1</span>');s=s.replace(/\b(print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g,'<span class="fn">$1</span>');s=s.replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="num">$1</span>');highlight.innerHTML=s+'\n';gutter.textContent=Array.from({length:Math.max(1,code.value.split('\n').length)},(_,i)=>i+1).join('\n');syncScroll()}
 function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+'px)';gutter.scrollTop=code.scrollTop}
 code.addEventListener('input',()=>{paint();status.textContent='Edited'});code.addEventListener('scroll',syncScroll);
-code.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertText('    ')}if(e.key==='Enter'){const p=code.selectionStart,line=code.value.slice(0,p).split('\\n').pop(),indent=(line.match(/^\\s*/)||[''])[0];if(indent){e.preventDefault();insertText('\\n'+indent)}}});
+code.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertText('    ')}if(e.key==='Enter'){const p=code.selectionStart,line=code.value.slice(0,p).split('\n').pop(),indent=(line.match(/^\s*/)||[''])[0];if(indent){e.preventDefault();insertText('\n'+indent)}}});
 function insertText(text){const a=code.selectionStart,b=code.selectionEnd;code.setRangeText(text,a,b,'end');code.focus();paint()}
 document.querySelectorAll('[data-insert]').forEach(b=>b.addEventListener('click',()=>{const v=b.getAttribute('data-insert');if(['⇧','↻','←','↓','→'].includes(v))return;insertText(v.replace(/&amp;/g,'&').replace(/&quot;/g,'"'))}));
 document.getElementById('run').addEventListener('click',()=>{status.textContent='Running…';output.classList.add('visible');outputText.textContent='';menu.style.display='none';setTimeout(()=>{try{const result=window.Nix.run(code.value);outputText.textContent=result;status.textContent='Finished'}catch(e){outputText.textContent=String(e);status.textContent='Error'}},20)});
 document.getElementById('menuButton').onclick=()=>menu.style.display=menu.style.display==='block'?'none':'block';
-document.getElementById('newFile').onclick=()=>{code.value='nix main() {\\n    \\n}\\n';paint();status.textContent='New file';menu.style.display='none'};
+document.getElementById('newFile').onclick=()=>{code.value='nix main() {\n    \n}\n';paint();status.textContent='New file';menu.style.display='none'};
 document.getElementById('saveFile').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([code.value],{type:'text/plain'}));a.download='main.ns';a.click();URL.revokeObjectURL(a.href);menu.style.display='none'};
 document.getElementById('loadFile').onclick=()=>document.getElementById('filePicker').click();
 document.getElementById('filePicker').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{code.value=String(r.result);paint();status.textContent=f.name};r.readAsText(f);menu.style.display='none'};
 document.getElementById('clearOutput').onclick=()=>{outputText.textContent='';output.classList.remove('visible');menu.style.display='none'};
 document.getElementById('closeOutput').onclick=()=>output.classList.remove('visible');
-document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\\nWrite and run .ns programs on your device.';menu.style.display='none'};
+document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\nWrite and run .ns programs on your device.';menu.style.display='none'};
 paint();
 </script></body></html>
