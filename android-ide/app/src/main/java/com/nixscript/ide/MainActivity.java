@@ -59,17 +59,17 @@ public class MainActivity extends Activity {
         if (direction.equals("left")) pos = Math.max(0, start - 1);
         else if (direction.equals("right")) pos = Math.min(source.length(), end + 1);
         else {
-            int lineStart = source.lastIndexOf('\\n', Math.max(0, pos - 1)) + 1;
+            int lineStart = source.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
             int column = pos - lineStart;
-            int lineEnd = source.indexOf('\\n', pos);
+            int lineEnd = source.indexOf('\n', pos);
             if (lineEnd < 0) lineEnd = source.length();
             if (direction.equals("up") && lineStart > 0) {
                 int previousEnd = lineStart - 1;
-                int previousStart = source.lastIndexOf('\\n', Math.max(0, previousEnd - 1)) + 1;
+                int previousStart = source.lastIndexOf('\n', Math.max(0, previousEnd - 1)) + 1;
                 pos = Math.min(previousStart + column, previousEnd);
             } else if (direction.equals("down") && lineEnd < source.length()) {
                 int nextStart = lineEnd + 1;
-                int nextEnd = source.indexOf('\\n', nextStart);
+                int nextEnd = source.indexOf('\n', nextStart);
                 if (nextEnd < 0) nextEnd = source.length();
                 pos = Math.min(nextStart + column, nextEnd);
             }
@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 int lines = Math.max(1, s.toString().split("\\\\n", -1).length);
                 StringBuilder nums = new StringBuilder();
-                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\\n'); nums.append(i); }
+                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\n'); nums.append(i); }
                 lineNumbers.setText(nums.toString());
                 status.setText("Edited");
             }
@@ -159,7 +159,7 @@ public class MainActivity extends Activity {
                 int cursor = Math.max(0, editor.getSelectionStart());
                 int selectionEnd = Math.max(cursor, editor.getSelectionEnd());
                 String source = editor.getText().toString();
-                int lineStart = source.lastIndexOf('\\n', Math.max(0, cursor - 1)) + 1;
+                int lineStart = source.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1;
                 String before = source.substring(lineStart, cursor);
                 String indent = before.substring(0, before.length() - before.stripLeading().length());
                 if (before.trim().endsWith("{")) indent += "    ";
