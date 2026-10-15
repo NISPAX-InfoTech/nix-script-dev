@@ -27,8 +27,9 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - `var name = value;` and uninitialized `var name;`
 - `print(...);` with multiple values and string interpolation
 - Basic arithmetic, comparisons, logical conditions, and `+` string concatenation
+- Top-level `fn` functions with parameters, calls, local scope, recursion, and `return`
 - `repeat(count) { ... }` and C-style `for` loops, including `i++`/`i--`
-- `if` / `else if` / `else`
+- `if` / `elif` / `else if` / `else`
 - `uin()` string input, direct input into an existing variable, and typed numeric/boolean input
 - Native string helpers: `isUpper()`, `isLower()`, `toUpper()`, `toLower()`, `isSpace()`
 - Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
@@ -38,12 +39,12 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 
 ## Still planned
 
-- General top-level user-defined functions
+- Function values and callback passing
 - Fixed-size arrays
 - Module loading and `use` imports
 
-Try the expanded features with `./build/nix examples/features.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
-The interpreter is still an evolving prototype: arrays, module loading, and general top-level functions are not implemented yet. String case conversion currently operates on ASCII characters.
+The interpreter is still an evolving prototype: function values/callback passing, arrays, and module loading are not implemented yet. String case conversion currently operates on ASCII characters.
 
 See [LANGUAGE.md](LANGUAGE.md) for syntax notes and limitations.

@@ -69,7 +69,7 @@ nix main() {
 }
 ```
 
-General function declarations, calls, parameters, and return values are planned; they are not yet implemented in the current prototype.
+Top-level functions are implemented. Declare functions before `nix main()`. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
 
 ## Classes and objects
 
@@ -214,7 +214,7 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Implementation status
 
-The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/else, `repeat`, C-style `for`, `uin()`, common string/math built-ins, and a subset of C++-style classes/objects. General top-level functions, arrays, and module loading remain unimplemented.
+The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, and a subset of C++-style classes/objects. Function values, arrays, and module loading remain unimplemented.
 
 ## Open decisions
 

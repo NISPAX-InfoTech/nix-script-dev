@@ -44,6 +44,17 @@ jobs:
             exit 1
           fi
 
+      - name: Test top-level functions, recursion, and return values
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/functions.ns)"
+          expected="$(printf 'Hello, NixScript!\n42\n120\nfunctions-ready')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/functions.ns" >&2
+            exit 1
+          fi
+
       - name: Test private member access is rejected
         shell: bash
         run: |

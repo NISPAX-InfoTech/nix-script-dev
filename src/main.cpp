@@ -186,10 +186,11 @@ struct Expr {
 };
 
 struct Stmt {
-    enum class Kind { Var, Assign, Print, Repeat, If, For, Return, Expression, Class };
+    enum class Kind { Var, Assign, Print, Repeat, If, For, Return, Expression, Class, Function };
     Kind kind = Kind::Expression;
     std::string name;
     std::string typeName;
+    std::vector<std::string> parameters;
     std::unique_ptr<Expr> target;
     std::unique_ptr<Expr> expression;
     std::unique_ptr<Stmt> initializer;
@@ -252,6 +253,8 @@ public:
         while (!(check(TokenKind::Identifier) && peek().text == "nix") && !atEnd()) {
             if (matchIdentifier("class")) {
                 program.push_back(parseClass());
+            } else if (matchIdentifier("fn")) {
+                program.push_back(parseFunction());
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
             } else {
@@ -279,6 +282,7 @@ private:
     std::vector<Token> tokens_;
     std::size_t current_ = 0;
     std::unordered_map<std::string, bool> classNames_;
+    std::unordered_map<std::string, bool> functionNames_;
 
     const Token& peek() const { return tokens_[current_]; }
     const Token& previous() const { return tokens_[current_ - 1]; }
@@ -313,26 +317,65 @@ private:
                name == "double" || name == "number" || name == "string" || name == "bool" ||
                name == "char" || name == "long" || name == "short";
     }
+    bool isReservedFunctionName(const std::string& name) const {
+        static const std::vector<std::string> reserved = {
+            "main", "nix", "fn", "class", "use", "print", "repeat", "if", "elif",
+            "else", "for", "return", "true", "false", "null", "and", "or", "not",
+            "this", "public", "private", "protected", "static", "uin", "sqrt", "sq",
+            "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
+            "toUpper", "toLower"
+        };
+        return isTypeName(name) || std::find(reserved.begin(), reserved.end(), name) != reserved.end();
+    }
     std::vector<Stmt> statementsUntilBrace() {
         std::vector<Stmt> body;
         while (!check(TokenKind::RightBrace) && !atEnd()) body.push_back(statement());
         consume(TokenKind::RightBrace, "Expected '}' to close block.");
         return body;
     }
-    std::vector<std::string> parameters() {
+    std::vector<std::string> parameters(bool allowTypeAnnotations = true) {
         std::vector<std::string> result;
         consume(TokenKind::LeftParen, "Expected '(' before parameters.");
         if (!check(TokenKind::RightParen)) {
             do {
                 std::string first = consumeName("Expected a parameter name.");
-                if (isTypeName(first) && check(TokenKind::Identifier))
+                if (isTypeName(first) && check(TokenKind::Identifier)) {
+                    if (!allowTypeAnnotations)
+                        fail(previous(), "NixScript function parameters use inferred values; write only the parameter name.");
                     result.push_back(advance().text);
-                else
+                } else {
                     result.push_back(first);
+                }
             } while (match(TokenKind::Comma));
         }
         consume(TokenKind::RightParen, "Expected ')' after parameters.");
         return result;
+    }
+    Stmt parseFunction() {
+        const Token fnToken = previous();
+        const std::string name = consumeName("Expected a function name after 'fn'.");
+        if (isReservedFunctionName(name))
+            fail(fnToken, "Function name '" + name + "' is reserved.");
+        if (classNames_.count(name))
+            fail(fnToken, "A class named '" + name + "' is already declared.");
+        if (functionNames_.count(name))
+            fail(fnToken, "Function '" + name + "' is already declared.");
+        auto params = parameters(false);
+        std::unordered_map<std::string, bool> seenParameters;
+        for (const auto& param : params) {
+            if (seenParameters.count(param))
+                fail(fnToken, "Parameter '" + param + "' appears more than once in function '" + name + "'.");
+            seenParameters[param] = true;
+        }
+        consume(TokenKind::LeftBrace, "Expected '{' before function body.");
+        Stmt function;
+        function.kind = Stmt::Kind::Function;
+        function.name = name;
+        function.parameters = std::move(params);
+        function.body = statementsUntilBrace();
+        function.line = fnToken.line;
+        functionNames_[name] = true;
+        return function;
     }
     void parseMethodTail(ClassMember& member) {
         member.parameters = parameters();
@@ -349,6 +392,8 @@ private:
         auto klass = std::make_shared<ClassDef>();
         klass->name = consumeName("Expected a class name after 'class'.");
         if (classNames_.count(klass->name)) fail(classToken, "Class '" + klass->name + "' is already declared.");
+        if (functionNames_.count(klass->name))
+            fail(classToken, "A function named '" + klass->name + "' is already declared.");
         classNames_[klass->name] = true;
         if (match(TokenKind::Colon)) klass->baseName = consumeName("Expected a base class name after ':'.");
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
@@ -812,20 +857,33 @@ private:
     }
 };
 
-struct ReturnSignal { Value value; };
+struct ReturnSignal { Value value; int line; };
 
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
 
     void run(const std::vector<Stmt>& statements) {
-        for (const auto& stmt : statements) execute(stmt);
+        functions_.clear();
+        for (const auto& stmt : statements) {
+            if (stmt.kind != Stmt::Kind::Function) continue;
+            if (functions_.count(stmt.name))
+                runtimeError(stmt.line, "Function '" + stmt.name + "' is already declared.");
+            functions_[stmt.name] = &stmt;
+        }
+        try {
+            for (const auto& stmt : statements) execute(stmt);
+        } catch (const ReturnSignal& returned) {
+            popScope();
+            runtimeError(returned.line, "'return' can only be used inside a function or method.");
+        }
         popScope();
     }
 
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
+    std::unordered_map<std::string, const Stmt*> functions_;
     std::string currentClass_;
 
     [[noreturn]] void runtimeError(int line, const std::string& message) const {
@@ -1136,6 +1194,29 @@ private:
             instance->fields[member.name] = std::move(value);
         }
     }
+    Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
+        if (args.size() != function.parameters.size())
+            runtimeError(line, "Function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
+                               " argument(s), received " + std::to_string(args.size()) + ".");
+        scopes_.emplace_back();
+        for (std::size_t i = 0; i < args.size(); ++i)
+            scopes_.back()[function.parameters[i]] = args[i];
+        const std::string oldClass = currentClass_;
+        currentClass_.clear();
+        Value result = std::monostate{};
+        try {
+            for (const auto& stmt : function.body) execute(stmt);
+        } catch (const ReturnSignal& returned) {
+            result = returned.value;
+        } catch (...) {
+            currentClass_ = oldClass;
+            popScope();
+            throw;
+        }
+        currentClass_ = oldClass;
+        popScope();
+        return result;
+    }
     Value callMethod(const std::shared_ptr<BoundMethod>& bound, const std::vector<Value>& args, int line) {
         ClassMember& member = *bound->member;
         if (!member.defined) runtimeError(line, "Method '" + member.name + "' is declared but has no definition.");
@@ -1289,7 +1370,10 @@ private:
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
             if (std::find(builtins.begin(), builtins.end(), name) != builtins.end())
                 return builtin(name, args, expr.line);
-            if (currentClass_.empty()) runtimeError(expr.line, "Unknown built-in function '" + name + "'.");
+            auto function = functions_.find(name);
+            if (function != functions_.end())
+                return callFunction(*function->second, args, expr.line);
+            if (currentClass_.empty()) runtimeError(expr.line, "Unknown function '" + name + "'.");
             Value possibleMethod = lookup(name, expr.line);
             if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
                 return callMethod(*bound, args, expr.line);
@@ -1372,6 +1456,8 @@ private:
             case Stmt::Kind::Class:
                 registerClass(stmt.classDef, stmt.line);
                 break;
+            case Stmt::Kind::Function:
+                break;
             case Stmt::Kind::Var: {
                 Value value = stmt.expression ? evaluate(*stmt.expression) :
                               (stmt.typeName.empty() || stmt.typeName == "var" ? Value{std::monostate{}} : defaultValue(stmt.typeName));
@@ -1389,7 +1475,7 @@ private:
                 (void)evaluate(*stmt.expression);
                 break;
             case Stmt::Kind::Return:
-                throw ReturnSignal{stmt.expression ? evaluate(*stmt.expression) : Value{std::monostate{}}};
+                throw ReturnSignal{stmt.expression ? evaluate(*stmt.expression) : Value{std::monostate{}}, stmt.line};
             case Stmt::Kind::Repeat: {
                 Value countValue = evaluate(*stmt.expression);
                 if (!isNumber(countValue) || std::get<double>(countValue) < 0 ||

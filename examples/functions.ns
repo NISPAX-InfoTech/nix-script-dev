@@ -1,0 +1,25 @@
+fn greet(name) {
+    print("Hello, {$name}!");
+}
+
+fn add(a, b) {
+    return a + b;
+}
+
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn announce() {
+    print("functions-ready");
+}
+
+nix main() {
+    greet("NixScript");
+    print(add(20, 22));
+    print(factorial(5));
+    announce();
+}
