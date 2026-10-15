@@ -55,6 +55,64 @@ jobs:
             exit 1
           fi
 
+      - name: Test function prototypes and definitions after main
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/prototypes.ns)"
+          expected="$(printf '42\\n120\\nprototypes-ready')"
+          printf '%s\\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/prototypes.ns" >&2
+            exit 1
+          fi
+
+      - name: Test invalid function declarations are rejected
+        shell: bash
+        run: |
+          cat > missing-function.ns <<'EOF'
+          fn absent(value);
+          nix main() {
+              print("should not run");
+          }
+          EOF
+          if ./build/nix missing-function.ns >missing-function.log 2>&1; then
+            echo "A function declaration without a definition unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "declared but has no definition" missing-function.log
+
+          cat > mismatched-function.ns <<'EOF'
+          fn combine(left, right);
+          nix main() {
+              print(combine(1, 2));
+          }
+          fn combine(one, two, three) {
+              return one + two + three;
+          }
+          EOF
+          if ./build/nix mismatched-function.ns >mismatched-function.log 2>&1; then
+            echo "A mismatched function declaration unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "declared with 2 parameter(s).*declaration has 3" mismatched-function.log
+
+          cat > duplicate-function.ns <<'EOF'
+          fn duplicate(value) {
+              return value;
+          }
+          nix main() {
+              print(duplicate(1));
+          }
+          fn duplicate(value) {
+              return value + 1;
+          }
+          EOF
+          if ./build/nix duplicate-function.ns >duplicate-function.log 2>&1; then
+            echo "Duplicate function definitions unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "has more than one definition" duplicate-function.log
+
       - name: Test private member access is rejected
         shell: bash
         run: |

@@ -24,6 +24,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 ## Currently implemented
 
 - `nix main() { ... }` as the required executable entry point
+- Top-level function prototypes before `main` and function definitions before or after `main`, with signature/duplicate-definition validation
 - `var name = value;` and uninitialized `var name;`
 - `print(...);` with multiple values and string interpolation
 - Basic arithmetic, comparisons, logical conditions, and `+` string concatenation
@@ -43,7 +44,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Fixed-size arrays
 - Module loading and `use` imports
 
-Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
 The interpreter is still an evolving prototype: function values/callback passing, arrays, and module loading are not implemented yet. String case conversion currently operates on ASCII characters.
 

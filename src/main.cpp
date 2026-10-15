@@ -191,6 +191,7 @@ struct Stmt {
     std::string name;
     std::string typeName;
     std::vector<std::string> parameters;
+    bool functionDefined = false;
     std::unique_ptr<Expr> target;
     std::unique_ptr<Expr> expression;
     std::unique_ptr<Stmt> initializer;
@@ -254,7 +255,8 @@ public:
             if (matchIdentifier("class")) {
                 program.push_back(parseClass());
             } else if (matchIdentifier("fn")) {
-                program.push_back(parseFunction());
+                Stmt function = parseFunction();
+                if (function.functionDefined) program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
             } else {
@@ -268,13 +270,21 @@ public:
         consume(TokenKind::RightParen, "Expected ')' after main.");
         consume(TokenKind::LeftBrace, "Expected '{' to begin main.");
         auto mainBody = statementsUntilBrace();
+        for (auto& stmt : mainBody) program.push_back(std::move(stmt));
+
         while (!atEnd()) {
-            if (looksLikeOutOfClassDefinition()) parseOutOfClassDefinition();
-            else fail(peek(), "Only qualified class method definitions may appear after 'nix main()'.");
+            if (matchIdentifier("fn")) {
+                Stmt function = parseFunction();
+                if (function.functionDefined) program.push_back(std::move(function));
+            } else if (looksLikeOutOfClassDefinition()) {
+                parseOutOfClassDefinition();
+            } else {
+                fail(peek(), "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'.");
+            }
         }
         resolveOutOfClassDefinitions();
+        resolveFunctionDeclarations();
         consume(TokenKind::End, "Unexpected content after main.");
-        for (auto& stmt : mainBody) program.push_back(std::move(stmt));
         return program;
     }
 
@@ -283,6 +293,9 @@ private:
     std::size_t current_ = 0;
     std::unordered_map<std::string, bool> classNames_;
     std::unordered_map<std::string, bool> functionNames_;
+    std::unordered_map<std::string, std::size_t> functionParameterCounts_;
+    std::unordered_map<std::string, int> functionDeclarationLines_;
+    std::unordered_map<std::string, int> functionDefinitionLines_;
 
     const Token& peek() const { return tokens_[current_]; }
     const Token& previous() const { return tokens_[current_ - 1]; }
@@ -358,8 +371,7 @@ private:
             fail(fnToken, "Function name '" + name + "' is reserved.");
         if (classNames_.count(name))
             fail(fnToken, "A class named '" + name + "' is already declared.");
-        if (functionNames_.count(name))
-            fail(fnToken, "Function '" + name + "' is already declared.");
+
         auto params = parameters(false);
         std::unordered_map<std::string, bool> seenParameters;
         for (const auto& param : params) {
@@ -367,15 +379,47 @@ private:
                 fail(fnToken, "Parameter '" + param + "' appears more than once in function '" + name + "'.");
             seenParameters[param] = true;
         }
-        consume(TokenKind::LeftBrace, "Expected '{' before function body.");
+
+        const bool defined = check(TokenKind::LeftBrace);
+        auto declaredCount = functionParameterCounts_.find(name);
+        if (declaredCount != functionParameterCounts_.end() && declaredCount->second != params.size()) {
+            fail(fnToken, "Function '" + name + "' is declared with " +
+                          std::to_string(declaredCount->second) + " parameter(s), but this declaration has " +
+                          std::to_string(params.size()) + ".");
+        }
+        if (defined && functionDefinitionLines_.count(name)) {
+            fail(fnToken, "Function '" + name + "' has more than one definition.");
+        }
+
+        if (declaredCount == functionParameterCounts_.end()) {
+            functionNames_[name] = true;
+            functionParameterCounts_[name] = params.size();
+            functionDeclarationLines_[name] = fnToken.line;
+        }
+
         Stmt function;
         function.kind = Stmt::Kind::Function;
         function.name = name;
         function.parameters = std::move(params);
-        function.body = statementsUntilBrace();
         function.line = fnToken.line;
-        functionNames_[name] = true;
+        function.functionDefined = defined;
+
+        if (defined) {
+            consume(TokenKind::LeftBrace, "Expected '{' before function body.");
+            function.body = statementsUntilBrace();
+            functionDefinitionLines_[name] = fnToken.line;
+        } else {
+            consume(TokenKind::Semicolon, "Expected a function body or ';' after declaration.");
+        }
         return function;
+    }
+
+    void resolveFunctionDeclarations() {
+        for (const auto& declaration : functionDeclarationLines_) {
+            if (functionDefinitionLines_.count(declaration.first)) continue;
+            fail(Token{TokenKind::Identifier, declaration.first, declaration.second},
+                 "Function '" + declaration.first + "' is declared but has no definition.");
+        }
     }
     void parseMethodTail(ClassMember& member) {
         member.parameters = parameters();

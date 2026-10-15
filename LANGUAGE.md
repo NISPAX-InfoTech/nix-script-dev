@@ -69,7 +69,7 @@ nix main() {
 }
 ```
 
-Top-level functions are implemented. Declare functions before `nix main()`. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
+Top-level functions support both definitions and C-style declarations. You can define a function before `nix main()`, or declare its signature before `main` and place its implementation after `main`. Every declared function must have exactly one definition, and a declaration and definition must agree on parameter count. Repeated compatible declarations are allowed; parameter names in a declaration do not need to match the names used by the definition. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
 
 ## Classes and objects
 

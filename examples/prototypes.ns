@@ -1,0 +1,25 @@
+fn add(left, right);
+fn add(first, second); // Compatible repeated declarations are allowed.
+fn factorial(value);
+fn announce();
+
+nix main() {
+    print(add(20, 22));
+    print(factorial(5));
+    announce();
+}
+
+fn add(a, b) {
+    return a + b;
+}
+
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn announce() {
+    print("prototypes-ready");
+}
