@@ -84,7 +84,7 @@ public class MainActivity extends Activity {
         editor.setHorizontallyScrolling(true);
         editor.setPadding(dp(8), dp(7), dp(8), dp(24));
         editor.setBackgroundColor(Color.rgb(48,48,48));
-        editor.setText("nix main() {\n    print(\\"Hello from NixScript!\\");\n    var answer = 40 + 2;\n    print(answer);\n}\n");
+        editor.setText("nix main() {\n    print(\"Hello from NixScript!\");\n    var answer = 40 + 2;\n    print(answer);\n}\n");
         editorRow.addView(editor, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(editorRow, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -125,7 +125,7 @@ public class MainActivity extends Activity {
         LinearLayout symbols = new LinearLayout(this);
         symbols.setOrientation(LinearLayout.VERTICAL);
         symbols.setBackgroundColor(bar);
-        String[][] rows = {{"Tab","{}","\\"\\"",";","()","⇧","↻"},{"=","\\\\","&",",","←","↓","→"}};
+        String[][] rows = {{"Tab","{}","\"\"",";","()","⇧","↻"},{"=","\","&",",","←","↓","→"}};
         for (String[] row : rows) {
             LinearLayout symbolRow = new LinearLayout(this);
             for (String symbol : row) {
