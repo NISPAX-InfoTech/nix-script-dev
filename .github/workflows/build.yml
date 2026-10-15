@@ -59,8 +59,8 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/prototypes.ns)"
-          expected="$(printf '42\\n120\\nprototypes-ready')"
-          printf '%s\\n' "$actual"
+          expected="$(printf '42\n120\nprototypes-ready')"
+          printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/prototypes.ns" >&2
             exit 1
