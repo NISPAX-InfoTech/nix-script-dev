@@ -2,6 +2,7 @@
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="text/x-nixscript">
     <comment>NixScript source code</comment>
+    <icon name="text-x-nixscript"/>
     <glob pattern="*.ns"/>
   </mime-type>
 </mime-info>

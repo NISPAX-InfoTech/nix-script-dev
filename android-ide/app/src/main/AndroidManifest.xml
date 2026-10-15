@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:icon="@drawable/ic_nix_wolf"
-        android:roundIcon="@drawable/ic_nix_wolf"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:label="NixScript"
         android:allowBackup="false"

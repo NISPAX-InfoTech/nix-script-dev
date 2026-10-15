@@ -7,7 +7,7 @@
 :root{color-scheme:dark;--bg:#303030;--panel:#242424;--line:#454545;--text:#d6d6d6;--muted:#858585;--orange:#d88743;--blue:#82b6e7;--green:#83b66b}
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:Roboto,"Arial",sans-serif;overflow:hidden}
 #app{height:100dvh;display:flex;flex-direction:column}.top{height:76px;background:#242424;display:flex;align-items:center;padding:0 20px;gap:22px;flex-shrink:0}
-.brand{font-size:25px;font-weight:500;flex:1;line-height:1.15}.status{display:block;font-size:14px;color:#aaa;margin-top:5px;font-weight:400}
+.brand-logo{width:34px;height:34px;object-fit:contain;border-radius:6px;flex-shrink:0}.brand{font-size:25px;font-weight:500;flex:1;line-height:1.15}.status{display:block;font-size:14px;color:#aaa;margin-top:5px;font-weight:400}
 .action{font-size:15px;border:0;background:transparent;color:#fff;padding:12px 3px;font-weight:500}
 .editor-wrap{flex:1;min-height:0;position:relative;display:flex;font:15px/1.72 "Roboto Mono",monospace}
 #gutter{width:40px;flex-shrink:0;text-align:right;padding:5px 6px 8px 0;color:#858585;white-space:pre;overflow:hidden;user-select:none;background:#303030}
@@ -27,7 +27,7 @@
 </style>
 </head>
 <body><div id="app">
-<header class="top"><div class="brand">NixScript<span class="status" id="status">Ready</span></div><button class="action" id="run">RUN</button><button class="action" id="menuButton">MENU</button></header>
+<header class="top"><img class="brand-logo" src="branding/nixscript-wolf-blue.webp" alt="NixScript wolf logo"><div class="brand">NixScript<span class="status" id="status">Ready</span></div><button class="action" id="run">RUN</button><button class="action" id="menuButton">MENU</button></header>
 <div id="menu">
 <button id="newFile">New file</button><button id="saveFile">Download .ns file</button><button id="loadFile">Open .ns file</button><button id="clearOutput">Clear output</button><button id="about">About NixScript</button><input id="filePicker" type="file" accept=".ns,.txt,text/plain" hidden>
 </div>
@@ -72,6 +72,6 @@ document.getElementById('loadFile').onclick=()=>document.getElementById('filePic
 document.getElementById('filePicker').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{code.value=String(r.result);paint();status.textContent=f.name;};r.readAsText(f);menu.style.display='none';};
 document.getElementById('clearOutput').onclick=()=>{outputText.textContent='';output.classList.remove('visible');menu.style.display='none';};
 document.getElementById('closeOutput').onclick=()=>output.classList.remove('visible');
-document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\nWrite and run .ns programs on your device.';menu.style.display='none';};
+document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.innerHTML='<div style="display:flex;align-items:center;gap:14px"><img src="branding/nixscript-wolf-dark.webp" alt="Official NixScript wolf logo" style="width:88px;height:88px;object-fit:contain"><div><strong>NixScript IDE</strong><br>Write and run .ns programs on your device.</div></div>';menu.style.display='none';};
 paint();
 </script></body></html>

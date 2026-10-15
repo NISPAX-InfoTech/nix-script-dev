@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-# Change this launcher to the installed NixScript IDE executable when available.
-exec xdg-open "$@"
