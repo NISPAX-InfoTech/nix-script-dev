@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 int lines = Math.max(1, s.toString().split("\\n", -1).length);
                 StringBuilder nums = new StringBuilder();
-                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\\n'); nums.append(i); }
+                for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\n'); nums.append(i); }
                 lineNumbers.setText(nums.toString());
                 status.setText("Edited");
             }
@@ -125,7 +125,7 @@ public class MainActivity extends Activity {
         LinearLayout symbols = new LinearLayout(this);
         symbols.setOrientation(LinearLayout.VERTICAL);
         symbols.setBackgroundColor(bar);
-        String[][] rows = {{"Tab","{}","\"\"",";","()","⇧","↻"},{"=","\","&",",","←","↓","→"}};
+        String[][] rows = {{"Tab","{}","\"\"",";","()","⇧","↻"},{"=","|","&",",","←","↓","→"}};
         for (String[] row : rows) {
             LinearLayout symbolRow = new LinearLayout(this);
             for (String symbol : row) {
