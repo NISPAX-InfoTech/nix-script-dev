@@ -344,6 +344,29 @@ nix main() {
 }
 NS
 
+run_ok repeated_compatible_prototypes_and_parameter_renaming $'42\n' <<'NS'
+fn combine(left, right);
+fn combine(first, second);
+nix main() {
+    println(combine(20, 22));
+}
+fn combine(one, two) {
+    return one + two;
+}
+NS
+
+run_ok forward_call_from_function_to_later_definition $'later\n' <<'NS'
+fn first() {
+    return second();
+}
+fn second() {
+    return "later";
+}
+nix main() {
+    println(first());
+}
+NS
+
 echo "=== Functions and return values ==="
 
 run_ok calls_recursion_and_null_returns $'5\n15\n120\nfinished\nnull\n' <<'NS'
@@ -845,6 +868,43 @@ nix main() {
 }
 NS
 
+run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
+class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
 echo "=== Source import loader ==="
 
 mkdir -p "$TMP/import-comments/lib"
@@ -1205,6 +1265,23 @@ class HiddenByDefault {
 nix main() {
     var object = HiddenByDefault();
     println(object.secret);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
 }
 NS
 
