@@ -1352,35 +1352,81 @@ private:
         } else if (!args.empty()) runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
         return instance;
     }
-    void destroyInstance(const std::shared_ptr<Instance>& instance) {
-        if (!instance || instance->destroyed) return;
-        instance->destroyed = true;
-        ClassMember* dtor = findMember(instance->klass, "~" + instance->klass->name);
-        if (dtor && dtor->defined) {
-            auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = instance->klass; bound->member = dtor;
-            try { callMethod(bound, {}, 1); } catch (...) {}
-        }
-        if (instance->klass->base) {
-            ClassMember* baseDtor = findMember(instance->klass->base, "~" + instance->klass->base->name);
-            if (baseDtor && baseDtor->defined) {
-                auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = instance->klass->base; bound->member = baseDtor;
-                try { callMethod(bound, {}, 1); } catch (...) {}
+    bool instanceGraphContains(
+        const std::shared_ptr<Instance>& root,
+        const std::shared_ptr<Instance>& target,
+        std::unordered_set<const Instance*>& visited) const {
+        if (!root || !target) return false;
+        if (root == target) return true;
+        if (!visited.insert(root.get()).second) return false;
+
+        for (const auto& field : root->fields) {
+            if (const auto* child = std::get_if<std::shared_ptr<Instance>>(&field.second)) {
+                if (instanceGraphContains(*child, target, visited)) return true;
+            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&field.second)) {
+                if (*method && instanceGraphContains((*method)->instance, target, visited)) return true;
             }
         }
+        return false;
     }
+
     bool referencedOutsideScope(const std::shared_ptr<Instance>& instance, std::size_t poppedIndex) const {
         for (std::size_t i = 0; i < scopes_.size(); ++i) {
             if (i == poppedIndex) continue;
             for (const auto& pair : scopes_[i]) {
+                std::unordered_set<const Instance*> visited;
                 if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second)) {
-                    if (*candidate == instance) return true;
-                }
-                if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
-                    if (*method && (*method)->instance == instance) return true;
+                    if (instanceGraphContains(*candidate, instance, visited)) return true;
+                } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
+                    if (*method && instanceGraphContains((*method)->instance, instance, visited)) return true;
                 }
             }
         }
         return false;
+    }
+
+    void destroyClassPart(const std::shared_ptr<Instance>& instance,
+                          const std::shared_ptr<ClassDef>& klass,
+                          std::size_t poppedIndex) {
+        if (!instance || !klass) return;
+
+        // C++-style destruction order for this class part: destructor body,
+        // fields in reverse declaration order, then the base-class part.
+        const std::string destructorName = "~" + klass->name;
+        ClassMember* destructor = nullptr;
+        for (auto& member : klass->members) {
+            if (member.kind == ClassMember::Kind::Method &&
+                member.isDestructor && member.name == destructorName) {
+                destructor = &member;
+                break;
+            }
+        }
+        if (destructor && destructor->defined) {
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = destructor;
+            try { callMethod(bound, {}, 1); } catch (...) {}
+        }
+
+        for (auto member = klass->members.rbegin(); member != klass->members.rend(); ++member) {
+            if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
+            const auto value = instance->fields.find(member->name);
+            if (value == instance->fields.end()) continue;
+            const auto* child = std::get_if<std::shared_ptr<Instance>>(&value->second);
+            if (!child || !*child || *child == instance) continue;
+            if (!referencedOutsideScope(*child, poppedIndex))
+                destroyInstance(*child, poppedIndex);
+        }
+
+        if (klass->base) destroyClassPart(instance, klass->base, poppedIndex);
+    }
+
+    void destroyInstance(const std::shared_ptr<Instance>& instance,
+                         std::size_t poppedIndex = static_cast<std::size_t>(-1)) {
+        if (!instance || instance->destroyed) return;
+        instance->destroyed = true;
+        destroyClassPart(instance, instance->klass, poppedIndex);
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
@@ -1402,7 +1448,7 @@ private:
         }
         scopes_.pop_back();
         if (runDestructors) for (const auto& instance : instances)
-            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance);
+            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance, index);
     }
     void executeBlock(const std::vector<Stmt>& body) {
         scopes_.emplace_back();
