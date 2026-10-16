@@ -347,7 +347,7 @@ private:
         static const std::vector<std::string> reserved = {
             "main", "nix", "fn", "class", "use", "print", "println", "repeat", "if", "elif",
             "else", "for", "return", "true", "false", "null", "and", "or", "not",
-            "this", "public", "private", "protected", "static", "uin", "sqrt", "sq",
+            "this", "public", "private", "protected", "secured", "static", "uin", "sqrt", "sq",
             "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
             "toUpper", "toLower"
         };
