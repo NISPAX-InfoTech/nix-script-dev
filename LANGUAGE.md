@@ -15,11 +15,34 @@ NixScript is a readable, multi-paradigm, general-purpose language with predictab
 - Set `NIXSCRIPT_LIB_PATH` to override the installed-library directory.
 - Imports can be nested. Each resolved file is loaded once; circular imports and missing libraries produce readable errors.
 - Library files contain top-level `fn` and `class` declarations and optional method definitions, but must not define `nix main()`.
-- Imported declarations share the global namespace for now. Export visibility, aliases, package manifests, and package-manager support are future work.
+- Imported declarations share the global namespace for now. Export visibility, aliases, dependency handling, and package integrity signatures are future work.
 
 ```ns
 use discord;
 ```
+
+## Official package commands
+
+Only libraries listed by the team in the official registry are installable. The CLI reads `registry/index.txt`, where each line is a package name and a `MAJOR.MINOR.PATCH` version. The matching source file is stored at `registry/libraries/<name>/<version>/<name>.ns`. Published version directories should not be edited in place; add a new version and update the index to release a package update.
+
+```sh
+nix install numbers  # Install the latest indexed official version.
+nix list             # Show locally installed package versions.
+nix update numbers   # Update one installed package.
+nix update           # Update every installed official package.
+```
+
+The first official package is `numbers`, which provides `clamp(value, minimum, maximum)`. After installing it, source code can use:
+
+```ns
+use numbers;
+
+nix main() {
+    println(clamp(14, 0, 10));  // 10
+}
+```
+
+The installer downloads files from the fixed official GitHub registry over HTTPS using `curl`; the registry does not accept arbitrary download URLs. Versions are recorded in `installed.txt` alongside installed libraries. The initial format supports single-file libraries only; dependency resolution and cryptographic signatures are future work.
 
 ## Variables and type inference
 
@@ -223,7 +246,7 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Implementation status
 
-The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, a subset of C++-style classes/objects, and source-file library loading with `use`. Function values, arrays, module exports, and package management remain unimplemented.
+The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, a subset of C++-style classes/objects, and source-file library loading with `use`. Function values, arrays, module exports, package dependency management, and package integrity signatures remain unimplemented.
 
 ## Open decisions
 
@@ -233,5 +256,5 @@ The current C++17 interpreter prototype supports the required `nix main()` entry
 4. Array syntax and memory/layout guarantees.
 5. Module loading and top-level function semantics.
 6. Full C++-style class details not covered by the current subset.
-7. Module exports, aliases, package manifests, and package-manager behavior.
+7. Module exports, aliases, package dependency manifests, and registry integrity signatures.
 7. Unicode behavior for string case conversion; current implementation is ASCII-only.
