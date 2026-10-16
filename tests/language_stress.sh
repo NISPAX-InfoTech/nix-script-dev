@@ -122,6 +122,45 @@ nix main() {
 }
 NS
 
+run_ok numeric_edge_semantics $'false\ntrue\n-6\n2\n' <<'NS'
+nix main() {
+    println(true == 1);
+    println(null == null);
+    println(-2 * 3);
+    println(8 / 4);
+}
+NS
+
+run_ok escaped_quotes_backslashes_and_literal_braces $'say "hi"\\npath\\\\folder\\n{literal}\\n' <<'NS'
+nix main() {
+    println("say \"hi\"");
+    println("path\\folder");
+    println("{literal}");
+}
+NS
+
+run_ok block_shadowing_and_local_lifetime $'outer\ninner\nouter\n' <<'NS'
+nix main() {
+    var label = "outer";
+    if (true) {
+        var label = "inner";
+        println(label);
+    }
+    println(label);
+}
+NS
+
+run_ok bare_return_stops_function $'before\n' <<'NS'
+fn stop_early() {
+    println("before");
+    return;
+    println("bad");
+}
+nix main() {
+    stop_early();
+}
+NS
+
 echo "=== Variables, scopes, and mutation ==="
 
 run_ok inferred_variables_and_increment $'10\n11\n10\nChanged\n' <<'NS'
@@ -521,6 +560,57 @@ nix main() {
 }
 NS
 
+run_ok object_alias_keeps_instance_alive_until_last_scope $'inside\nstill alive\ndestroyed\n' <<'NS'
+class Life {
+public:
+    ~Life() {
+        println("destroyed");
+    }
+};
+nix main() {
+    var item = Life();
+    if (true) {
+        var innerAlias = item;
+        println("inside");
+    }
+    println("still alive");
+}
+NS
+
+run_ok private_method_can_be_called_inside_class $'secret\n' <<'NS'
+class Safe {
+private:
+    int reveal() {
+        return 42;
+    }
+public:
+    int run() {
+        println("secret");
+        return this.reveal();
+    }
+};
+nix main() {
+    var safe = Safe();
+    safe.run();
+}
+NS
+
+run_ok class_method_can_call_another_method $'42\n' <<'NS'
+class Calculator {
+public:
+    int doubleValue(value) {
+        return value * 2;
+    }
+    int calc(value) {
+        return this.doubleValue(value + 10) + 2;
+    }
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.calc(10));
+}
+NS
+
 echo "=== Source import loader ==="
 
 mkdir -p "$TMP/import-comments/lib"
@@ -590,6 +680,63 @@ NS
 NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
 
 echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
 
 run_error uninitialized_variable "has not been initialized" <<'NS'
 nix main() {
