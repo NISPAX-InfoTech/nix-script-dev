@@ -308,7 +308,7 @@ jobs:
           export NIXSCRIPT_LIB_PATH="$PWD/public-registry-test/installed"
 
           ./build/nix install numbers
-          printf 'numbers 1.0.0\\n' > public-registry-test/expected-installed.txt
+          printf 'numbers 1.0.0\n' > public-registry-test/expected-installed.txt
           ./build/nix list > public-registry-test/actual-installed.txt
           diff -u public-registry-test/expected-installed.txt public-registry-test/actual-installed.txt
 
@@ -321,7 +321,7 @@ jobs:
           }
           EOF
           actual="$(./build/nix public-registry-test/use_numbers.ns)"
-          expected="$(printf '10\\n0\\n5')"
+          expected="$(printf '10\n0\n5')"
           [[ "$actual" == "$expected" ]] || { echo "Live public numbers package produced unexpected output" >&2; exit 1; }
 
           ./build/nix update numbers
