@@ -1999,6 +1999,7 @@ private:
         }
 
         const auto catalog = fetchCatalog();
+        auto currentInstalled = installed;
         for (const auto& item : installed) {
             if (requestedName && item.first != *requestedName) continue;
             const auto latest = catalog.find(item.first);
@@ -2011,12 +2012,16 @@ private:
                           << " is no longer listed in the official registry; leaving it unchanged.\n";
                 continue;
             }
-            if (latest->second == item.second) {
-                std::cout << item.first << " is already up to date (" << item.second << ").\n";
+            const auto current = currentInstalled.find(item.first);
+            if (current != currentInstalled.end() && latest->second == current->second) {
+                std::cout << item.first << " is already up to date (" << current->second << ").\n";
                 continue;
             }
-            installVersion(item.first, latest->second, installed);
-            std::cout << "Updated " << item.first << " from " << item.second
+            const std::string previousVersion =
+                current == currentInstalled.end() ? item.second : current->second;
+            installVersion(item.first, latest->second, currentInstalled);
+            currentInstalled[item.first] = latest->second;
+            std::cout << "Updated " << item.first << " from " << previousVersion
                       << " to " << latest->second << ".\n";
         }
     }
