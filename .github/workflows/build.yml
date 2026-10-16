@@ -45,7 +45,7 @@ jobs:
         run: |
           actual="$(./build/nix examples/use_library.ns)"
           expected="$(printf '42\n21')"
-          printf '%s\\n' "$actual"
+          printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/use_library.ns" >&2
             exit 1
