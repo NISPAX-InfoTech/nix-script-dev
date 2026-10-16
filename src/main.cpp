@@ -261,6 +261,10 @@ public:
         while (!(check(TokenKind::Identifier) && peek().text == "nix") && !atEnd()) {
             if (matchIdentifier("class")) {
                 program.push_back(parseClass());
+            } else if (check(TokenKind::Identifier) && peek().text == "fn" &&
+                       look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
+                advance(); // fn
+                parseOutOfClassDefinition();
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
@@ -280,7 +284,11 @@ public:
         for (auto& stmt : mainBody) program.push_back(std::move(stmt));
 
         while (!atEnd()) {
-            if (matchIdentifier("fn")) {
+            if (check(TokenKind::Identifier) && peek().text == "fn" &&
+                look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
+                advance(); // fn
+                parseOutOfClassDefinition();
+            } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
@@ -471,6 +479,15 @@ private:
             member.owner = klass->name;
             member.access = access;
             member.isStatic = matchIdentifier("static");
+            if (matchIdentifier("fn")) {
+                member.name = consumeName("Expected a method name after 'fn'.");
+                member.typeName = "var";
+                member.kind = ClassMember::Kind::Method;
+                member.isConstructor = member.name == klass->name;
+                parseMethodTail(member);
+                appendMember(std::move(member));
+                continue;
+            }
             if (match(TokenKind::Tilde)) {
                 member.kind = ClassMember::Kind::Method;
                 member.name = "~" + consumeName("Expected a destructor name after '~'.");
@@ -481,6 +498,15 @@ private:
             }
 
             std::string first = consumeName("Expected a field or method declaration.");
+            if (first == "fn") {
+                member.name = consumeName("Expected a method name after 'fn'.");
+                member.typeName = "var";
+                member.kind = ClassMember::Kind::Method;
+                member.isConstructor = member.name == klass->name;
+                parseMethodTail(member);
+                appendMember(std::move(member));
+                continue;
+            }
             if (first == "var") {
                 member.typeName = "var";
                 member.name = consumeName("Expected a field name after 'var'.");
@@ -523,6 +549,11 @@ private:
 
     bool looksLikeOutOfClassDefinition() const {
         if (!check(TokenKind::Identifier)) return false;
+        if (peek().text == "fn") {
+            return look(1).kind == TokenKind::Identifier &&
+                   look(2).kind == TokenKind::Scope &&
+                   classNames_.count(look(1).text) != 0;
+        }
         if (look(1).kind == TokenKind::Scope) return classNames_.count(peek().text) != 0;
         return look(1).kind == TokenKind::Identifier &&
                look(2).kind == TokenKind::Scope &&
@@ -530,6 +561,8 @@ private:
     }
 
     void parseOutOfClassDefinition() {
+        // The explicit fn keyword is accepted for qualified method definitions.
+        matchIdentifier("fn");
         std::string returnType;
         std::string className;
         if (look(1).kind == TokenKind::Scope) {
