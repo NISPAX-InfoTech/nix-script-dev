@@ -454,7 +454,7 @@ private:
                                      klass->name + "'.");
                 }
             }
-            appendMember(std::move(member));
+            klass->members.push_back(std::move(member));
         };
         while (!check(TokenKind::RightBrace) && !atEnd()) {
             if (check(TokenKind::Identifier) &&
