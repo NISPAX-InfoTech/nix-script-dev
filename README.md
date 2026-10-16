@@ -42,11 +42,11 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 
 - Function values and callback passing
 - Fixed-size arrays
-- Export/visibility rules for modules and package-manager support
+- Export/visibility rules for modules and package dependency management
 
 Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
-The interpreter is still an evolving prototype: function values/callback passing, arrays, module export/visibility rules, and package-manager support are not implemented yet. String case conversion currently operates on ASCII characters.
+The interpreter is still an evolving prototype: function values/callback passing, arrays, module export/visibility rules, package dependency management, and package integrity signatures are not implemented yet. String case conversion currently operates on ASCII characters.
 
 ## Libraries
 
@@ -68,5 +68,22 @@ nix main() {
 ```
 
 For a working example, run `./build/nix examples/use_library.ns`.
+
+## Official library packages
+
+The CLI can install only packages published in the team-maintained registry in [`registry/`](registry/). The registry index maps each package name to a version, and released package files live at `registry/libraries/<name>/<version>/<name>.ns`. The installer constructs downloads from the fixed official GitHub source; registry entries cannot select arbitrary repositories or URLs.
+
+```sh
+nix install numbers
+nix list
+nix update numbers
+nix update
+```
+
+`nix install <name>` downloads the latest version listed in the official index and records the installed version. `nix update <name>` updates one installed package; `nix update` updates all installed packages. `nix list` shows installed official packages and their recorded versions. Currently, `numbers` is the starter package; a package is installable only after the team adds it to `registry/index.txt` and publishes its versioned `.ns` file.
+
+The CLI uses `curl` for HTTPS downloads. Installed libraries share the standard library directory used by `use`; set `NIXSCRIPT_LIB_PATH` to override that directory during development or testing. Packages are regular `.ns` files, so importing one uses the existing `use numbers;` syntax.
+
+The initial package format supports single-file libraries and version tracking. Dependency installation and cryptographic package signatures are future improvements.
 
 See [LANGUAGE.md](LANGUAGE.md) for syntax notes and limitations.
