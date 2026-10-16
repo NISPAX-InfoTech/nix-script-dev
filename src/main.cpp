@@ -221,7 +221,7 @@ struct ClassMember {
     bool isConstructor = false;
     bool isDestructor = false;
     bool defined = true;
-    Access access = Access::Private;
+    Access access = Access::Public;
     std::unique_ptr<Expr> initializer;
     std::vector<std::string> parameters;
     std::vector<Stmt> body;
