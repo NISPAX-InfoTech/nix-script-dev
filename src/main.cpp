@@ -562,10 +562,12 @@ private:
 
     void parseOutOfClassDefinition() {
         // The explicit fn keyword is accepted for qualified method definitions.
-        matchIdentifier("fn");
+        const bool hasFnKeyword = matchIdentifier("fn");
         std::string returnType;
         std::string className;
-        if (look(1).kind == TokenKind::Scope) {
+        if (hasFnKeyword) {
+            className = consumeName("Expected a class name after 'fn'.");
+        } else if (look(1).kind == TokenKind::Scope) {
             className = advance().text;
         } else {
             returnType = advance().text;
