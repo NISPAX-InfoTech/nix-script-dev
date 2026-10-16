@@ -78,7 +78,7 @@ var age = uin("Enter your age: ", int);
 - `print(...)` writes all supplied values exactly as given, without adding a newline.
 - `println(...)` writes all supplied values and then adds one newline.
 - Both accept zero or more comma-separated values and do not silently insert spaces.
-- Double-quoted strings support interpolation with `{$variable}` and escapes such as `\n` (newline) and `\t` (tab).
+- Double-quoted strings support interpolation with either `{$variable}` or `${variable}`, and escapes such as `\n` (newline) and `\t` (tab).
 
 ```ns
 var name = "Alex";
