@@ -23,6 +23,18 @@ class Case:
 
 CASES = [
     Case("empty main", 'nix main() { }'),
+        Case("zero literal", 'nix main() { println(0); }', "0\n"),
+        Case("negative result", 'nix main() { println(3 - 9); }', "-6\n"),
+        Case("nested arithmetic precedence", 'nix main() { println(2 + 3 * 4 - 5); }', "9\n"),
+        Case("empty string", 'nix main() { println(""); }', "\n"),
+        Case("numeric interpolation", 'nix main() { var count = 7; println("count={$count}"); }', "count=7\n"),
+        Case("nested repeat loops", 'nix main() { var n = 0; repeat(2) { repeat(3) { n = n + 1; } } println(n); }', "6\n"),
+        Case("early return", 'fn choose(n) { if (n > 0) { return 8; } return 9; } nix main() { println(choose(1)); println(choose(0)); }', "8\n9\n"),
+        Case("fibonacci recursion", 'fn fib(n) { if (n <= 1) { return n; } return fib(n - 1) + fib(n - 2); } nix main() { println(fib(8)); }', "21\n"),
+        Case("whitespace predicate", 'nix main() { println(isSpace("  ")); println(isSpace(" a ")); println(isSpace("")); }', "1\n0\n0\n"),
+        Case("rounding helpers", 'nix main() { println(floor(3.8)); println(ceil(3.2)); println(round(3.6)); }', "3\n4\n4\n"),
+        Case("unclosed block rejected", 'nix main() { println("unfinished");', should_succeed=False),
+        Case("invalid token rejected", 'nix main() { @; }', should_succeed=False),
     Case("integer arithmetic", 'nix main() { println(2 + 3 * 4); }', "14\n"),
     Case("parentheses", 'nix main() { println((2 + 3) * 4); }', "20\n"),
     Case("division and subtraction", 'nix main() { println(20 / 5 - 2); }', "2\n"),
