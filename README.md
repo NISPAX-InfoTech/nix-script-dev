@@ -71,7 +71,7 @@ For a working example, run `./build/nix examples/use_library.ns`.
 
 ## Official library packages
 
-The CLI can install only packages published in the team-maintained registry in [`registry/`](registry/). The registry index maps each package name to a version, and released package files live at `registry/libraries/<name>/<version>/<name>.ns`. The installer constructs downloads from the fixed official GitHub source; registry entries cannot select arbitrary repositories or URLs.
+The CLI installs packages from the public [official NixScript library registry](https://github.com/NISPAX-InfoTech/nixscript-libraries). Its `index.txt` maps each package to a version, and released files live at `libraries/<name>/<version>/<name>.ns` within that registry. The installer constructs downloads from this fixed source; registry entries cannot select arbitrary repositories or URLs.
 
 ```sh
 nix install numbers
@@ -80,7 +80,7 @@ nix update numbers
 nix update
 ```
 
-`nix install <name>` downloads the latest version listed in the official index and records the installed version. `nix update <name>` updates one installed package; `nix update` updates all installed packages. `nix list` shows installed official packages and their recorded versions. Currently, `numbers` is the starter package; a package is installable only after the team adds it to `registry/index.txt` and publishes its versioned `.ns` file.
+`nix install <name>` downloads the latest version listed in the official index and records the installed version. `nix update <name>` updates one installed package; `nix update` updates all installed packages. `nix list` shows installed official packages and their recorded versions. Currently, `numbers` is the starter package. A package is installable only after it appears in the public registry's `index.txt` and its versioned `.ns` file is published there.
 
 The CLI uses `curl` for HTTPS downloads. Installed libraries share the standard library directory used by `use`; set `NIXSCRIPT_LIB_PATH` to override that directory during development or testing. Packages are regular `.ns` files, so importing one uses the existing `use numbers;` syntax.
 
