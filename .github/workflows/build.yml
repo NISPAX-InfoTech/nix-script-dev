@@ -100,6 +100,199 @@ jobs:
           fi
           grep -q "Circular library import detected" import-test/circular.log
 
+      - name: Test official library install and updates
+        shell: bash
+        run: |
+          mkdir -p package-test/bin package-test/fixture/registry/libraries/demo/{1.0.0,1.1.0,2.0.0}
+          cat > package-test/bin/curl <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          output=""
+          url=""
+          while (($#)); do
+            case "$1" in
+              --output) output="$2"; shift 2 ;;
+              --*) shift ;;
+              *) url="$1"; shift ;;
+            esac
+          done
+          prefix="https://raw.githubusercontent.com/NISPAX-InfoTech/nix-script/main/"
+          [[ "$url" == "$prefix"* ]] || { echo "Unexpected registry URL: $url" >&2; exit 2; }
+          relative="${url#"$prefix"}"
+          source="$NIXSCRIPT_TEST_REGISTRY_DIR/$relative"
+          [[ -f "$source" ]] || { echo "Fixture does not exist: $source" >&2; exit 2; }
+          cp "$source" "$output"
+          EOF
+          chmod +x package-test/bin/curl
+
+          cat > package-test/fixture/registry/index.txt <<'EOF'
+          demo 1.0.0
+          EOF
+          cat > package-test/fixture/registry/libraries/demo/1.0.0/demo.ns <<'EOF'
+          fn demo_value() { return 10; }
+          EOF
+          cat > package-test/fixture/registry/libraries/demo/1.1.0/demo.ns <<'EOF'
+          fn demo_value() { return 11; }
+          EOF
+          cat > package-test/fixture/registry/libraries/demo/2.0.0/demo.ns <<'EOF'
+          fn demo_value() { return 20; }
+          EOF
+          export PATH="$PWD/package-test/bin:$PATH"
+          export NIXSCRIPT_TEST_REGISTRY_DIR="$PWD/package-test/fixture"
+          export NIXSCRIPT_LIB_PATH="$PWD/package-test/installed"
+
+          ./build/nix install demo
+          printf 'demo 1.0.0\n' > package-test/expected-installed.txt
+          ./build/nix list > package-test/actual-installed.txt
+          diff -u package-test/expected-installed.txt package-test/actual-installed.txt
+
+          cat > package-test/use_demo.ns <<'EOF'
+          use demo;
+          nix main() {
+              println(demo_value());
+          }
+          EOF
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "10" ]] || { echo "Installed library did not load" >&2; exit 1; }
+
+          printf 'demo 1.1.0\n' > package-test/fixture/registry/index.txt
+          ./build/nix update demo
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "11" ]] || { echo "Targeted nix update failed" >&2; exit 1; }
+
+          printf 'demo 2.0.0\n' > package-test/fixture/registry/index.txt
+          ./build/nix update
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "20" ]] || { echo "Updating all packages failed" >&2; exit 1; }
+          grep -q '^demo 2.0.0
+          actual="$(./build/nix examples/features.ns)"
+          expected="$(printf '4\nnix:ABC:9:8:4:1:1:1:2:2:3:3\n2\n15\n1\n8\ndestroyed\ndestroyed')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/features.ns" >&2
+            exit 1
+          fi
+
+      - name: Test top-level functions, recursion, and return values
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/functions.ns)"
+          expected="$(printf 'Hello, NixScript!\n42\n120\nfunctions-ready')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/functions.ns" >&2
+            exit 1
+          fi
+
+      - name: Test function prototypes and definitions after main
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/prototypes.ns)"
+          expected="$(printf '42\n120\n41\nprototypes-ready')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/prototypes.ns" >&2
+            exit 1
+          fi
+
+      - name: Test unused prototypes, unresolved calls, signatures and duplicate definitions
+        shell: bash
+        run: |
+          cat > unused-prototypes.ns <<'EOF'
+          fn absent(value);
+          fn maIn(value);
+          nix main() {
+              println("unused prototypes allowed");
+          }
+          EOF
+          ./build/nix unused-prototypes.ns >unused-prototypes.out
+          printf 'unused prototypes allowed\n' >unused-prototypes.expected
+          diff -u unused-prototypes.expected unused-prototypes.out
+
+          cat > unresolved-function.ns <<'EOF'
+          fn absent(value);
+          nix main() {
+              absent(1);
+          }
+          EOF
+          if ./build/nix unresolved-function.ns >unresolved-function.log 2>&1; then
+            echo "Calling a declared function without a definition unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "declared but has no definition" unresolved-function.log
+
+          cat > reserved-main.ns <<'EOF'
+          fn main();
+          nix main() {
+              println("unreachable");
+          }
+          EOF
+          if ./build/nix reserved-main.ns >reserved-main.log 2>&1; then
+            echo "Declaring lowercase main as an ordinary function unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "reserved" reserved-main.log
+
+          cat > mismatched-function.ns <<'EOF'
+          fn combine(left, right);
+          nix main() {
+              println(combine(1, 2));
+          }
+          fn combine(one, two, three) {
+              return one + two + three;
+          }
+          EOF
+          if ./build/nix mismatched-function.ns >mismatched-function.log 2>&1; then
+            echo "A mismatched function declaration unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "declared with 2 parameter(s).*declaration has 3" mismatched-function.log
+
+          cat > duplicate-function.ns <<'EOF'
+          fn duplicate(value) {
+              return value;
+          }
+          nix main() {
+              println(duplicate(1));
+          }
+          fn duplicate(value) {
+              return value + 1;
+          }
+          EOF
+          if ./build/nix duplicate-function.ns >duplicate-function.log 2>&1; then
+            echo "Duplicate function definitions unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "has more than one definition" duplicate-function.log
+
+      - name: Test private member access is rejected
+        shell: bash
+        run: |
+          if ./build/nix examples/access_error.ns >access-error.log 2>&1; then
+            echo "Private member access unexpectedly succeeded" >&2
+            exit 1
+          fi
+          cat access-error.log
+          grep -q "not accessible" access-error.log
+
+      - name: Test string and typed input
+        shell: bash
+        run: |
+          actual="$(printf 'Alex\n17\n' | ./build/nix examples/input.ns)"
+          expected="$(printf 'Alex\nAge: 17')"
+          printf '%s\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/input.ns" >&2
+            exit 1
+          fi
+ package-test/installed/installed.txt
+
+          if ./build/nix install missing_package >package-test/missing.log 2>&1; then
+            echo "A package absent from the official registry unexpectedly installed" >&2
+            exit 1
+          fi
+          grep -q "not listed in the official" package-test/missing.log
+
       - name: Test control flow, built-ins, classes, inheritance and static methods
         shell: bash
         run: |
@@ -115,7 +308,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/functions.ns)"
-          expected="$(printf '42\n21')"
+          expected="$(printf 'Hello, NixScript!\n42\n120\nfunctions-ready')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/functions.ns" >&2
@@ -126,7 +319,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/prototypes.ns)"
-          expected="$(printf '42\n21')"
+          expected="$(printf '42\n120\n41\nprototypes-ready')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/prototypes.ns" >&2
