@@ -103,7 +103,7 @@ jobs:
       - name: Test official library install and updates
         shell: bash
         run: |
-          mkdir -p package-test/bin package-test/fixture/registry/libraries/demo/{1.0.0,1.1.0,2.0.0}
+          mkdir -p package-test/bin package-test/fixture/libraries/demo/{1.0.0,1.1.0,2.0.0}
           cat > package-test/bin/curl <<'EOF'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -116,7 +116,7 @@ jobs:
               *) url="$1"; shift ;;
             esac
           done
-          prefix="https://raw.githubusercontent.com/NISPAX-InfoTech/nix-script/main/"
+          prefix="https://raw.githubusercontent.com/NISPAX-InfoTech/nixscript-libraries/main/"
           [[ "$url" == "$prefix"* ]] || { echo "Unexpected registry URL: $url" >&2; exit 2; }
           relative="${url#"$prefix"}"
           source="$NIXSCRIPT_TEST_REGISTRY_DIR/$relative"
@@ -125,16 +125,16 @@ jobs:
           EOF
           chmod +x package-test/bin/curl
 
-          cat > package-test/fixture/registry/index.txt <<'EOF'
+          cat > package-test/fixture/index.txt <<'EOF'
           demo 1.0.0
           EOF
-          cat > package-test/fixture/registry/libraries/demo/1.0.0/demo.ns <<'EOF'
+          cat > package-test/fixture/libraries/demo/1.0.0/demo.ns <<'EOF'
           fn demo_value() { return 10; }
           EOF
-          cat > package-test/fixture/registry/libraries/demo/1.1.0/demo.ns <<'EOF'
+          cat > package-test/fixture/libraries/demo/1.1.0/demo.ns <<'EOF'
           fn demo_value() { return 11; }
           EOF
-          cat > package-test/fixture/registry/libraries/demo/2.0.0/demo.ns <<'EOF'
+          cat > package-test/fixture/libraries/demo/2.0.0/demo.ns <<'EOF'
           fn demo_value() { return 20; }
           EOF
           export PATH="$PWD/package-test/bin:$PATH"
@@ -155,12 +155,12 @@ jobs:
           output="$(./build/nix package-test/use_demo.ns)"
           [[ "$output" == "10" ]] || { echo "Installed library did not load" >&2; exit 1; }
 
-          printf 'demo 1.1.0\n' > package-test/fixture/registry/index.txt
+          printf 'demo 1.1.0\n' > package-test/fixture/index.txt
           ./build/nix update demo
           output="$(./build/nix package-test/use_demo.ns)"
           [[ "$output" == "11" ]] || { echo "Targeted nix update failed" >&2; exit 1; }
 
-          printf 'demo 2.0.0\n' > package-test/fixture/registry/index.txt
+          printf 'demo 2.0.0\n' > package-test/fixture/index.txt
           ./build/nix update
           output="$(./build/nix package-test/use_demo.ns)"
           [[ "$output" == "20" ]] || { echo "Updating all packages failed" >&2; exit 1; }
