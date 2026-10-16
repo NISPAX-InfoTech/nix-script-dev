@@ -582,7 +582,7 @@ private:
                 fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
                      "Method '" + definition.methodName + "' is declared with " +
                      std::to_string(member->parameters.size()) + " parameter(s), but the definition has " +
-                     std::to_string(definition.params.size()) + ".");
+                     std::to_string(definition.params.size()) + " parameter(s).");
             }
             if (!member) {
                 ClassMember added;
