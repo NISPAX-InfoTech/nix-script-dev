@@ -3,11 +3,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -1554,6 +1556,105 @@ private:
     }
 };
 
+ 
+// Resolve imports before parsing so library declarations share the same symbol
+// table as the importing program. A library is a .ns file without nix main().
+namespace nix {
+namespace fs = std::filesystem;
+struct SourceLoader {
+    std::unordered_set<std::string> loaded;
+    std::unordered_set<std::string> active;
+    static std::string trim(const std::string& value) {
+        const auto first = value.find_first_not_of(" \t\r");
+        if (first == std::string::npos) return {};
+        const auto last = value.find_last_not_of(" \t\r");
+        return value.substr(first, last - first + 1);
+    }
+    static bool isCommentOrBlank(const std::string& line) {
+        const auto text = trim(line);
+        return text.empty() || text.rfind("//", 0) == 0;
+    }
+    static bool parseUse(const std::string& line, std::string& name) {
+        const auto text = trim(line);
+        if (text.rfind("use", 0) != 0 ||
+            (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_')))
+            return false;
+        if (text.size() < 6 || text.back() != ';') return false;
+        const auto nameText = trim(text.substr(3, text.size() - 4));
+        if (nameText.empty() ||
+            !(std::isalpha(static_cast<unsigned char>(nameText[0])) || nameText[0] == '_'))
+            return false;
+        for (char c : nameText)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) return false;
+        name = nameText;
+        return true;
+    }
+    static fs::path resolve(const fs::path& importer, const std::string& name) {
+        const fs::path directory = importer.parent_path();
+        const std::vector<fs::path> candidates = {
+            directory / (name + ".ns"),
+            directory / "lib" / (name + ".ns"),
+            directory / "libraries" / (name + ".ns"),
+            fs::current_path() / "lib" / (name + ".ns"),
+            fs::current_path() / "libraries" / (name + ".ns")
+        };
+        for (const auto& candidate : candidates) {
+            std::error_code ec;
+            if (fs::is_regular_file(candidate, ec)) return candidate;
+        }
+        throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" +
+            importer.string() + "'. Looked for " + name +
+            ".ns beside the source and in lib/ or libraries/.");
+    }
+    std::string load(const fs::path& inputPath) {
+        std::error_code ec;
+        fs::path path = fs::weakly_canonical(inputPath, ec);
+        if (ec) path = fs::absolute(inputPath).lexically_normal();
+        const std::string key = path.string();
+        if (active.count(key))
+            throw std::runtime_error("Circular library import detected at '" + key + "'.");
+        if (loaded.count(key)) return {};
+        std::ifstream file(path);
+        if (!file) throw std::runtime_error("Could not open source file: " + path.string());
+        std::ostringstream contents;
+        contents << file.rdbuf();
+        std::istringstream lines(contents.str());
+        std::string line;
+        std::vector<std::string> imports;
+        std::ostringstream localSource;
+        bool importSection = true;
+        while (std::getline(lines, line)) {
+            std::string library;
+            if (importSection && parseUse(line, library)) {
+                imports.push_back(library);
+                continue;
+            }
+            if (importSection && isCommentOrBlank(line)) {
+                localSource << line << '\n';
+                continue;
+            }
+            importSection = false;
+            localSource << line << '\n';
+        }
+        active.insert(key);
+        std::string combined;
+        try {
+            for (const auto& library : imports) {
+                combined += load(resolve(path, library));
+                combined += '\n';
+            }
+        } catch (...) {
+            active.erase(key);
+            throw;
+        }
+        active.erase(key);
+        loaded.insert(key);
+        combined += localSource.str();
+        return combined;
+    }
+};
+} // namespace nix
+
 } // namespace nix
 
 #ifndef NIX_ANDROID
@@ -1562,15 +1663,10 @@ int main(int argc, char** argv) {
         std::cerr << "Usage: nix <file.ns>\n";
         return 2;
     }
-    std::ifstream file(argv[1]);
-    if (!file) {
-        std::cerr << "Could not open file: " << argv[1] << '\n';
-        return 2;
-    }
-    std::ostringstream source;
-    source << file.rdbuf();
     try {
-        nix::Lexer lexer(source.str());
+        nix::SourceLoader loader;
+        const std::string source = loader.load(argv[1]);
+        nix::Lexer lexer(source);
         nix::Parser parser(lexer.scan());
         nix::Interpreter interpreter;
         interpreter.run(parser.parseMain());
