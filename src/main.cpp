@@ -853,7 +853,7 @@ private:
                 if (!check(TokenKind::RightParen)) {
                     do {
                         if (call->left->kind == Expr::Kind::Variable && call->left->name == "uin" &&
-                            check(TokenKind::Identifier) &&
+                            !call->items.empty() && check(TokenKind::Identifier) &&
                             (peek().text == "int" || peek().text == "float" || peek().text == "double" ||
                              peek().text == "number" || peek().text == "string" || peek().text == "bool") &&
                             look(1).kind == TokenKind::RightParen) {
@@ -1576,7 +1576,12 @@ struct SourceLoader {
         return text.empty() || text.rfind("//", 0) == 0;
     }
     static bool parseUse(const std::string& line, std::string& name) {
-        const auto text = trim(line);
+        // Import declarations are line-based, but a trailing lexer-style comment
+        // should not make an otherwise valid "use name;" declaration disappear.
+        const auto comment = line.find("//");
+        const std::string declaration = comment == std::string::npos
+            ? line : line.substr(0, comment);
+        const auto text = trim(declaration);
         if (text.rfind("use", 0) != 0 ||
             (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_')))
             return false;
