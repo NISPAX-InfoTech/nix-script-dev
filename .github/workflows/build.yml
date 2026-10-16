@@ -298,3 +298,44 @@ jobs:
             echo "Unexpected output from examples/input.ns" >&2
             exit 1
           fi
+
+  windows:
+    name: Windows build and language stress
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure CMake
+        run: cmake -S . -B build -A x64
+
+      - name: Build interpreter
+        run: cmake --build build --config Release --parallel
+
+      - name: Run language stress and regression suite
+        run: python tests/language_stress.py build/Release/nix.exe
+
+      - name: Run existing example smoke test
+        shell: pwsh
+        run: |
+          $actual = & .\build\Release\nix.exe examples\hello.ns
+          if ($LASTEXITCODE -ne 0) { throw "examples/hello.ns failed with exit code $LASTEXITCODE" }
+          $expected = @(
+            "Hello, NixScript!"
+            "Hello, NixScript!"
+            "50"
+            "Keep building!"
+            "Keep building!"
+            "Keep building!"
+          ) -join "`n"
+          $actualText = $actual -join "`n"
+          if ($actualText -ne $expected) {
+            Write-Error "Unexpected output from examples/hello.ns. Actual: $actualText"
+            exit 1
+          }
