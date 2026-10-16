@@ -37,7 +37,7 @@ def make_cases() -> list[tuple[str, str]]:
         ("operator without right operand", "nix main() { println(1 + ); }"),
         ("missing return expression", "fn f() { return 1 + ; } nix main() {}"),
         ("unterminated string", 'nix main() { println("unclosed); }'),
-        ("invalid interpolation", 'nix main() { println("{$"); }'),
+        ("invalid interpolation", 'nix main() { var value = 1; println("{$value"); }'),
         ("typed top-level parameter", "fn f(int value) { return value; } nix main() {}"),
     ])
 
