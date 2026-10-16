@@ -271,6 +271,13 @@ public:
             }
         }
 
+        // Only prototypes written before main may authorize definitions after main.
+        // A function already defined above main does not need a prototype.
+        for (const auto& declared : functionParameterCounts_) {
+            if (!functionDefinitionLines_.count(declared.first))
+                preMainFunctionPrototypes_[declared.first] = declared.second;
+        }
+
         consumeIdentifierExact("nix", "Every executable NixScript file must contain 'nix main()'.");
         consumeIdentifierExact("main", "Expected main function.");
         consume(TokenKind::LeftParen, "Expected '(' after main.");
@@ -279,6 +286,7 @@ public:
         auto mainBody = statementsUntilBrace();
         for (auto& stmt : mainBody) program.push_back(std::move(stmt));
 
+        parsingAfterMain_ = true;
         while (!atEnd()) {
             if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
@@ -300,7 +308,9 @@ private:
     std::unordered_map<std::string, bool> classNames_;
     std::unordered_map<std::string, bool> functionNames_;
     std::unordered_map<std::string, std::size_t> functionParameterCounts_;
+    std::unordered_map<std::string, std::size_t> preMainFunctionPrototypes_;
     std::unordered_map<std::string, int> functionDefinitionLines_;
+    bool parsingAfterMain_ = false;
 
     const Token& peek() const { return tokens_[current_]; }
     const Token& previous() const { return tokens_[current_ - 1]; }
@@ -386,6 +396,15 @@ private:
         }
 
         const bool defined = check(TokenKind::LeftBrace);
+        if (parsingAfterMain_ && !defined) {
+            fail(fnToken, "Function prototypes must be declared before 'nix main()'.");
+        }
+        if (parsingAfterMain_ && defined &&
+            !preMainFunctionPrototypes_.count(name) &&
+            !functionDefinitionLines_.count(name)) {
+            fail(fnToken, "Function '" + name +
+                          "' must have a prototype before 'nix main()' before its definition.");
+        }
         auto declaredCount = functionParameterCounts_.find(name);
         if (declaredCount != functionParameterCounts_.end() && declaredCount->second != params.size()) {
             fail(fnToken, "Function '" + name + "' is declared with " +
