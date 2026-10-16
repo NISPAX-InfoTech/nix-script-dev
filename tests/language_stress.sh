@@ -139,7 +139,11 @@ nix main() {
 }
 NS
 
-run_ok block_shadowing_and_local_lifetime 
+run_ok block_shadowing_and_local_lifetime $'outer\ninner\nouter\n' <<'NS'
+nix main() {
+    var label = "outer";
+    println(label);
+    if (true) {
         var label = "inner";
         println(label);
     }
