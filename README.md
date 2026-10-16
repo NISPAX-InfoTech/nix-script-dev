@@ -42,10 +42,24 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 
 - Function values and callback passing
 - Fixed-size arrays
-- Module loading and `use` imports
+- Export/visibility rules for modules and package-manager support
 
 Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
-The interpreter is still an evolving prototype: function values/callback passing, arrays, and module loading are not implemented yet. String case conversion currently operates on ASCII characters.
+The interpreter is still an evolving prototype: function values/callback passing, arrays, module export/visibility rules, and package-manager support are not implemented yet. String case conversion currently operates on ASCII characters.
+
+## Libraries
+
+`use name;` loads `name.ns` from beside the importing file, or from a `lib/` or `libraries/` directory beside it. The current working directory's `lib/` and `libraries/` directories are also searched. Imports can be nested; a file is loaded once, and circular imports are reported. Library files contain declarations (such as `fn` functions and `class` definitions), not `nix main()`. Imported declarations currently share the program's global namespace; explicit exports and aliases are not implemented yet.
+
+```ns
+use greeting;
+
+nix main() {
+    greet("Alex");
+}
+```
+
+For a working example, run `./build/nix examples/use_library.ns`.
 
 See [LANGUAGE.md](LANGUAGE.md) for syntax notes and limitations.
