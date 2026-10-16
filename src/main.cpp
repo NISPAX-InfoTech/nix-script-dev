@@ -192,6 +192,7 @@ struct Stmt {
     std::string typeName;
     std::vector<std::string> parameters;
     bool functionDefined = false;
+    bool printNewline = false;
     std::unique_ptr<Expr> target;
     std::unique_ptr<Expr> expression;
     std::unique_ptr<Stmt> initializer;
@@ -256,7 +257,7 @@ public:
                 program.push_back(parseClass());
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
-                if (function.functionDefined) program.push_back(std::move(function));
+                program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
             } else {
@@ -275,7 +276,7 @@ public:
         while (!atEnd()) {
             if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
-                if (function.functionDefined) program.push_back(std::move(function));
+                program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
             } else {
@@ -283,7 +284,6 @@ public:
             }
         }
         resolveOutOfClassDefinitions();
-        resolveFunctionDeclarations();
         consume(TokenKind::End, "Unexpected content after main.");
         return program;
     }
@@ -292,9 +292,7 @@ private:
     std::vector<Token> tokens_;
     std::size_t current_ = 0;
     std::unordered_map<std::string, bool> classNames_;
-    std::unordered_map<std::string, bool> functionNames_;
     std::unordered_map<std::string, std::size_t> functionParameterCounts_;
-    std::unordered_map<std::string, int> functionDeclarationLines_;
     std::unordered_map<std::string, int> functionDefinitionLines_;
 
     const Token& peek() const { return tokens_[current_]; }
@@ -332,7 +330,7 @@ private:
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
-            "main", "nix", "fn", "class", "use", "print", "repeat", "if", "elif",
+            "main", "nix", "fn", "class", "use", "print", "println", "repeat", "if", "elif",
             "else", "for", "return", "true", "false", "null", "and", "or", "not",
             "this", "public", "private", "protected", "static", "uin", "sqrt", "sq",
             "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
@@ -392,9 +390,7 @@ private:
         }
 
         if (declaredCount == functionParameterCounts_.end()) {
-            functionNames_[name] = true;
             functionParameterCounts_[name] = params.size();
-            functionDeclarationLines_[name] = fnToken.line;
         }
 
         Stmt function;
@@ -414,13 +410,6 @@ private:
         return function;
     }
 
-    void resolveFunctionDeclarations() {
-        for (const auto& declaration : functionDeclarationLines_) {
-            if (functionDefinitionLines_.count(declaration.first)) continue;
-            fail(Token{TokenKind::Identifier, declaration.first, declaration.second},
-                 "Function '" + declaration.first + "' is declared but has no definition.");
-        }
-    }
     void parseMethodTail(ClassMember& member) {
         member.parameters = parameters();
         if (match(TokenKind::LeftBrace)) {
@@ -695,8 +684,9 @@ private:
 
     Stmt statement() {
         if (matchIdentifier("var")) return variableStatement();
-        if (matchIdentifier("print")) {
+        if (matchIdentifier("print") || matchIdentifier("println")) {
             const int line = previous().line;
+            const bool printNewline = previous().text == "println";
             consume(TokenKind::LeftParen, "Expected '(' after print.");
             auto values = std::make_unique<Expr>();
             values->kind = Expr::Kind::List;
@@ -708,6 +698,7 @@ private:
             consume(TokenKind::RightParen, "Expected ')' after print values.");
             consume(TokenKind::Semicolon, "Expected ';' after print.");
             Stmt stmt; stmt.kind = Stmt::Kind::Print; stmt.expression = std::move(values); stmt.line = line;
+            stmt.printNewline = printNewline;
             return stmt;
         }
         if (matchIdentifier("repeat")) {
@@ -909,8 +900,14 @@ public:
 
     void run(const std::vector<Stmt>& statements) {
         functions_.clear();
+        functionDeclarations_.clear();
+        // Register definitions before execution so main can call functions defined after it.
         for (const auto& stmt : statements) {
             if (stmt.kind != Stmt::Kind::Function) continue;
+            if (!stmt.functionDefined) {
+                functionDeclarations_[stmt.name] = &stmt;
+                continue;
+            }
             if (functions_.count(stmt.name))
                 runtimeError(stmt.line, "Function '" + stmt.name + "' is already declared.");
             functions_[stmt.name] = &stmt;
@@ -928,6 +925,7 @@ private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
     std::unordered_map<std::string, const Stmt*> functions_;
+    std::unordered_map<std::string, const Stmt*> functionDeclarations_;
     std::string currentClass_;
 
     [[noreturn]] void runtimeError(int line, const std::string& message) const {
@@ -1417,6 +1415,8 @@ private:
             auto function = functions_.find(name);
             if (function != functions_.end())
                 return callFunction(*function->second, args, expr.line);
+            if (functionDeclarations_.count(name))
+                runtimeError(expr.line, "Function '" + name + "' is declared but has no definition.");
             if (currentClass_.empty()) runtimeError(expr.line, "Unknown function '" + name + "'.");
             Value possibleMethod = lookup(name, expr.line);
             if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
@@ -1513,7 +1513,7 @@ private:
                 break;
             case Stmt::Kind::Print:
                 for (const auto& item : stmt.expression->items) std::cout << stringify(evaluate(*item));
-                std::cout << '\n';
+                if (stmt.printNewline) std::cout << '\n';
                 break;
             case Stmt::Kind::Expression:
                 (void)evaluate(*stmt.expression);

@@ -33,6 +33,13 @@ jobs:
             exit 1
           fi
 
+      - name: Test print, println, and newline escapes
+        shell: bash
+        run: |
+          ./build/nix examples/output.ns > actual-output.txt
+          printf 'Hello World\nLine one\nLine two\nReady\n\n' > expected-output.txt
+          diff -u expected-output.txt actual-output.txt
+
       - name: Test control flow, built-ins, classes, inheritance and static methods
         shell: bash
         run: |
@@ -59,32 +66,55 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/prototypes.ns)"
-          expected="$(printf '42\n120\nprototypes-ready')"
+          expected="$(printf '42\n120\n41\nprototypes-ready')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/prototypes.ns" >&2
             exit 1
           fi
 
-      - name: Test invalid function declarations are rejected
+      - name: Test unused prototypes, unresolved calls, signatures and duplicate definitions
         shell: bash
         run: |
-          cat > missing-function.ns <<'EOF'
+          cat > unused-prototypes.ns <<'EOF'
           fn absent(value);
+          fn maIn(value);
           nix main() {
-              print("should not run");
+              println("unused prototypes allowed");
           }
           EOF
-          if ./build/nix missing-function.ns >missing-function.log 2>&1; then
-            echo "A function declaration without a definition unexpectedly succeeded" >&2
+          ./build/nix unused-prototypes.ns >unused-prototypes.out
+          printf 'unused prototypes allowed\n' >unused-prototypes.expected
+          diff -u unused-prototypes.expected unused-prototypes.out
+
+          cat > unresolved-function.ns <<'EOF'
+          fn absent(value);
+          nix main() {
+              absent(1);
+          }
+          EOF
+          if ./build/nix unresolved-function.ns >unresolved-function.log 2>&1; then
+            echo "Calling a declared function without a definition unexpectedly succeeded" >&2
             exit 1
           fi
-          grep -q "declared but has no definition" missing-function.log
+          grep -q "declared but has no definition" unresolved-function.log
+
+          cat > reserved-main.ns <<'EOF'
+          fn main();
+          nix main() {
+              println("unreachable");
+          }
+          EOF
+          if ./build/nix reserved-main.ns >reserved-main.log 2>&1; then
+            echo "Declaring lowercase main as an ordinary function unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "reserved" reserved-main.log
 
           cat > mismatched-function.ns <<'EOF'
           fn combine(left, right);
           nix main() {
-              print(combine(1, 2));
+              println(combine(1, 2));
           }
           fn combine(one, two, three) {
               return one + two + three;
@@ -101,7 +131,7 @@ jobs:
               return value;
           }
           nix main() {
-              print(duplicate(1));
+              println(duplicate(1));
           }
           fn duplicate(value) {
               return value + 1;

@@ -1,5 +1,5 @@
 fn greet(name) {
-    print("Hello, {$name}!");
+    println("Hello, {$name}!");
 }
 
 fn add(a, b) {
@@ -14,12 +14,12 @@ fn factorial(n) {
 }
 
 fn announce() {
-    print("functions-ready");
+    println("functions-ready");
 }
 
 nix main() {
     greet("NixScript");
-    print(add(20, 22));
-    print(factorial(5));
+    println(add(20, 22));
+    println(factorial(5));
     announce();
 }

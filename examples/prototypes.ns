@@ -2,10 +2,18 @@ fn add(left, right);
 fn add(first, second); // Compatible repeated declarations are allowed.
 fn factorial(value);
 fn announce();
+fn neverCalled(value); // Unused prototypes are allowed.
+fn maIn(value); // Case-sensitive: only lowercase main is reserved.
+fn later(value);
+
+fn earlier(value) {
+    return later(value) + 1;
+}
 
 nix main() {
-    print(add(20, 22));
-    print(factorial(5));
+    println(add(20, 22));
+    println(factorial(5));
+    println(earlier(20));
     announce();
 }
 
@@ -21,5 +29,9 @@ fn factorial(n) {
 }
 
 fn announce() {
-    print("prototypes-ready");
+    println("prototypes-ready");
+}
+
+fn later(value) {
+    return value * 2;
 }

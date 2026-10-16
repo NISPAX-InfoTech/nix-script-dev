@@ -47,21 +47,25 @@ var age = uin("Enter your age: ", int);
 
 ## Output and string interpolation
 
-`print()` accepts one or more comma-separated values and ends with a newline. Values are printed exactly as supplied; the language should not silently add spaces between them. Double-quoted strings support interpolation with `{$variable}`.
+- `print(...)` writes all supplied values exactly as given, without adding a newline.
+- `println(...)` writes all supplied values and then adds one newline.
+- Both accept zero or more comma-separated values and do not silently insert spaces.
+- Double-quoted strings support interpolation with `{$variable}` and escapes such as `\n` (newline) and `\t` (tab).
 
 ```ns
 var name = "Alex";
-print("Hello ", name, "!");
-print("Hello, {$name}!");
+print("Hello, ");
+println("{$name}!");
+print("First line\nSecond line\n");
 ```
 
 ## Functions and program entry point
 
-Ordinary functions use `fn`. Every executable NixScript program must have exactly one `nix main()` entry point; `nix` is reserved for that purpose.
+Ordinary functions use `fn`. Every executable NixScript program must have exactly one `nix main()` entry point; `nix` is reserved for that purpose. Identifiers are case-sensitive: `main` is reserved, but `maIn` is a different identifier.
 
 ```ns
 fn greet(name) {
-    print("Hello, {$name}!");
+    println("Hello, {$name}!");
 }
 
 nix main() {
@@ -69,7 +73,7 @@ nix main() {
 }
 ```
 
-Top-level functions support both definitions and C-style declarations. You can define a function before `nix main()`, or declare its signature before `main` and place its implementation after `main`. Every declared function must have exactly one definition, and a declaration and definition must agree on parameter count. Repeated compatible declarations are allowed; parameter names in a declaration do not need to match the names used by the definition. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
+Top-level functions support definitions and C-style prototypes. You can define a function before `nix main()`, or declare its signature before `main` and define it after `main`. A prototype and its definition must agree on parameter count; repeated compatible prototypes are allowed, and parameter names may differ between prototype and definition. Unused prototypes do not require a definition. Calling a function that has a prototype but no definition produces a clear runtime error. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
 
 ## Classes and objects
 
@@ -99,7 +103,7 @@ public:
     }
 
     ~Player() {
-        print("Player destroyed");
+        println("Player destroyed");
     }
 
     int damage(int amount);
@@ -117,8 +121,8 @@ int Player::damage(int amount) {
 nix main() {
     Player player(100);
     player.damage(20);
-    print(player.health);
-    print(Player::count());
+    println(player.health);
+    println(Player::count());
 }
 ```
 
@@ -144,11 +148,11 @@ Predicate functions return numeric `0` or `1`; conditions treat zero as false an
 Examples of intended usage:
 
 ```ns
-print(isUpper("A"));       // 1
-print(toLower("HELLO"));   // hello
+println(isUpper("A"));       // 1
+println(toLower("HELLO"));   // hello
 
 if (isSpace(" ")) {
-    print("Whitespace");
+    println("Whitespace");
 }
 ```
 
@@ -167,13 +171,13 @@ These validate argument counts and types and report readable runtime errors for 
 `if` / `elif` / `else if` / `else`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), and logical operators (`and`, `or`, `not`, `&&`, `||`, `!`) are implemented. `elif` and `else if` behave identically; either can be used in a chain.
 ```ns
 if (score >= 90) {
-    print("A");
+    println("A");
 } elif (score >= 75) {
-    print("B");
+    println("B");
 } else if (score >= 50) {
-    print("C");
+    println("C");
 } else {
-    print("Try again");
+    println("Try again");
 }
 ```
 
@@ -182,11 +186,11 @@ A `repeat` loop and C-style `for` loop are implemented.
 
 ```ns
 repeat(5) {
-    print("Hello!");
+    println("Hello!");
 }
 
 for (var i = 0; i < 10; i = i + 1) {
-    print(i);
+    println(i);
 }
 ```
 

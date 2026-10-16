@@ -1,8 +1,8 @@
 nix main() {
     var name;
     uin(name);
-    print(name);
+    println(name);
 
     var age = uin("Age: ", int);
-    print(age);
+    println(age);
 }

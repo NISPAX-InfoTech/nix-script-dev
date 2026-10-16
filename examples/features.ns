@@ -8,7 +8,7 @@ public:
     }
 
     ~Counter() {
-        print("destroyed");
+        println("destroyed");
     }
 
     int add(int amount);
@@ -42,9 +42,9 @@ nix main() {
     for (var i = 0; i < 3; i++) {
         score = score + i;
     }
-    print(score);
+    println(score);
 
-    print(toLower("NIX"), ":", toUpper("abc"), ":", sq(3), ":", pow(2, 3),
+    println(toLower("NIX"), ":", toUpper("abc"), ":", sq(3), ":", pow(2, 3),
           ":", sqrt(16), ":", isUpper("ABC"), ":", isLower("abc"), ":", isSpace(" "),
           ":", abs(-2), ":", floor(2.8), ":", ceil(2.2), ":", round(2.5));
 
@@ -56,14 +56,14 @@ nix main() {
     } else {
         branch = 3;
     }
-    print(branch);
+    println(branch);
 
     var counter = Counter();
     counter.value = 10;
-    print(counter.add(5));
-    print(Counter::made());
+    println(counter.add(5));
+    println(Counter::made());
 
     var bonus = BonusCounter();
     bonus.value = 4;
-    print(bonus.twice());
+    println(bonus.twice());
 }

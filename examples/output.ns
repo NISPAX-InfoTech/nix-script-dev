@@ -1,0 +1,11 @@
+// print() writes exactly what is supplied; println() appends a newline.
+// String escapes such as \n can also produce explicit line breaks.
+nix main() {
+    print();
+    print("Hello");
+    print(" ");
+    println("World");
+    print("Line one\nLine two\n");
+    println("Ready");
+    println();
+}

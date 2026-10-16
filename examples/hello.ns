@@ -1,12 +1,12 @@
 nix main() {
     var name = "NixScript";
-    print("Hello, ", name, "!");
-    print("Hello, {$name}!");
+    println("Hello, ", name, "!");
+    println("Hello, {$name}!");
 
     var total = 10 + 20 * 2;
-    print(total);
+    println(total);
 
     repeat(3) {
-        print("Keep building!");
+        println("Keep building!");
     }
 }

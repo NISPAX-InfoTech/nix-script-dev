@@ -9,5 +9,5 @@ private:
 
 nix main() {
     var secret = Secret();
-    print(secret.code);
+    println(secret.code);
 }

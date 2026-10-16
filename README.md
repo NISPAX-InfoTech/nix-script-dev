@@ -24,9 +24,9 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 ## Currently implemented
 
 - `nix main() { ... }` as the required executable entry point
-- Top-level function prototypes before `main` and function definitions before or after `main`, with signature/duplicate-definition validation
+- Top-level function prototypes before `main` and definitions before or after `main`; unused prototypes are allowed, while calling a prototype without a definition fails clearly
 - `var name = value;` and uninitialized `var name;`
-- `print(...);` with multiple values and string interpolation
+- `print(...);` without an automatic newline and `println(...);` with an automatic newline, both supporting multiple values and string interpolation
 - Basic arithmetic, comparisons, logical conditions, and `+` string concatenation
 - Top-level `fn` functions with parameters, calls, local scope, recursion, and `return`
 - `repeat(count) { ... }` and C-style `for` loops, including `i++`/`i--`
@@ -36,7 +36,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
 - C++-style class declarations, fields, constructors/destructors, methods, access labels, single inheritance, static members, and `ClassName::member`
 - `this`, typed method parameters, `return`, in-class and out-of-class method definitions
-- `//` line comments and parser/runtime errors with line numbers
+- `\n` and `\t` string escapes; `//` line comments and parser/runtime errors with line numbers
 
 ## Still planned
 
@@ -44,7 +44,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Fixed-size arrays
 - Module loading and `use` imports
 
-Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
 The interpreter is still an evolving prototype: function values/callback passing, arrays, and module loading are not implemented yet. String case conversion currently operates on ASCII characters.
 

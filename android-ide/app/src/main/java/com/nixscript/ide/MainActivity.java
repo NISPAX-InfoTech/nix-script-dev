@@ -41,7 +41,7 @@ public class MainActivity extends Activity {
         applyPattern(e, source, "\\\"[^\\\"\\n]*\\\"|'[^'\\n]*'", stringColor);
         applyPattern(e, source, "//[^\\n]*", commentColor);
         applyPattern(e, source, "\\b(nix|fn|main|var|class|public|private|protected|static|return|if|elif|else|for|repeat|while|true|false|null|this|use|new|delete)\\b", keywordColor);
-        applyPattern(e, source, "\\b(print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\\b", functionColor);
+        applyPattern(e, source, "\\b(println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\\b", functionColor);
         applyPattern(e, source, "\\b\\d+(?:\\.\\d+)?\\b", numberColor);
         applyingHighlight = false;
     }
@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         editor.setHorizontallyScrolling(true);
         editor.setPadding(dp(8), dp(7), dp(8), dp(24));
         editor.setBackgroundColor(Color.rgb(48,48,48));
-        editor.setText("nix main() {\n    print(\"Hello from NixScript!\");\n    var answer = 40 + 2;\n    print(answer);\n}\n");
+        editor.setText("nix main() {\n    println(\"Hello from NixScript!\");\n    var answer = 40 + 2;\n    println(answer);\n}\n");
         editorRow.addView(editor, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(editorRow, new LinearLayout.LayoutParams(-1, 0, 1));
 
