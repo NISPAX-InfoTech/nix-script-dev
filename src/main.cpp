@@ -941,6 +941,8 @@ private:
     static std::string stringify(const Value& value) {
         if (std::holds_alternative<std::monostate>(value)) return "null";
         if (const auto* number = std::get_if<double>(&value)) {
+            // Normalize IEEE negative zero so equivalent zero values print consistently.
+            if (*number == 0.0) return "0";
             std::ostringstream out;
             if (std::floor(*number) == *number) out << std::fixed << std::setprecision(0) << *number;
             else out << *number;
