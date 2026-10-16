@@ -681,7 +681,7 @@ nix main() {
 }
 NS
 
-run_error mismatched_out_of_class_method_signature "definition has 1 parameter(s)" <<'NS'
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
 class Calculator {
 public:
     int combine(left, right);
