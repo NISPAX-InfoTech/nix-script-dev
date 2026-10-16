@@ -50,7 +50,14 @@ The interpreter is still an evolving prototype: function values/callback passing
 
 ## Libraries
 
-`use name;` loads `name.ns` from beside the importing file, or from a `lib/` or `libraries/` directory beside it. The current working directory's `lib/` and `libraries/` directories are also searched. Imports can be nested; a file is loaded once, and circular imports are reported. Library files contain declarations (such as `fn` functions and `class` definitions), not `nix main()`. Imported declarations currently share the program's global namespace; explicit exports and aliases are not implemented yet.
+`use name;` loads `name.ns` from the project's `lib/` or `libraries/` folder, or from the standard installed-library directory. Imports can be nested; a file is loaded once, and circular imports are reported. Library files contain declarations (such as `fn` functions and `class` definitions), not `nix main()`. Imported declarations currently share the program's global namespace; explicit exports and aliases are not implemented yet.
+
+**Standard installed-library directory:**
+- Linux: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when `XDG_DATA_HOME` is set)
+- macOS: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when set)
+- Windows: `%APPDATA%\\NixScript\\libraries\\`
+
+Set `NIXSCRIPT_LIB_PATH` to override the installed-library directory. Project-local `lib/` and `libraries/` folders are checked first; installed libraries are checked next; the importing file's directory is a final fallback for simple local examples.
 
 ```ns
 use greeting;
