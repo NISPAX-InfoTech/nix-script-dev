@@ -9,8 +9,11 @@ NixScript is a readable, multi-paradigm, general-purpose language with predictab
 ## File and module direction
 
 - Source files use the `.ns` extension.
-- `use library_name;` brings a library or module into a file.
-- Module visibility and export rules are not decided yet.
+- `use library_name;` loads a `.ns` library before the importing program is parsed.
+- Resolution order: beside the importing file (`library_name.ns`), then its `lib/` and `libraries/` folders, then `lib/` and `libraries/` under the process working directory.
+- Imports can be nested. Each resolved file is loaded once; circular imports and missing libraries produce readable errors.
+- Library files contain top-level `fn` and `class` declarations and optional method definitions, but must not define `nix main()`.
+- Imported declarations share the global namespace for now. Export visibility, aliases, package manifests, and package-manager support are future work.
 
 ```ns
 use discord;
@@ -218,7 +221,7 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Implementation status
 
-The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, and a subset of C++-style classes/objects. Function values, arrays, and module loading remain unimplemented.
+The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, a subset of C++-style classes/objects, and source-file library loading with `use`. Function values, arrays, module exports, and package management remain unimplemented.
 
 ## Open decisions
 
@@ -228,4 +231,5 @@ The current C++17 interpreter prototype supports the required `nix main()` entry
 4. Array syntax and memory/layout guarantees.
 5. Module loading and top-level function semantics.
 6. Full C++-style class details not covered by the current subset.
+7. Module exports, aliases, package manifests, and package-manager behavior.
 7. Unicode behavior for string case conversion; current implementation is ASCII-only.
