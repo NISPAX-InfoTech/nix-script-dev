@@ -136,14 +136,14 @@ public:
         println("Player destroyed");
     }
 
-    int damage(int amount);
+    fn damage(amount);
 
-    static int count() {
+    static fn count() {
         return Player::created;
     }
 };
 
-int Player::damage(int amount) {
+fn Player::damage(amount) {
     health = health - amount;
     return health;
 }
