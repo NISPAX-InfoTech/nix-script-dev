@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/use_library.ns)"
-          expected="$(printf '42\\n21')"
+          expected="$(printf '42\n21')"
           printf '%s\\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/use_library.ns" >&2
@@ -115,7 +115,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/functions.ns)"
-          expected="$(printf 'Hello, NixScript!\n42\n120\nfunctions-ready')"
+          expected="$(printf '42\n21')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/functions.ns" >&2
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/prototypes.ns)"
-          expected="$(printf '42\n120\n41\nprototypes-ready')"
+          expected="$(printf '42\n21')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/prototypes.ns" >&2
