@@ -23,7 +23,7 @@ use discord;
 
 ## Official package commands
 
-Only libraries listed by the team in the official registry are installable. The CLI reads `registry/index.txt`, where each line is a package name and a `MAJOR.MINOR.PATCH` version. The matching source file is stored at `registry/libraries/<name>/<version>/<name>.ns`. Published version directories should not be edited in place; add a new version and update the index to release a package update.
+Only libraries listed by the team in the [public official registry](https://github.com/NISPAX-InfoTech/nixscript-libraries) are installable. The CLI reads `index.txt` at the registry root, where each line is a package name and a `MAJOR.MINOR.PATCH` version. The matching source file is stored at `libraries/<name>/<version>/<name>.ns`. Published version directories should not be edited in place; add a new version and update the index to release a package update.
 
 ```sh
 nix install numbers  # Install the latest indexed official version.
