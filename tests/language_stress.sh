@@ -557,6 +557,46 @@ nix main() {
 }
 NS
 
+run_ok returned_object_survives_nested_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class ReturnLife {
+public:
+    ~ReturnLife() {
+        println("destroyed");
+    }
+};
+fn makeLife() {
+    if (true) {
+        var object = ReturnLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLife();
+    println("caller owns it");
+}
+NS
+
+run_ok returned_object_survives_loop_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class LoopLife {
+public:
+    ~LoopLife() {
+        println("destroyed");
+    }
+};
+fn makeLoopLife() {
+    for (var i = 0; i < 1; i++) {
+        var object = LoopLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLoopLife();
+    println("caller owns it");
+}
+NS
+
 run_ok object_alias_keeps_instance_alive_until_last_scope $'inside\nstill alive\ndestroyed\n' <<'NS'
 class Life {
 public:
