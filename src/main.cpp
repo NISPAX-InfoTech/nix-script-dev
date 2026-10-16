@@ -1750,7 +1750,7 @@ private:
     fs::path root_;
     fs::path manifest_;
     static constexpr const char* registryBase =
-        "https://raw.githubusercontent.com/NISPAX-InfoTech/nix-script/main/registry";
+        "https://raw.githubusercontent.com/NISPAX-InfoTech/nixscript-libraries/main";
 
     static void requireName(const std::string& name) {
         if (name.empty() || name.size() > 64 ||
