@@ -1589,22 +1589,49 @@ struct SourceLoader {
         name = nameText;
         return true;
     }
+    static fs::path installedLibraryRoot() {
+        if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) {
+            if (*overridePath != '\\0') return fs::path(overridePath);
+        }
+#ifdef _WIN32
+        if (const char* appData = std::getenv("APPDATA")) {
+            if (*appData != '\\0') return fs::path(appData) / "NixScript" / "libraries";
+        }
+        if (const char* home = std::getenv("USERPROFILE")) {
+            if (*home != '\\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
+        }
+#else
+        if (const char* xdg = std::getenv("XDG_DATA_HOME")) {
+            if (*xdg != '\\0') return fs::path(xdg) / "nixscript" / "libraries";
+        }
+        if (const char* home = std::getenv("HOME")) {
+            if (*home != '\\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
+        }
+#endif
+        return {};
+    }
     static fs::path resolve(const fs::path& importer, const std::string& name) {
         const fs::path directory = importer.parent_path();
+        const fs::path installedRoot = installedLibraryRoot();
+        // Project-local libraries are preferred. Installed libraries live in one
+        // predictable per-user directory, overridable with NIXSCRIPT_LIB_PATH.
         const std::vector<fs::path> candidates = {
-            directory / (name + ".ns"),
             directory / "lib" / (name + ".ns"),
             directory / "libraries" / (name + ".ns"),
-            fs::current_path() / "lib" / (name + ".ns"),
-            fs::current_path() / "libraries" / (name + ".ns")
+            installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"),
+            directory / (name + ".ns")
         };
         for (const auto& candidate : candidates) {
+            if (candidate.empty()) continue;
             std::error_code ec;
             if (fs::is_regular_file(candidate, ec)) return candidate;
         }
+        const std::string rootDescription = installedRoot.empty()
+            ? "the installed-library directory (set NIXSCRIPT_LIB_PATH)"
+            : installedRoot.string();
         throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" +
-            importer.string() + "'. Looked for " + name +
-            ".ns beside the source and in lib/ or libraries/.");
+            importer.string() + "'. Searched project lib/ and libraries/ folders, beside the source, and " +
+            rootDescription + ".");
     }
     std::string load(const fs::path& inputPath) {
         std::error_code ec;
@@ -1653,8 +1680,6 @@ struct SourceLoader {
         return combined;
     }
 };
-} // namespace nix
-
 } // namespace nix
 
 #ifndef NIX_ANDROID
