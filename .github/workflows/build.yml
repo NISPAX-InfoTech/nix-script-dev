@@ -295,3 +295,35 @@ jobs:
             echo "Unexpected output from examples/input.ns" >&2
             exit 1
           fi
+
+      - name: Run broad language stress and negative regression suite
+        shell: bash
+        run: bash tests/language_stress.sh ./build/nix
+
+      - name: Test installer against the live public official registry
+        shell: bash
+        run: |
+          rm -rf public-registry-test
+          mkdir -p public-registry-test
+          export NIXSCRIPT_LIB_PATH="$PWD/public-registry-test/installed"
+
+          ./build/nix install numbers
+          printf 'numbers 1.0.0\\n' > public-registry-test/expected-installed.txt
+          ./build/nix list > public-registry-test/actual-installed.txt
+          diff -u public-registry-test/expected-installed.txt public-registry-test/actual-installed.txt
+
+          cat > public-registry-test/use_numbers.ns <<'EOF'
+          use numbers;
+          nix main() {
+              println(clamp(12, 0, 10));
+              println(clamp(-5, 0, 10));
+              println(clamp(5, 0, 10));
+          }
+          EOF
+          actual="$(./build/nix public-registry-test/use_numbers.ns)"
+          expected="$(printf '10\\n0\\n5')"
+          [[ "$actual" == "$expected" ]] || { echo "Live public numbers package produced unexpected output" >&2; exit 1; }
+
+          ./build/nix update numbers
+          ./build/nix list > public-registry-test/after-update.txt
+          diff -u public-registry-test/expected-installed.txt public-registry-test/after-update.txt
