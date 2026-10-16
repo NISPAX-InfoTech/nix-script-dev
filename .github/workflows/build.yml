@@ -22,6 +22,9 @@ jobs:
       - name: Build interpreter
         run: cmake --build build --config Release --parallel
 
+      - name: Test function declaration and definition ordering
+        run: python3 tests/function_declaration_rules.py ./build/nix
+
       - name: Run existing example and verify output
         shell: bash
         run: |
@@ -381,3 +384,25 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: python3 tests/parser_stress.py ./build-sanitized/nix
+
+  windows-function-rules:
+    name: Windows build and function declaration tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure CMake
+        run: cmake -S . -B build -A x64
+
+      - name: Build interpreter
+        run: cmake --build build --config Release --parallel
+
+      - name: Test function declaration and definition ordering
+        run: python tests/function_declaration_rules.py build/Release/nix.exe
