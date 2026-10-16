@@ -77,6 +77,11 @@ CASES = [
     Case("duplicate function definition rejected", 'fn f(a) { return a; } fn f(a) { return a; } nix main() { println(f(1)); }', should_succeed=False),
     Case("private access rejected", 'class Secret { private: int value = 3; }; nix main() { Secret s; println(s.value); }', should_succeed=False),
     Case("invalid typed integer input rejected", 'nix main() { var age = uin("Age: ", int); println(age); }', stdin="not-a-number\n", should_succeed=False),
+        Case("uninitialized variable rejected", 'nix main() { var value; println(value); }', should_succeed=False),
+        Case("negative square root rejected", 'nix main() { println(sqrt(-1)); }', should_succeed=False),
+        Case("built-in wrong arity rejected", 'nix main() { println(pow(2)); }', should_succeed=False),
+        Case("unknown variable rejected", 'nix main() { println(unknownValue); }', should_succeed=False),
+        Case("missing function argument rejected", 'fn sum(a, b) { return a + b; } nix main() { println(sum(1)); }', should_succeed=False),
 ]
 
 
