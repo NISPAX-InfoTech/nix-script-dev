@@ -295,3 +295,89 @@ jobs:
             echo "Unexpected output from examples/input.ns" >&2
             exit 1
           fi
+
+      - name: Run broad language stress and negative regression suite
+        shell: bash
+        run: bash tests/language_stress.sh ./build/nix
+
+      - name: Stress generated arithmetic expressions
+        shell: bash
+        run: python3 tests/arithmetic_stress.py ./build/nix
+
+      - name: Stress generated boolean expressions
+        shell: bash
+        run: python3 tests/boolean_stress.py ./build/nix
+
+      - name: Stress malformed source parsing
+        shell: bash
+        run: python3 tests/parser_stress.py ./build/nix
+
+      - name: Test installer against the live public official registry
+        shell: bash
+        run: |
+          rm -rf public-registry-test
+          mkdir -p public-registry-test
+          export NIXSCRIPT_LIB_PATH="$PWD/public-registry-test/installed"
+
+          ./build/nix install numbers
+          printf 'numbers 1.0.0\n' > public-registry-test/expected-installed.txt
+          ./build/nix list > public-registry-test/actual-installed.txt
+          diff -u public-registry-test/expected-installed.txt public-registry-test/actual-installed.txt
+
+          cat > public-registry-test/use_numbers.ns <<'EOF'
+          use numbers;
+          nix main() {
+              println(clamp(12, 0, 10));
+              println(clamp(-5, 0, 10));
+              println(clamp(5, 0, 10));
+          }
+          EOF
+          actual="$(./build/nix public-registry-test/use_numbers.ns)"
+          expected="$(printf '10\n0\n5')"
+          [[ "$actual" == "$expected" ]] || { echo "Live public numbers package produced unexpected output" >&2; exit 1; }
+
+          ./build/nix update numbers
+          ./build/nix list > public-registry-test/after-update.txt
+          diff -u public-registry-test/expected-installed.txt public-registry-test/after-update.txt
+
+  sanitizer-stress:
+    name: Address/undefined behavior sanitizer stress
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure sanitizer build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitized interpreter
+        run: cmake --build build-sanitized --config Debug --parallel
+
+      - name: Run language regression suite under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: bash tests/language_stress.sh ./build-sanitized/nix
+
+      - name: Run generated arithmetic stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/arithmetic_stress.py ./build-sanitized/nix
+
+      - name: Run generated boolean stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/boolean_stress.py ./build-sanitized/nix
+
+      - name: Run malformed-source stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/parser_stress.py ./build-sanitized/nix

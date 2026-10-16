@@ -173,7 +173,9 @@ struct Instance;
 struct BoundMethod;
 struct Stmt;
 
-using Value = std::variant<std::monostate, double, std::string, bool,
+// Keep an uninitialized binding distinct from the language's valid null value.
+struct UninitializedValue {};
+using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>>;
 
@@ -418,6 +420,13 @@ private:
 
     void parseMethodTail(ClassMember& member) {
         member.parameters = parameters();
+        std::unordered_set<std::string> seenParameters;
+        for (const auto& param : member.parameters) {
+            if (!seenParameters.insert(param).second) {
+                fail(previous(), "Parameter '" + param + "' appears more than once in method '" +
+                                 member.name + "'.");
+            }
+        }
         if (match(TokenKind::LeftBrace)) {
             member.body = statementsUntilBrace();
             member.defined = true;
@@ -438,6 +447,15 @@ private:
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
         Access access = Access::Private;
+        auto appendMember = [&](ClassMember&& member) {
+            for (const auto& existing : klass->members) {
+                if (existing.name == member.name) {
+                    fail(classToken, "Member '" + member.name + "' is declared more than once in class '" +
+                                     klass->name + "'.");
+                }
+            }
+            klass->members.push_back(std::move(member));
+        };
         while (!check(TokenKind::RightBrace) && !atEnd()) {
             if (check(TokenKind::Identifier) &&
                 (peek().text == "public" || peek().text == "private" || peek().text == "protected") &&
@@ -458,7 +476,7 @@ private:
                 member.name = "~" + consumeName("Expected a destructor name after '~'.");
                 member.isDestructor = true;
                 parseMethodTail(member);
-                klass->members.push_back(std::move(member));
+                appendMember(std::move(member));
                 continue;
             }
 
@@ -476,7 +494,7 @@ private:
                     member.kind = ClassMember::Kind::Method;
                     member.isConstructor = true;
                     parseMethodTail(member);
-                    klass->members.push_back(std::move(member));
+                    appendMember(std::move(member));
                     continue;
                 }
             }
@@ -490,7 +508,7 @@ private:
                 if (match(TokenKind::Equal)) member.initializer = expression();
                 consume(TokenKind::Semicolon, "Expected ';' after field declaration.");
             }
-            klass->members.push_back(std::move(member));
+            appendMember(std::move(member));
         }
         consume(TokenKind::RightBrace, "Expected '}' after class body.");
         consume(TokenKind::Semicolon, "Expected ';' after class declaration.");
@@ -555,6 +573,17 @@ private:
             for (auto& candidate : klass->members) {
                 if (candidate.name == definition.methodName) { member = &candidate; break; }
             }
+            const bool matchedDeclaration = member != nullptr;
+            if (matchedDeclaration && member->defined) {
+                fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
+                     "Method '" + definition.methodName + "' has more than one definition.");
+            }
+            if (matchedDeclaration && member->parameters.size() != definition.params.size()) {
+                fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
+                     "Method '" + definition.methodName + "' is declared with " +
+                     std::to_string(member->parameters.size()) + " parameter(s), but the definition has " +
+                     std::to_string(definition.params.size()) + " parameter(s).");
+            }
             if (!member) {
                 ClassMember added;
                 added.kind = ClassMember::Kind::Method;
@@ -564,6 +593,7 @@ private:
                 added.access = Access::Public;
                 added.isConstructor = definition.methodName == klass->name;
                 added.isDestructor = definition.destructor;
+                added.defined = false;
                 klass->members.push_back(std::move(added));
                 member = &klass->members.back();
             }
@@ -853,7 +883,7 @@ private:
                 if (!check(TokenKind::RightParen)) {
                     do {
                         if (call->left->kind == Expr::Kind::Variable && call->left->name == "uin" &&
-                            check(TokenKind::Identifier) &&
+                            !call->items.empty() && check(TokenKind::Identifier) &&
                             (peek().text == "int" || peek().text == "float" || peek().text == "double" ||
                              peek().text == "number" || peek().text == "string" || peek().text == "bool") &&
                             look(1).kind == TokenKind::RightParen) {
@@ -964,7 +994,7 @@ private:
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
             if (found != it->end()) {
-                if (std::holds_alternative<std::monostate>(found->second))
+                if (std::holds_alternative<UninitializedValue>(found->second))
                     runtimeError(line, "Variable '" + name + "' has not been initialized.");
                 return found->second;
             }
@@ -1094,11 +1124,23 @@ private:
         if (expr.op == TokenKind::EqualEqual || expr.op == TokenKind::BangEqual) {
             bool equal = false;
             if (left.index() == right.index()) {
-                if (std::holds_alternative<std::monostate>(left)) equal = true;
+                if (std::holds_alternative<UninitializedValue>(left)) equal = true;
+                else if (std::holds_alternative<std::monostate>(left)) equal = true;
                 else if (isNumber(left)) equal = std::get<double>(left) == std::get<double>(right);
                 else if (const auto* s = std::get_if<std::string>(&left)) equal = *s == std::get<std::string>(right);
                 else if (const auto* b = std::get_if<bool>(&left)) equal = *b == std::get<bool>(right);
-                else equal = stringify(left) == stringify(right);
+                else if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&left))
+                    equal = *instance == std::get<std::shared_ptr<Instance>>(right);
+                else if (const auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&left))
+                    equal = *klass == std::get<std::shared_ptr<ClassDef>>(right);
+                else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&left)) {
+                    const auto& other = std::get<std::shared_ptr<BoundMethod>>(right);
+                    equal = *method == other ||
+                            ((*method) && other &&
+                             (*method)->instance == other->instance &&
+                             (*method)->klass == other->klass &&
+                             (*method)->member == other->member);
+                }
             }
             return expr.op == TokenKind::EqualEqual ? equal : !equal;
         }
@@ -1262,7 +1304,7 @@ private:
             throw;
         }
         currentClass_ = oldClass;
-        popScope();
+        popScope(true, &result);
         return result;
     }
     Value callMethod(const std::shared_ptr<BoundMethod>& bound, const std::vector<Value>& args, int line) {
@@ -1287,55 +1329,158 @@ private:
             throw;
         }
         currentClass_ = oldClass;
-        popScope();
+        popScope(true, &result);
         return result;
     }
-    Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
-        auto instance = std::make_shared<Instance>(); instance->klass = klass;
-        initializeFields(instance, klass);
-        if (klass->base) {
-            ClassMember* baseCtor = findMember(klass->base, klass->base->name);
-            if (baseCtor && baseCtor->isConstructor) {
-                auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass->base; bound->member = baseCtor;
-                callMethod(bound, {}, line);
+    void constructBaseHierarchy(const std::shared_ptr<Instance>& instance,
+                                const std::shared_ptr<ClassDef>& klass,
+                                const std::string& accessingClass,
+                                int line) {
+        if (!klass) return;
+        if (klass->base)
+            constructBaseHierarchy(instance, klass->base, klass->name, line);
+
+        ClassMember* ctor = nullptr;
+        for (auto& member : klass->members) {
+            if (member.isConstructor && member.name == klass->name) {
+                ctor = &member;
+                break;
             }
         }
+        if (!ctor) return;
+
+        // A base constructor is invoked in the context of the derived class,
+        // so protected base constructors remain usable while private ones do not.
+        const std::string oldClass = currentClass_;
+        currentClass_ = accessingClass;
+        try {
+            checkAccess(*ctor, line);
+        } catch (...) {
+            currentClass_ = oldClass;
+            throw;
+        }
+        currentClass_ = oldClass;
+
+        auto bound = std::make_shared<BoundMethod>();
+        bound->instance = instance;
+        bound->klass = klass;
+        bound->member = ctor;
+        callMethod(bound, {}, line);
+    }
+
+    Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
+        auto instance = std::make_shared<Instance>();
+        instance->klass = klass;
+        initializeFields(instance, klass);
+        if (klass->base)
+            constructBaseHierarchy(instance, klass->base, klass->name, line);
+
         ClassMember* ctor = nullptr;
-        for (auto& member : klass->members) if (member.isConstructor) { ctor = &member; break; }
+        for (auto& member : klass->members) {
+            if (member.isConstructor && member.name == klass->name) {
+                ctor = &member;
+                break;
+            }
+        }
         if (ctor) {
-            auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass; bound->member = ctor;
+            checkAccess(*ctor, line);
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = ctor;
             callMethod(bound, args, line);
-        } else if (!args.empty()) runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
+        } else if (!args.empty()) {
+            runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
+        }
         return instance;
     }
-    void destroyInstance(const std::shared_ptr<Instance>& instance) {
-        if (!instance || instance->destroyed) return;
-        instance->destroyed = true;
-        ClassMember* dtor = findMember(instance->klass, "~" + instance->klass->name);
-        if (dtor && dtor->defined) {
-            auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = instance->klass; bound->member = dtor;
-            try { callMethod(bound, {}, 1); } catch (...) {}
-        }
-        if (instance->klass->base) {
-            ClassMember* baseDtor = findMember(instance->klass->base, "~" + instance->klass->base->name);
-            if (baseDtor && baseDtor->defined) {
-                auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = instance->klass->base; bound->member = baseDtor;
-                try { callMethod(bound, {}, 1); } catch (...) {}
-            }
-        }
-    }
-    bool referencedOutsideScope(const std::shared_ptr<Instance>& instance, std::size_t poppedIndex) const {
-        for (std::size_t i = 0; i < scopes_.size(); ++i) {
-            if (i == poppedIndex) continue;
-            for (const auto& pair : scopes_[i]) {
-                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second))
-                    if (*candidate == instance) return true;
+    bool instanceGraphContains(
+        const std::shared_ptr<Instance>& root,
+        const std::shared_ptr<Instance>& target,
+        std::unordered_set<const Instance*>& visited) const {
+        if (!root || !target) return false;
+        if (root == target) return true;
+        if (!visited.insert(root.get()).second) return false;
+
+        for (const auto& field : root->fields) {
+            if (const auto* child = std::get_if<std::shared_ptr<Instance>>(&field.second)) {
+                if (instanceGraphContains(*child, target, visited)) return true;
+            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&field.second)) {
+                if (*method && instanceGraphContains((*method)->instance, target, visited)) return true;
             }
         }
         return false;
     }
-    void popScope(bool runDestructors = true) {
+
+    bool referencedOutsideScope(const std::shared_ptr<Instance>& instance, std::size_t poppedIndex) const {
+        for (std::size_t i = 0; i < scopes_.size(); ++i) {
+            if (i == poppedIndex) continue;
+            for (const auto& pair : scopes_[i]) {
+                std::unordered_set<const Instance*> visited;
+                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second)) {
+                    if (instanceGraphContains(*candidate, instance, visited)) return true;
+                } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
+                    if (*method && instanceGraphContains((*method)->instance, instance, visited)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void destroyClassPart(const std::shared_ptr<Instance>& instance,
+                          const std::shared_ptr<ClassDef>& klass,
+                          std::size_t poppedIndex) {
+        if (!instance || !klass) return;
+
+        // C++-style destruction order for this class part: destructor body,
+        // fields in reverse declaration order, then the base-class part.
+        const std::string destructorName = "~" + klass->name;
+        ClassMember* destructor = nullptr;
+        for (auto& member : klass->members) {
+            if (member.kind == ClassMember::Kind::Method &&
+                member.isDestructor && member.name == destructorName) {
+                destructor = &member;
+                break;
+            }
+        }
+        if (destructor && destructor->defined) {
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = destructor;
+            try { callMethod(bound, {}, 1); } catch (...) {}
+        }
+
+        for (auto member = klass->members.rbegin(); member != klass->members.rend(); ++member) {
+            if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
+            const auto value = instance->fields.find(member->name);
+            if (value == instance->fields.end()) continue;
+            const auto* child = std::get_if<std::shared_ptr<Instance>>(&value->second);
+            if (!child || !*child || *child == instance) continue;
+            if (!referencedOutsideScope(*child, poppedIndex))
+                destroyInstance(*child, poppedIndex);
+        }
+
+        if (klass->base) destroyClassPart(instance, klass->base, poppedIndex);
+    }
+
+    void destroyInstance(const std::shared_ptr<Instance>& instance,
+                         std::size_t poppedIndex = static_cast<std::size_t>(-1)) {
+        if (!instance || instance->destroyed) return;
+        instance->destroyed = true;
+        destroyClassPart(instance, instance->klass, poppedIndex);
+    }
+    void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
+        std::shared_ptr<Instance> preservedInstance;
+        if (preservedValue) {
+            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(preservedValue)) {
+                preservedInstance = *instance;
+            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(preservedValue)) {
+                if (*method) preservedInstance = (*method)->instance;
+            }
+        }
+
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
         for (const auto& pair : scopes_[index]) {
@@ -1345,12 +1490,19 @@ private:
         }
         scopes_.pop_back();
         if (runDestructors) for (const auto& instance : instances)
-            if (!referencedOutsideScope(instance, index)) destroyInstance(instance);
+            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance, index);
     }
     void executeBlock(const std::vector<Stmt>& body) {
         scopes_.emplace_back();
-        try { for (const auto& stmt : body) execute(stmt); }
-        catch (...) { popScope(); throw; }
+        try {
+            for (const auto& stmt : body) execute(stmt);
+        } catch (const ReturnSignal& returned) {
+            popScope(true, &returned.value);
+            throw;
+        } catch (...) {
+            popScope();
+            throw;
+        }
         popScope();
     }
     static bool parseNumber(const std::string& text, double& value) {
@@ -1510,7 +1662,7 @@ private:
                 break;
             case Stmt::Kind::Var: {
                 Value value = stmt.expression ? evaluate(*stmt.expression) :
-                              (stmt.typeName.empty() || stmt.typeName == "var" ? Value{std::monostate{}} : defaultValue(stmt.typeName));
+                              (stmt.typeName.empty() || stmt.typeName == "var" ? Value{UninitializedValue{}} : defaultValue(stmt.typeName));
                 declare(stmt.name, std::move(value), stmt.line);
                 break;
             }
@@ -1550,7 +1702,13 @@ private:
                         executeBlock(stmt.body);
                         if (stmt.increment) execute(*stmt.increment);
                     }
-                } catch (...) { popScope(); throw; }
+                } catch (const ReturnSignal& returned) {
+                    popScope(true, &returned.value);
+                    throw;
+                } catch (...) {
+                    popScope();
+                    throw;
+                }
                 popScope();
                 break;
             }
@@ -1576,7 +1734,12 @@ struct SourceLoader {
         return text.empty() || text.rfind("//", 0) == 0;
     }
     static bool parseUse(const std::string& line, std::string& name) {
-        const auto text = trim(line);
+        // Import declarations are line-based, but a trailing lexer-style comment
+        // should not make an otherwise valid "use name;" declaration disappear.
+        const auto comment = line.find("//");
+        const std::string declaration = comment == std::string::npos
+            ? line : line.substr(0, comment);
+        const auto text = trim(declaration);
         if (text.rfind("use", 0) != 0 ||
             (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_')))
             return false;
