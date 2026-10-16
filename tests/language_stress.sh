@@ -505,8 +505,1939 @@ nix main() {
 }
 NS
 
-run_ok input_into_implicit_class_field $'Enter a value: Ada\n' $'Ada\n' <<'NS'
+run_ok input_into_implicit_class_field 
+    Test() {
+        print("Enter a value: ");
+        uin(x);
+        println(x);
+    }
+};
+nix main() {
+    Test t;
+}
+NS
+
+echo "=== Classes, methods, inheritance, and access control ==="
+
+run_ok object_identity_and_aliasing $'false\ntrue\n' <<'NS'
+class Box {
+public:
+    int value = 1;
+};
+nix main() {
+    var first = Box();
+    var second = Box();
+    var alias = first;
+    println(first == second);
+    println(first == alias);
+}
+NS
+
+run_ok objects_constructors_methods_and_fields $'Point object\n30\n15\n15\n' <<'NS'
+class Point {
+public:
+    int x = 0;
+    int y = 0;
+    Point(int startX, int startY) {
+        this.x = startX;
+        this.y = startY;
+    }
+    int total() {
+        return x + y;
+    }
+    int shift(int dx) {
+        this.x = this.x + dx;
+        return this.x;
+    }
+};
+
+nix main() {
+    var point = Point(10, 20);
+    println(point);
+    println(point.total());
+    println(point.shift(5));
+    println(point.x);
+}
+NS
+
+run_ok protected_member_access_from_subclass $'9\n9\n' <<'NS'
+class Parent {
+protected:
+    int secret = 9;
+public:
+    int revealBase() {
+        return secret;
+    }
+};
+class Child : Parent {
+public:
+    int revealChild() {
+        return this.secret;
+    }
+};
+nix main() {
+    var child = Child();
+    println(child.revealChild());
+    println(child.revealBase());
+}
+NS
+
+run_ok static_fields_methods_and_multiple_instances $'2\n' <<'NS'
+class Marker {
+public:
+    static int total = 0;
+    Marker() {
+        Marker::total = Marker::total + 1;
+    }
+    static int count() {
+        return Marker::total;
+    }
+};
+nix main() {
+    var one = Marker();
+    var two = Marker();
+    println(Marker::count());
+}
+NS
+
+run_ok automatic_class_field_defaults $'0\n[]\nfalse\n' <<'NS'
+class Defaults {
+public:
+    int count;
+    string label;
+    bool active;
+};
+nix main() {
+    var defaults = Defaults();
+    println(defaults.count);
+    print("[");
+    print(defaults.label);
+    println("]");
+    println(defaults.active);
+}
+NS
+
+run_ok destructor_runs_at_block_scope_exit $'inside\ndestroyed\nafter\n' <<'NS'
+class Notice {
+public:
+    ~Notice() {
+        println("destroyed");
+    }
+};
+nix main() {
+    if (true) {
+        var item = Notice();
+        println("inside");
+    }
+    println("after");
+}
+NS
+
+run_ok contained_object_destructor_order $'before\ncontainer destroyed\ncomponent destroyed\n' <<'NS'
+class Component {
+public:
+    ~Component() {
+        println("component destroyed");
+    }
+};
+class Container {
+public:
+    var component = Component();
+    ~Container() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var container = Container();
+    println("before");
+}
+NS
+
+run_ok contained_object_alias_remains_alive_when_referenced_outside $'container destroyed\nstill alive\ncomponent destroyed\n' <<'NS'
+class SharedComponent {
+public:
+    ~SharedComponent() {
+        println("component destroyed");
+    }
+};
+class OwnsComponent {
+public:
+    var component = SharedComponent();
+    ~OwnsComponent() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var component;
+    if (true) {
+        var owner = OwnsComponent();
+        component = owner.component;
+    }
+    println("still alive");
+}
+NS
+
+run_ok destructor_chain_runs_through_all_base_classes $'child destroyed\nparent destroyed\ngrandparent destroyed\n' <<'NS'
+class Grandparent {
+public:
+    ~Grandparent() {
+        println("grandparent destroyed");
+    }
+};
+class Parent : Grandparent {
+public:
+    ~Parent() {
+        println("parent destroyed");
+    }
+};
+class Child : Parent {
+public:
+    ~Child() {
+        println("child destroyed");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
+run_ok returned_object_survives_nested_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class ReturnLife {
+public:
+    ~ReturnLife() {
+        println("destroyed");
+    }
+};
+fn makeLife() {
+    if (true) {
+        var object = ReturnLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLife();
+    println("caller owns it");
+}
+NS
+
+run_ok returned_object_survives_loop_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class LoopLife {
+public:
+    ~LoopLife() {
+        println("destroyed");
+    }
+};
+fn makeLoopLife() {
+    for (var i = 0; i < 1; i++) {
+        var object = LoopLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLoopLife();
+    println("caller owns it");
+}
+NS
+
+run_ok object_alias_keeps_instance_alive_until_last_scope $'inside\nstill alive\ndestroyed\n' <<'NS'
+class Life {
+public:
+    ~Life() {
+        println("destroyed");
+    }
+};
+nix main() {
+    var item = Life();
+    if (true) {
+        var innerAlias = item;
+        println("inside");
+    }
+    println("still alive");
+}
+NS
+
+run_ok private_method_can_be_called_inside_class $'secret\n' <<'NS'
+class Safe {
+private:
+    int reveal() {
+        return 42;
+    }
+public:
+    int run() {
+        println("secret");
+        return this.reveal();
+    }
+};
+nix main() {
+    var safe = Safe();
+    safe.run();
+}
+NS
+
+run_ok class_method_can_call_another_method $'42\n' <<'NS'
+class Calculator {
+public:
+    int doubleValue(value) {
+        return value * 2;
+    }
+    int calc(value) {
+        return this.doubleValue(value + 10) + 2;
+    }
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.calc(10));
+}
+NS
+
+run_ok class_field_initializers_use_prior_fields $'8\n' <<'NS'
+class InitOrder {
+public:
+    int base = 4;
+    int doubled = base * 2;
+};
+nix main() {
+    var value = InitOrder();
+    println(value.doubled);
+}
+NS
+
+run_ok constructor_chain_runs_base_to_derived $'grandparent constructor\nparent constructor\nchild constructor\n' <<'NS'
+class Grandparent {
+public:
+    Grandparent() {
+        println("grandparent constructor");
+    }
+};
+class Parent : Grandparent {
+public:
+    Parent() {
+        println("parent constructor");
+    }
+};
+class Child : Parent {
+public:
+    Child() {
+        println("child constructor");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
+run_ok derived_constructor_can_call_protected_base_constructor $'base constructor\nderived constructor\n' <<'NS'
+class ProtectedBase {
+protected:
+    ProtectedBase() {
+        println("base constructor");
+    }
+};
+class Derived : ProtectedBase {
+public:
+    Derived() {
+        println("derived constructor");
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_ok derived_method_overrides_base_method $'2\n' <<'NS'
+class Parent {
+public:
+    int value() {
+        return 1;
+    }
+};
+class Child : Parent {
+public:
+    int value() {
+        return 2;
+    }
+};
+nix main() {
+    var child = Child();
+    println(child.value());
+}
+NS
+
+run_ok bound_method_identity $'true\nfalse\n' <<'NS'
+class Actions {
+public:
+    int go() {
+        return 1;
+    }
+};
+nix main() {
+    var first = Actions();
+    var second = Actions();
+    println(first.go == first.go);
+    println(first.go == second.go);
+}
+NS
+
+run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
+class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
+echo "=== Source import loader ==="
+
+mkdir -p "$TMP/import-comments/lib"
+cat >"$TMP/import-comments/lib/calc.ns" <<'NS'
+fn imported_answer() {
+    return 40 + 2;
+}
+NS
+cat >"$TMP/import-comments/main.ns" <<'NS'
+use calc; // trailing comments should not disable an import
+nix main() {
+    println(imported_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok import_with_trailing_comment "$TMP/import-comments/main.ns" $'42\n'
+
+mkdir -p "$TMP/nested-import/lib"
+cat >"$TMP/nested-import/lib/inner.ns" <<'NS'
+fn nested_value() {
+    return 7;
+}
+NS
+cat >"$TMP/nested-import/lib/outer.ns" <<'NS'
+use inner;
+fn outer_value() {
+    return nested_value() * 6;
+}
+NS
+cat >"$TMP/nested-import/main.ns" <<'NS'
+use outer;
+use inner;
+nix main() {
+    println(outer_value());
+    println(nested_value());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok nested_import_and_deduplication "$TMP/nested-import/main.ns" $'42\n7\n'
+
+mkdir -p "$TMP/libraries-folder/libraries"
+cat >"$TMP/libraries-folder/libraries/tools.ns" <<'NS'
+fn tool_answer() {
+    return 6 * 7;
+}
+NS
+cat >"$TMP/libraries-folder/main.ns" <<'NS'
+// comments before imports remain in the import section
+
+use tools;
+nix main() {
+    println(tool_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok libraries_directory_resolution "$TMP/libraries-folder/main.ns" $'42\n'
+
+mkdir -p "$TMP/adjacent-import"
+cat >"$TMP/adjacent-import/adjacent.ns" <<'NS'
+fn adjacent_answer() {
+    return 84 / 2;
+}
+NS
+cat >"$TMP/adjacent-import/main.ns" <<'NS'
+use adjacent;
+nix main() {
+    println(adjacent_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
+
+echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
+
+run_error uninitialized_variable "has not been initialized" <<'NS'
+nix main() {
+    var pending;
+    println(pending);
+}
+NS
+
+run_error unknown_variable "Unknown variable 'missing'" <<'NS'
+nix main() {
+    println(missing);
+}
+NS
+
+run_error unknown_function "Unknown function 'missing'" <<'NS'
+nix main() {
+    missing();
+}
+NS
+
+run_error division_by_zero "Division by zero" <<'NS'
+nix main() {
+    println(12 / 0);
+}
+NS
+
+run_error sqrt_negative "sqrt() requires a non-negative number" <<'NS'
+nix main() {
+    println(sqrt(-1));
+}
+NS
+
+run_error builtin_wrong_argument_count "sqrt() expects 1 argument(s)" <<'NS'
+nix main() {
+    println(sqrt());
+}
+NS
+
+run_error builtin_wrong_argument_type "sqrt() expects numeric arguments" <<'NS'
+nix main() {
+    println(sqrt("not a number"));
+}
+NS
+
+run_error incompatible_arithmetic "Arithmetic operators require numbers" <<'NS'
+nix main() {
+    println("left" - "right");
+}
+NS
+
+run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
+nix main() {
+    println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
+}
+NS
+
+run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
+fn typed(int value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error class_method_without_definition "declared but has no definition" <<'NS'
+class Incomplete {
+public:
+    int calculate(value);
+};
+nix main() {
+    var object = Incomplete();
+    println(object.calculate(2));
+}
+NS
+
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+class StaticOnly {
+public:
+    static int get() {
+        return 1;
+    }
+};
+nix main() {
+    var object = StaticOnly();
+    println(object.get());
+}
+NS
+
+run_error instance_field_called_through_class "is not static" <<'NS'
+class InstanceOnly {
+public:
+    int value = 4;
+};
+nix main() {
+    println(InstanceOnly::value);
+}
+NS
+
+run_error implicit_private_access "not accessible here" <<'NS'
+class HiddenByDefault {
+    int secret = 4;
+};
+nix main() {
+    var object = HiddenByDefault();
+    println(object.secret);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+Enter a value: Ada\n' 
+    Test() {
+        print("Enter a value: ");
+        uin(x);
+        println(x);
+    }
+};
+nix main() {
+    Test t;
+}
+NS
+
+echo "=== Classes, methods, inheritance, and access control ==="
+
+run_ok object_identity_and_aliasing $'false\ntrue\n' <<'NS'
+class Box {
+public:
+    int value = 1;
+};
+nix main() {
+    var first = Box();
+    var second = Box();
+    var alias = first;
+    println(first == second);
+    println(first == alias);
+}
+NS
+
+run_ok objects_constructors_methods_and_fields $'Point object\n30\n15\n15\n' <<'NS'
+class Point {
+public:
+    int x = 0;
+    int y = 0;
+    Point(int startX, int startY) {
+        this.x = startX;
+        this.y = startY;
+    }
+    int total() {
+        return x + y;
+    }
+    int shift(int dx) {
+        this.x = this.x + dx;
+        return this.x;
+    }
+};
+
+nix main() {
+    var point = Point(10, 20);
+    println(point);
+    println(point.total());
+    println(point.shift(5));
+    println(point.x);
+}
+NS
+
+run_ok protected_member_access_from_subclass $'9\n9\n' <<'NS'
+class Parent {
+protected:
+    int secret = 9;
+public:
+    int revealBase() {
+        return secret;
+    }
+};
+class Child : Parent {
+public:
+    int revealChild() {
+        return this.secret;
+    }
+};
+nix main() {
+    var child = Child();
+    println(child.revealChild());
+    println(child.revealBase());
+}
+NS
+
+run_ok static_fields_methods_and_multiple_instances $'2\n' <<'NS'
+class Marker {
+public:
+    static int total = 0;
+    Marker() {
+        Marker::total = Marker::total + 1;
+    }
+    static int count() {
+        return Marker::total;
+    }
+};
+nix main() {
+    var one = Marker();
+    var two = Marker();
+    println(Marker::count());
+}
+NS
+
+run_ok automatic_class_field_defaults $'0\n[]\nfalse\n' <<'NS'
+class Defaults {
+public:
+    int count;
+    string label;
+    bool active;
+};
+nix main() {
+    var defaults = Defaults();
+    println(defaults.count);
+    print("[");
+    print(defaults.label);
+    println("]");
+    println(defaults.active);
+}
+NS
+
+run_ok destructor_runs_at_block_scope_exit $'inside\ndestroyed\nafter\n' <<'NS'
+class Notice {
+public:
+    ~Notice() {
+        println("destroyed");
+    }
+};
+nix main() {
+    if (true) {
+        var item = Notice();
+        println("inside");
+    }
+    println("after");
+}
+NS
+
+run_ok contained_object_destructor_order $'before\ncontainer destroyed\ncomponent destroyed\n' <<'NS'
+class Component {
+public:
+    ~Component() {
+        println("component destroyed");
+    }
+};
+class Container {
+public:
+    var component = Component();
+    ~Container() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var container = Container();
+    println("before");
+}
+NS
+
+run_ok contained_object_alias_remains_alive_when_referenced_outside $'container destroyed\nstill alive\ncomponent destroyed\n' <<'NS'
+class SharedComponent {
+public:
+    ~SharedComponent() {
+        println("component destroyed");
+    }
+};
+class OwnsComponent {
+public:
+    var component = SharedComponent();
+    ~OwnsComponent() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var component;
+    if (true) {
+        var owner = OwnsComponent();
+        component = owner.component;
+    }
+    println("still alive");
+}
+NS
+
+run_ok destructor_chain_runs_through_all_base_classes $'child destroyed\nparent destroyed\ngrandparent destroyed\n' <<'NS'
+class Grandparent {
+public:
+    ~Grandparent() {
+        println("grandparent destroyed");
+    }
+};
+class Parent : Grandparent {
+public:
+    ~Parent() {
+        println("parent destroyed");
+    }
+};
+class Child : Parent {
+public:
+    ~Child() {
+        println("child destroyed");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
+run_ok returned_object_survives_nested_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class ReturnLife {
+public:
+    ~ReturnLife() {
+        println("destroyed");
+    }
+};
+fn makeLife() {
+    if (true) {
+        var object = ReturnLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLife();
+    println("caller owns it");
+}
+NS
+
+run_ok returned_object_survives_loop_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
+class LoopLife {
+public:
+    ~LoopLife() {
+        println("destroyed");
+    }
+};
+fn makeLoopLife() {
+    for (var i = 0; i < 1; i++) {
+        var object = LoopLife();
+        println("created");
+        return object;
+    }
+}
+nix main() {
+    var object = makeLoopLife();
+    println("caller owns it");
+}
+NS
+
+run_ok object_alias_keeps_instance_alive_until_last_scope $'inside\nstill alive\ndestroyed\n' <<'NS'
+class Life {
+public:
+    ~Life() {
+        println("destroyed");
+    }
+};
+nix main() {
+    var item = Life();
+    if (true) {
+        var innerAlias = item;
+        println("inside");
+    }
+    println("still alive");
+}
+NS
+
+run_ok private_method_can_be_called_inside_class $'secret\n' <<'NS'
+class Safe {
+private:
+    int reveal() {
+        return 42;
+    }
+public:
+    int run() {
+        println("secret");
+        return this.reveal();
+    }
+};
+nix main() {
+    var safe = Safe();
+    safe.run();
+}
+NS
+
+run_ok class_method_can_call_another_method $'42\n' <<'NS'
+class Calculator {
+public:
+    int doubleValue(value) {
+        return value * 2;
+    }
+    int calc(value) {
+        return this.doubleValue(value + 10) + 2;
+    }
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.calc(10));
+}
+NS
+
+run_ok class_field_initializers_use_prior_fields $'8\n' <<'NS'
+class InitOrder {
+public:
+    int base = 4;
+    int doubled = base * 2;
+};
+nix main() {
+    var value = InitOrder();
+    println(value.doubled);
+}
+NS
+
+run_ok constructor_chain_runs_base_to_derived $'grandparent constructor\nparent constructor\nchild constructor\n' <<'NS'
+class Grandparent {
+public:
+    Grandparent() {
+        println("grandparent constructor");
+    }
+};
+class Parent : Grandparent {
+public:
+    Parent() {
+        println("parent constructor");
+    }
+};
+class Child : Parent {
+public:
+    Child() {
+        println("child constructor");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
+run_ok derived_constructor_can_call_protected_base_constructor $'base constructor\nderived constructor\n' <<'NS'
+class ProtectedBase {
+protected:
+    ProtectedBase() {
+        println("base constructor");
+    }
+};
+class Derived : ProtectedBase {
+public:
+    Derived() {
+        println("derived constructor");
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_ok derived_method_overrides_base_method $'2\n' <<'NS'
+class Parent {
+public:
+    int value() {
+        return 1;
+    }
+};
+class Child : Parent {
+public:
+    int value() {
+        return 2;
+    }
+};
+nix main() {
+    var child = Child();
+    println(child.value());
+}
+NS
+
+run_ok bound_method_identity $'true\nfalse\n' <<'NS'
+class Actions {
+public:
+    int go() {
+        return 1;
+    }
+};
+nix main() {
+    var first = Actions();
+    var second = Actions();
+    println(first.go == first.go);
+    println(first.go == second.go);
+}
+NS
+
+run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
+class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
+echo "=== Source import loader ==="
+
+mkdir -p "$TMP/import-comments/lib"
+cat >"$TMP/import-comments/lib/calc.ns" <<'NS'
+fn imported_answer() {
+    return 40 + 2;
+}
+NS
+cat >"$TMP/import-comments/main.ns" <<'NS'
+use calc; // trailing comments should not disable an import
+nix main() {
+    println(imported_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok import_with_trailing_comment "$TMP/import-comments/main.ns" $'42\n'
+
+mkdir -p "$TMP/nested-import/lib"
+cat >"$TMP/nested-import/lib/inner.ns" <<'NS'
+fn nested_value() {
+    return 7;
+}
+NS
+cat >"$TMP/nested-import/lib/outer.ns" <<'NS'
+use inner;
+fn outer_value() {
+    return nested_value() * 6;
+}
+NS
+cat >"$TMP/nested-import/main.ns" <<'NS'
+use outer;
+use inner;
+nix main() {
+    println(outer_value());
+    println(nested_value());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok nested_import_and_deduplication "$TMP/nested-import/main.ns" $'42\n7\n'
+
+mkdir -p "$TMP/libraries-folder/libraries"
+cat >"$TMP/libraries-folder/libraries/tools.ns" <<'NS'
+fn tool_answer() {
+    return 6 * 7;
+}
+NS
+cat >"$TMP/libraries-folder/main.ns" <<'NS'
+// comments before imports remain in the import section
+
+use tools;
+nix main() {
+    println(tool_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok libraries_directory_resolution "$TMP/libraries-folder/main.ns" $'42\n'
+
+mkdir -p "$TMP/adjacent-import"
+cat >"$TMP/adjacent-import/adjacent.ns" <<'NS'
+fn adjacent_answer() {
+    return 84 / 2;
+}
+NS
+cat >"$TMP/adjacent-import/main.ns" <<'NS'
+use adjacent;
+nix main() {
+    println(adjacent_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
+
+echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
+
+run_error uninitialized_variable "has not been initialized" <<'NS'
+nix main() {
+    var pending;
+    println(pending);
+}
+NS
+
+run_error unknown_variable "Unknown variable 'missing'" <<'NS'
+nix main() {
+    println(missing);
+}
+NS
+
+run_error unknown_function "Unknown function 'missing'" <<'NS'
+nix main() {
+    missing();
+}
+NS
+
+run_error division_by_zero "Division by zero" <<'NS'
+nix main() {
+    println(12 / 0);
+}
+NS
+
+run_error sqrt_negative "sqrt() requires a non-negative number" <<'NS'
+nix main() {
+    println(sqrt(-1));
+}
+NS
+
+run_error builtin_wrong_argument_count "sqrt() expects 1 argument(s)" <<'NS'
+nix main() {
+    println(sqrt());
+}
+NS
+
+run_error builtin_wrong_argument_type "sqrt() expects numeric arguments" <<'NS'
+nix main() {
+    println(sqrt("not a number"));
+}
+NS
+
+run_error incompatible_arithmetic "Arithmetic operators require numbers" <<'NS'
+nix main() {
+    println("left" - "right");
+}
+NS
+
+run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
+nix main() {
+    println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
+}
+NS
+
+run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
+fn typed(int value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error class_method_without_definition "declared but has no definition" <<'NS'
+class Incomplete {
+public:
+    int calculate(value);
+};
+nix main() {
+    var object = Incomplete();
+    println(object.calculate(2));
+}
+NS
+
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+class StaticOnly {
+public:
+    static int get() {
+        return 1;
+    }
+};
+nix main() {
+    var object = StaticOnly();
+    println(object.get());
+}
+NS
+
+run_error instance_field_called_through_class "is not static" <<'NS'
+class InstanceOnly {
+public:
+    int value = 4;
+};
+nix main() {
+    println(InstanceOnly::value);
+}
+NS
+
+run_error implicit_private_access "not accessible here" <<'NS'
+class HiddenByDefault {
+    int secret = 4;
+};
+nix main() {
+    var object = HiddenByDefault();
+    println(object.secret);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+Ada\n' <<'NS'
 class Test {
+public:
     var x;
     Test() {
         print("Enter a value: ");
