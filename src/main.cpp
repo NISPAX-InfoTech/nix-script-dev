@@ -1304,7 +1304,7 @@ private:
             throw;
         }
         currentClass_ = oldClass;
-        popScope();
+        popScope(true, &result);
         return result;
     }
     Value callMethod(const std::shared_ptr<BoundMethod>& bound, const std::vector<Value>& args, int line) {
@@ -1329,7 +1329,7 @@ private:
             throw;
         }
         currentClass_ = oldClass;
-        popScope();
+        popScope(true, &result);
         return result;
     }
     Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
@@ -1372,14 +1372,27 @@ private:
         for (std::size_t i = 0; i < scopes_.size(); ++i) {
             if (i == poppedIndex) continue;
             for (const auto& pair : scopes_[i]) {
-                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second))
+                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second)) {
                     if (*candidate == instance) return true;
+                }
+                if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
+                    if (*method && (*method)->instance == instance) return true;
+                }
             }
         }
         return false;
     }
-    void popScope(bool runDestructors = true) {
+    void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
+        std::shared_ptr<Instance> preservedInstance;
+        if (preservedValue) {
+            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(preservedValue)) {
+                preservedInstance = *instance;
+            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(preservedValue)) {
+                if (*method) preservedInstance = (*method)->instance;
+            }
+        }
+
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
         for (const auto& pair : scopes_[index]) {
@@ -1389,12 +1402,19 @@ private:
         }
         scopes_.pop_back();
         if (runDestructors) for (const auto& instance : instances)
-            if (!referencedOutsideScope(instance, index)) destroyInstance(instance);
+            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance);
     }
     void executeBlock(const std::vector<Stmt>& body) {
         scopes_.emplace_back();
-        try { for (const auto& stmt : body) execute(stmt); }
-        catch (...) { popScope(); throw; }
+        try {
+            for (const auto& stmt : body) execute(stmt);
+        } catch (const ReturnSignal& returned) {
+            popScope(true, &returned.value);
+            throw;
+        } catch (...) {
+            popScope();
+            throw;
+        }
         popScope();
     }
     static bool parseNumber(const std::string& text, double& value) {
@@ -1594,7 +1614,13 @@ private:
                         executeBlock(stmt.body);
                         if (stmt.increment) execute(*stmt.increment);
                     }
-                } catch (...) { popScope(); throw; }
+                } catch (const ReturnSignal& returned) {
+                    popScope(true, &returned.value);
+                    throw;
+                } catch (...) {
+                    popScope();
+                    throw;
+                }
                 popScope();
                 break;
             }
