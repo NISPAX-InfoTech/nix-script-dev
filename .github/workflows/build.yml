@@ -64,6 +64,22 @@ jobs:
           fi
           grep -q "Cannot resolve library 'absent_library'" import-test/missing.log
 
+          mkdir -p installed-libraries
+          cat > installed-libraries/installed_test.ns <<'EOF'
+          fn installed_value() { return 99; }
+          EOF
+          cat > import-test/installed.ns <<'EOF'
+          use installed_test;
+          nix main() {
+              println(installed_value());
+          }
+          EOF
+          installed_output="$(NIXSCRIPT_LIB_PATH="$PWD/installed-libraries" ./build/nix import-test/installed.ns)"
+          if [[ "$installed_output" != "99" ]]; then
+            echo "Installed-library directory lookup failed" >&2
+            exit 1
+          fi
+
           cat > import-test/lib/left.ns <<'EOF'
           use right;
           fn left() { return 1; }
