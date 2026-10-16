@@ -64,7 +64,7 @@ Implemented `uin()` behavior:
 - `uin("Continue? ", bool)` accepts `true`/`false` or `1`/`0`.
 - `uin(existing_variable)` reads directly into an existing variable, preserving its basic string/number/boolean category.
 - Invalid typed input raises a readable runtime error.
-- Input is read from standard input; interactive input in the Android app still needs a UI integration.
+- Terminal builds read input from standard input. The Android IDE asks for each `uin()` value in a native input dialog, shows the program output produced so far, and returns the submitted text to the running program.
 
 ```ns
 var name;
