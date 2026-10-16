@@ -1332,24 +1332,66 @@ private:
         popScope(true, &result);
         return result;
     }
-    Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
-        auto instance = std::make_shared<Instance>(); instance->klass = klass;
-        initializeFields(instance, klass);
-        if (klass->base) {
-            ClassMember* baseCtor = findMember(klass->base, klass->base->name);
-            if (baseCtor && baseCtor->isConstructor) {
-                checkAccess(*baseCtor, line);
-                auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass->base; bound->member = baseCtor;
-                callMethod(bound, {}, line);
+    void constructBaseHierarchy(const std::shared_ptr<Instance>& instance,
+                                const std::shared_ptr<ClassDef>& klass,
+                                const std::string& accessingClass,
+                                int line) {
+        if (!klass) return;
+        if (klass->base)
+            constructBaseHierarchy(instance, klass->base, klass->name, line);
+
+        ClassMember* ctor = nullptr;
+        for (auto& member : klass->members) {
+            if (member.isConstructor && member.name == klass->name) {
+                ctor = &member;
+                break;
             }
         }
+        if (!ctor) return;
+
+        // A base constructor is invoked in the context of the derived class,
+        // so protected base constructors remain usable while private ones do not.
+        const std::string oldClass = currentClass_;
+        currentClass_ = accessingClass;
+        try {
+            checkAccess(*ctor, line);
+        } catch (...) {
+            currentClass_ = oldClass;
+            throw;
+        }
+        currentClass_ = oldClass;
+
+        auto bound = std::make_shared<BoundMethod>();
+        bound->instance = instance;
+        bound->klass = klass;
+        bound->member = ctor;
+        callMethod(bound, {}, line);
+    }
+
+    Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
+        auto instance = std::make_shared<Instance>();
+        instance->klass = klass;
+        initializeFields(instance, klass);
+        if (klass->base)
+            constructBaseHierarchy(instance, klass->base, klass->name, line);
+
         ClassMember* ctor = nullptr;
-        for (auto& member : klass->members) if (member.isConstructor) { ctor = &member; break; }
+        for (auto& member : klass->members) {
+            if (member.isConstructor && member.name == klass->name) {
+                ctor = &member;
+                break;
+            }
+        }
         if (ctor) {
             checkAccess(*ctor, line);
-            auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass; bound->member = ctor;
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = ctor;
             callMethod(bound, args, line);
-        } else if (!args.empty()) runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
+        } else if (!args.empty()) {
+            runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
+        }
         return instance;
     }
     bool instanceGraphContains(
