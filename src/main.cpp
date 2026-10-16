@@ -173,7 +173,9 @@ struct Instance;
 struct BoundMethod;
 struct Stmt;
 
-using Value = std::variant<std::monostate, double, std::string, bool,
+// Keep an uninitialized binding distinct from the language's valid null value.
+struct UninitializedValue {};
+using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>>;
 
@@ -964,7 +966,7 @@ private:
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
             if (found != it->end()) {
-                if (std::holds_alternative<std::monostate>(found->second))
+                if (std::holds_alternative<UninitializedValue>(found->second))
                     runtimeError(line, "Variable '" + name + "' has not been initialized.");
                 return found->second;
             }
@@ -1510,7 +1512,7 @@ private:
                 break;
             case Stmt::Kind::Var: {
                 Value value = stmt.expression ? evaluate(*stmt.expression) :
-                              (stmt.typeName.empty() || stmt.typeName == "var" ? Value{std::monostate{}} : defaultValue(stmt.typeName));
+                              (stmt.typeName.empty() || stmt.typeName == "var" ? Value{UninitializedValue{}} : defaultValue(stmt.typeName));
                 declare(stmt.name, std::move(value), stmt.line);
                 break;
             }
