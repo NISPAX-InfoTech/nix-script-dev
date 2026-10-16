@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <map>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -1559,7 +1561,6 @@ private:
  
 // Resolve imports before parsing so library declarations share the same symbol
 // table as the importing program. A library is a .ns file without nix main().
-namespace nix {
 namespace fs = std::filesystem;
 struct SourceLoader {
     std::unordered_set<std::string> loaded;
@@ -1591,25 +1592,25 @@ struct SourceLoader {
     }
     static fs::path installedLibraryRoot() {
         if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) {
-            if (*overridePath != '\\0') return fs::path(overridePath);
+            if (*overridePath != '\0') return fs::path(overridePath);
         }
 #ifdef _WIN32
         if (const char* appData = std::getenv("APPDATA")) {
-            if (*appData != '\\0') return fs::path(appData) / "NixScript" / "libraries";
+            if (*appData != '\0') return fs::path(appData) / "NixScript" / "libraries";
         }
         if (const char* home = std::getenv("USERPROFILE")) {
-            if (*home != '\\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
+            if (*home != '\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
         }
 #elif defined(__APPLE__)
         if (const char* home = std::getenv("HOME")) {
-            if (*home != '\\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
+            if (*home != '\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
         }
 #else
         if (const char* xdg = std::getenv("XDG_DATA_HOME")) {
-            if (*xdg != '\\0') return fs::path(xdg) / "nixscript" / "libraries";
+            if (*xdg != '\0') return fs::path(xdg) / "nixscript" / "libraries";
         }
         if (const char* home = std::getenv("HOME")) {
-            if (*home != '\\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
+            if (*home != '\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
         }
 #endif
         return {};
@@ -1684,15 +1685,399 @@ struct SourceLoader {
         return combined;
     }
 };
+
+#ifndef NIX_ANDROID
+// The package manager trusts one fixed, team-maintained GitHub registry.
+// The index contains "name MAJOR.MINOR.PATCH" entries; package URLs are
+// derived locally so registry entries cannot redirect downloads elsewhere.
+class OfficialLibraryManager {
+public:
+    OfficialLibraryManager()
+        : root_(SourceLoader::installedLibraryRoot()), manifest_(root_ / "installed.txt") {
+        if (root_.empty()) {
+            throw std::runtime_error(
+                "Cannot determine the installed-library directory. Set NIXSCRIPT_LIB_PATH.");
+        }
+    }
+
+    void install(const std::string& name) {
+        requireName(name);
+        ensureRoot();
+        const auto installed = readInstalled();
+        if (installed.count(name)) {
+            throw std::runtime_error("Official library '" + name +
+                                     "' is already installed; use 'nix update " + name + "'.");
+        }
+
+        const fs::path target = root_ / (name + ".ns");
+        std::error_code ec;
+        if (fs::exists(target, ec)) {
+            throw std::runtime_error("Refusing to overwrite unmanaged library '" +
+                                     target.string() + "'. Move it first, then retry.");
+        }
+        if (ec) throw std::runtime_error("Cannot inspect installed library path: " + ec.message());
+
+        const auto catalog = fetchCatalog();
+        const auto entry = catalog.find(name);
+        if (entry == catalog.end()) {
+            throw std::runtime_error("Library '" + name +
+                                     "' is not listed in the official NixScript library registry.");
+        }
+        installVersion(name, entry->second, installed);
+        std::cout << "Installed official library " << name << " " << entry->second << ".\n";
+    }
+
+    void update() { updateImpl(nullptr); }
+
+    void update(const std::string& name) {
+        requireName(name);
+        updateImpl(&name);
+    }
+
+    void list() {
+        ensureRoot();
+        const auto installed = readInstalled();
+        if (installed.empty()) {
+            std::cout << "No official NixScript libraries are installed.\n";
+            return;
+        }
+        for (const auto& item : installed) {
+            std::cout << item.first << " " << item.second << "\n";
+        }
+    }
+
+private:
+    fs::path root_;
+    fs::path manifest_;
+    static constexpr const char* registryBase =
+        "https://raw.githubusercontent.com/NISPAX-InfoTech/nixscript-libraries/main";
+
+    static void requireName(const std::string& name) {
+        if (name.empty() || name.size() > 64 ||
+            name[0] < 'a' || name[0] > 'z') {
+            throw std::runtime_error(
+                "Invalid library name. Use a lowercase identifier beginning with a letter.");
+        }
+        for (char c : name) {
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
+                throw std::runtime_error(
+                    "Invalid library name '" + name +
+                    "'. Official library names use lowercase letters, digits, and underscores.");
+            }
+        }
+    }
+
+    static bool validVersion(const std::string& version) {
+        int components = 0;
+        bool hasDigit = false;
+        for (char c : version) {
+            if (c >= '0' && c <= '9') {
+                hasDigit = true;
+            } else if (c == '.' && hasDigit) {
+                ++components;
+                hasDigit = false;
+            } else {
+                return false;
+            }
+        }
+        return hasDigit && components == 2;
+    }
+
+    void ensureRoot() const {
+        std::error_code ec;
+        fs::create_directories(root_, ec);
+        if (ec) {
+            throw std::runtime_error("Cannot create installed-library directory '" +
+                                     root_.string() + "': " + ec.message());
+        }
+    }
+
+    static fs::path uniqueSibling(const fs::path& path, const std::string& label) {
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        return fs::path(path.string() + "." + label + "." + std::to_string(stamp));
+    }
+
+    static std::string quoteArgument(const std::string& value) {
+#ifdef _WIN32
+        std::string quoted = "\"";
+        for (char c : value) {
+            if (c == '"') quoted += "\\\"";
+            else quoted.push_back(c);
+        }
+        quoted.push_back('"');
+        return quoted;
+#else
+        std::string quoted = "'";
+        for (char c : value) {
+            if (c == '\'') quoted += "'\\''";
+            else quoted.push_back(c);
+        }
+        quoted.push_back('\'');
+        return quoted;
+#endif
+    }
+
+    static void downloadTo(const std::string& url, const fs::path& output) {
+        const std::string command = "curl --fail --location --silent --show-error --output " +
+                                    quoteArgument(output.string()) + " " + quoteArgument(url);
+        const int result = std::system(command.c_str());
+        if (result != 0) {
+            std::error_code ignored;
+            fs::remove(output, ignored);
+            throw std::runtime_error(
+                "Could not download from the official NixScript registry. Check your internet "
+                "connection and ensure curl is installed.");
+        }
+        std::error_code ec;
+        if (!fs::is_regular_file(output, ec) || ec || fs::file_size(output, ec) == 0 || ec) {
+            fs::remove(output, ec);
+            throw std::runtime_error("The official registry returned an empty or invalid file.");
+        }
+    }
+
+    static std::string readTextFile(const fs::path& path) {
+        std::ifstream input(path);
+        if (!input) throw std::runtime_error("Could not read file: " + path.string());
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        if (input.bad()) throw std::runtime_error("Error while reading file: " + path.string());
+        return contents.str();
+    }
+
+    static std::map<std::string, std::string> parsePairs(
+        const std::string& contents, const std::string& description) {
+        std::map<std::string, std::string> entries;
+        std::istringstream input(contents);
+        std::string line;
+        std::size_t lineNumber = 0;
+        while (std::getline(input, line)) {
+            ++lineNumber;
+            const std::string trimmed = SourceLoader::trim(line);
+            if (trimmed.empty() || trimmed.rfind("#", 0) == 0) continue;
+
+            std::istringstream row(trimmed);
+            std::string name, version, extra;
+            if (!(row >> name >> version) || (row >> extra)) {
+                throw std::runtime_error(description + " has an invalid entry on line " +
+                                         std::to_string(lineNumber) + ".");
+            }
+            requireName(name);
+            if (!validVersion(version)) {
+                throw std::runtime_error(description + " has an invalid version for '" +
+                                         name + "' on line " + std::to_string(lineNumber) +
+                                         "; expected MAJOR.MINOR.PATCH.");
+            }
+            if (!entries.emplace(name, version).second) {
+                throw std::runtime_error(description + " lists '" + name + "' more than once.");
+            }
+        }
+        return entries;
+    }
+
+    std::map<std::string, std::string> readInstalled() const {
+        std::error_code ec;
+        if (!fs::exists(manifest_, ec)) {
+            if (ec) throw std::runtime_error("Cannot inspect installed-library manifest: " + ec.message());
+            return {};
+        }
+        return parsePairs(readTextFile(manifest_), "Installed-library manifest");
+    }
+
+    std::map<std::string, std::string> fetchCatalog() const {
+        const fs::path temporary = uniqueSibling(root_ / "index.txt", "download");
+        try {
+            downloadTo(std::string(registryBase) + "/index.txt", temporary);
+            const std::string contents = readTextFile(temporary);
+            std::error_code ignored;
+            fs::remove(temporary, ignored);
+            return parsePairs(contents, "Official library index");
+        } catch (...) {
+            std::error_code ignored;
+            fs::remove(temporary, ignored);
+            throw;
+        }
+    }
+
+    static fs::path writeManifestTemporary(
+        const fs::path& manifestPath,
+        const std::map<std::string, std::string>& installed) {
+        const fs::path temporary = uniqueSibling(manifestPath, "download");
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output) throw std::runtime_error("Cannot write installed-library manifest.");
+        for (const auto& item : installed) output << item.first << " " << item.second << "\n";
+        output.close();
+        if (!output) {
+            std::error_code ignored;
+            fs::remove(temporary, ignored);
+            throw std::runtime_error("Could not finish writing installed-library manifest.");
+        }
+        return temporary;
+    }
+
+    // Move the old file aside before replacing it. The backup remains until both
+    // the library file and version manifest have been committed successfully.
+    static fs::path swapIn(const fs::path& staged, const fs::path& target) {
+        std::error_code ec;
+        fs::path backup;
+        const bool existed = fs::exists(target, ec);
+        if (ec) throw std::runtime_error("Cannot inspect '" + target.string() + "': " + ec.message());
+        if (existed) {
+            backup = uniqueSibling(target, "backup");
+            fs::rename(target, backup, ec);
+            if (ec) throw std::runtime_error("Cannot stage existing file '" + target.string() +
+                                             "': " + ec.message());
+        }
+        fs::rename(staged, target, ec);
+        if (ec) {
+            if (!backup.empty()) {
+                std::error_code restoreError;
+                fs::rename(backup, target, restoreError);
+            }
+            throw std::runtime_error("Cannot install '" + target.string() + "': " + ec.message());
+        }
+        return backup;
+    }
+
+    static void rollback(const fs::path& target, const fs::path& backup) {
+        std::error_code ignored;
+        fs::remove(target, ignored);
+        if (!backup.empty()) fs::rename(backup, target, ignored);
+    }
+
+    static void discardBackup(const fs::path& backup) {
+        if (backup.empty()) return;
+        std::error_code ignored;
+        fs::remove(backup, ignored);
+    }
+
+    void installVersion(const std::string& name, const std::string& version,
+                        const std::map<std::string, std::string>& installed) {
+        const fs::path target = root_ / (name + ".ns");
+        const std::string url = std::string(registryBase) + "/libraries/" +
+                                name + "/" + version + "/" + name + ".ns";
+        const fs::path packageTemporary = uniqueSibling(target, "download");
+        fs::path manifestTemporary;
+        fs::path packageBackup;
+        fs::path manifestBackup;
+        try {
+            downloadTo(url, packageTemporary);
+            const std::string source = readTextFile(packageTemporary);
+            if (source.empty()) throw std::runtime_error("The official library '" + name + "' is empty.");
+
+            auto nextInstalled = installed;
+            nextInstalled[name] = version;
+            manifestTemporary = writeManifestTemporary(manifest_, nextInstalled);
+
+            packageBackup = swapIn(packageTemporary, target);
+            try {
+                manifestBackup = swapIn(manifestTemporary, manifest_);
+            } catch (...) {
+                rollback(target, packageBackup);
+                throw;
+            }
+
+            discardBackup(packageBackup);
+            discardBackup(manifestBackup);
+        } catch (...) {
+            std::error_code ignored;
+            fs::remove(packageTemporary, ignored);
+            if (!manifestTemporary.empty()) fs::remove(manifestTemporary, ignored);
+            throw;
+        }
+    }
+
+    void updateImpl(const std::string* requestedName) {
+        ensureRoot();
+        const auto installed = readInstalled();
+        if (requestedName && !installed.count(*requestedName)) {
+            throw std::runtime_error("Official library '" + *requestedName +
+                                     "' is not installed; use 'nix install " + *requestedName + "' first.");
+        }
+        if (installed.empty()) {
+            std::cout << "No official NixScript libraries are installed.\n";
+            return;
+        }
+
+        const auto catalog = fetchCatalog();
+        auto currentInstalled = installed;
+        for (const auto& item : installed) {
+            if (requestedName && item.first != *requestedName) continue;
+            const auto latest = catalog.find(item.first);
+            if (latest == catalog.end()) {
+                if (requestedName) {
+                    throw std::runtime_error("Installed library '" + item.first +
+                                             "' is no longer listed in the official registry.");
+                }
+                std::cerr << "Warning: " << item.first
+                          << " is no longer listed in the official registry; leaving it unchanged.\n";
+                continue;
+            }
+            const auto current = currentInstalled.find(item.first);
+            if (current != currentInstalled.end() && latest->second == current->second) {
+                std::cout << item.first << " is already up to date (" << current->second << ").\n";
+                continue;
+            }
+            const std::string previousVersion =
+                current == currentInstalled.end() ? item.second : current->second;
+            installVersion(item.first, latest->second, currentInstalled);
+            currentInstalled[item.first] = latest->second;
+            std::cout << "Updated " << item.first << " from " << previousVersion
+                      << " to " << latest->second << ".\n";
+        }
+    }
+};
+#endif // NIX_ANDROID
+
 } // namespace nix
 
 #ifndef NIX_ANDROID
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: nix <file.ns>\n";
-        return 2;
-    }
     try {
+        if (argc >= 2) {
+            const std::string command = argv[1];
+            if (command == "--help" || command == "-h") {
+                std::cout << "Usage:\n"
+                          << "  nix <file.ns>\n"
+                          << "  nix install <library>\n"
+                          << "  nix update [library]\n"
+                          << "  nix list\n";
+                return 0;
+            }
+            if (command == "install") {
+                if (argc != 3) {
+                    std::cerr << "Usage: nix install <library>\n";
+                    return 2;
+                }
+                nix::OfficialLibraryManager manager;
+                manager.install(argv[2]);
+                return 0;
+            }
+            if (command == "update") {
+                if (argc > 3) {
+                    std::cerr << "Usage: nix update [library]\n";
+                    return 2;
+                }
+                nix::OfficialLibraryManager manager;
+                if (argc == 3) manager.update(argv[2]);
+                else manager.update();
+                return 0;
+            }
+            if (command == "list") {
+                if (argc != 2) {
+                    std::cerr << "Usage: nix list\n";
+                    return 2;
+                }
+                nix::OfficialLibraryManager manager;
+                manager.list();
+                return 0;
+            }
+        }
+
+        if (argc != 2) {
+            std::cerr << "Usage: nix <file.ns> | nix install <library> | "
+                         "nix update [library] | nix list\n";
+            return 2;
+        }
         nix::SourceLoader loader;
         const std::string source = loader.load(argv[1]);
         nix::Lexer lexer(source);

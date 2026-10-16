@@ -100,6 +100,78 @@ jobs:
           fi
           grep -q "Circular library import detected" import-test/circular.log
 
+      - name: Test official library install and updates
+        shell: bash
+        run: |
+          mkdir -p package-test/bin package-test/fixture/libraries/demo/{1.0.0,1.1.0,2.0.0}
+          cat > package-test/bin/curl <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          output=""
+          url=""
+          while (($#)); do
+            case "$1" in
+              --output) output="$2"; shift 2 ;;
+              --*) shift ;;
+              *) url="$1"; shift ;;
+            esac
+          done
+          prefix="https://raw.githubusercontent.com/NISPAX-InfoTech/nixscript-libraries/main/"
+          [[ "$url" == "$prefix"* ]] || { echo "Unexpected registry URL: $url" >&2; exit 2; }
+          relative="${url#"$prefix"}"
+          source="$NIXSCRIPT_TEST_REGISTRY_DIR/$relative"
+          [[ -f "$source" ]] || { echo "Fixture does not exist: $source" >&2; exit 2; }
+          cp "$source" "$output"
+          EOF
+          chmod +x package-test/bin/curl
+
+          cat > package-test/fixture/index.txt <<'EOF'
+          demo 1.0.0
+          EOF
+          cat > package-test/fixture/libraries/demo/1.0.0/demo.ns <<'EOF'
+          fn demo_value() { return 10; }
+          EOF
+          cat > package-test/fixture/libraries/demo/1.1.0/demo.ns <<'EOF'
+          fn demo_value() { return 11; }
+          EOF
+          cat > package-test/fixture/libraries/demo/2.0.0/demo.ns <<'EOF'
+          fn demo_value() { return 20; }
+          EOF
+          export PATH="$PWD/package-test/bin:$PATH"
+          export NIXSCRIPT_TEST_REGISTRY_DIR="$PWD/package-test/fixture"
+          export NIXSCRIPT_LIB_PATH="$PWD/package-test/installed"
+
+          ./build/nix install demo
+          printf 'demo 1.0.0\n' > package-test/expected-installed.txt
+          ./build/nix list > package-test/actual-installed.txt
+          diff -u package-test/expected-installed.txt package-test/actual-installed.txt
+
+          cat > package-test/use_demo.ns <<'EOF'
+          use demo;
+          nix main() {
+              println(demo_value());
+          }
+          EOF
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "10" ]] || { echo "Installed library did not load" >&2; exit 1; }
+
+          printf 'demo 1.1.0\n' > package-test/fixture/index.txt
+          ./build/nix update demo
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "11" ]] || { echo "Targeted nix update failed" >&2; exit 1; }
+
+          printf 'demo 2.0.0\n' > package-test/fixture/index.txt
+          ./build/nix update
+          output="$(./build/nix package-test/use_demo.ns)"
+          [[ "$output" == "20" ]] || { echo "Updating all packages failed" >&2; exit 1; }
+          grep -Fxq "demo 2.0.0" package-test/installed/installed.txt
+
+          if ./build/nix install missing_package >package-test/missing.log 2>&1; then
+            echo "A package absent from the official registry unexpectedly installed" >&2
+            exit 1
+          fi
+          grep -q "not listed in the official" package-test/missing.log
+
       - name: Test control flow, built-ins, classes, inheritance and static methods
         shell: bash
         run: |
@@ -115,7 +187,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/functions.ns)"
-          expected="$(printf '42\n21')"
+          expected="$(printf 'Hello, NixScript!\n42\n120\nfunctions-ready')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/functions.ns" >&2
@@ -126,7 +198,7 @@ jobs:
         shell: bash
         run: |
           actual="$(./build/nix examples/prototypes.ns)"
-          expected="$(printf '42\n21')"
+          expected="$(printf '42\n120\n41\nprototypes-ready')"
           printf '%s\n' "$actual"
           if [[ "$actual" != "$expected" ]]; then
             echo "Unexpected output from examples/prototypes.ns" >&2
