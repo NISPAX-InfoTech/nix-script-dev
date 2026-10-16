@@ -868,7 +868,3682 @@ nix main() {
 }
 NS
 
-run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
+run_ok explicit_fn_class_method_prototype_and_definition class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
+echo "=== Source import loader ==="
+
+mkdir -p "$TMP/import-comments/lib"
+cat >"$TMP/import-comments/lib/calc.ns" <<'NS'
+fn imported_answer() {
+    return 40 + 2;
+}
+NS
+cat >"$TMP/import-comments/main.ns" <<'NS'
+use calc; // trailing comments should not disable an import
+nix main() {
+    println(imported_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok import_with_trailing_comment "$TMP/import-comments/main.ns" $'42\n'
+
+mkdir -p "$TMP/nested-import/lib"
+cat >"$TMP/nested-import/lib/inner.ns" <<'NS'
+fn nested_value() {
+    return 7;
+}
+NS
+cat >"$TMP/nested-import/lib/outer.ns" <<'NS'
+use inner;
+fn outer_value() {
+    return nested_value() * 6;
+}
+NS
+cat >"$TMP/nested-import/main.ns" <<'NS'
+use outer;
+use inner;
+nix main() {
+    println(outer_value());
+    println(nested_value());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok nested_import_and_deduplication "$TMP/nested-import/main.ns" $'42\n7\n'
+
+mkdir -p "$TMP/libraries-folder/libraries"
+cat >"$TMP/libraries-folder/libraries/tools.ns" <<'NS'
+fn tool_answer() {
+    return 6 * 7;
+}
+NS
+cat >"$TMP/libraries-folder/main.ns" <<'NS'
+// comments before imports remain in the import section
+
+use tools;
+nix main() {
+    println(tool_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok libraries_directory_resolution "$TMP/libraries-folder/main.ns" $'42\n'
+
+mkdir -p "$TMP/adjacent-import"
+cat >"$TMP/adjacent-import/adjacent.ns" <<'NS'
+fn adjacent_answer() {
+    return 84 / 2;
+}
+NS
+cat >"$TMP/adjacent-import/main.ns" <<'NS'
+use adjacent;
+nix main() {
+    println(adjacent_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
+
+echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
+
+run_error uninitialized_variable "has not been initialized" <<'NS'
+nix main() {
+    var pending;
+    println(pending);
+}
+NS
+
+run_error unknown_variable "Unknown variable 'missing'" <<'NS'
+nix main() {
+    println(missing);
+}
+NS
+
+run_error unknown_function "Unknown function 'missing'" <<'NS'
+nix main() {
+    missing();
+}
+NS
+
+run_error division_by_zero "Division by zero" <<'NS'
+nix main() {
+    println(12 / 0);
+}
+NS
+
+run_error sqrt_negative "sqrt() requires a non-negative number" <<'NS'
+nix main() {
+    println(sqrt(-1));
+}
+NS
+
+run_error builtin_wrong_argument_count "sqrt() expects 1 argument(s)" <<'NS'
+nix main() {
+    println(sqrt());
+}
+NS
+
+run_error builtin_wrong_argument_type "sqrt() expects numeric arguments" <<'NS'
+nix main() {
+    println(sqrt("not a number"));
+}
+NS
+
+run_error incompatible_arithmetic "Arithmetic operators require numbers" <<'NS'
+nix main() {
+    println("left" - "right");
+}
+NS
+
+run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
+nix main() {
+    println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
+}
+NS
+
+run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
+fn typed(int value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error class_method_without_definition "declared but has no definition" <<'NS'
+class Incomplete {
+public:
+    int calculate(value);
+};
+nix main() {
+    var object = Incomplete();
+    println(object.calculate(2));
+}
+NS
+
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+class StaticOnly {
+public:
+    static int get() {
+        return 1;
+    }
+};
+nix main() {
+    var object = StaticOnly();
+    println(object.get());
+}
+NS
+
+run_error instance_field_called_through_class "is not static" <<'NS'
+class InstanceOnly {
+public:
+    int value = 4;
+};
+nix main() {
+    println(InstanceOnly::value);
+}
+NS
+
+run_ok implicit_public_access run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
+    int secret = 4;
+};
+nix main() {
+    var object = HiddenByChoice();
+    println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+null × _×Hey, x = 6 now!' <<'NS'
+class Test {
+    var x;
+    Test() {
+        print("${x} × _×");
+    }
+    fn Put();
+};
+
+fn Test::Put() {
+    x = 6;
+    print("Hey, x = ", x, " now!");
+}
+
+nix main() {
+    Test t;
+    t.Put();
+}
+NS
+
+run_ok polymorphic_dispatch_through_base_typed_variable class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
+echo "=== Source import loader ==="
+
+mkdir -p "$TMP/import-comments/lib"
+cat >"$TMP/import-comments/lib/calc.ns" <<'NS'
+fn imported_answer() {
+    return 40 + 2;
+}
+NS
+cat >"$TMP/import-comments/main.ns" <<'NS'
+use calc; // trailing comments should not disable an import
+nix main() {
+    println(imported_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok import_with_trailing_comment "$TMP/import-comments/main.ns" $'42\n'
+
+mkdir -p "$TMP/nested-import/lib"
+cat >"$TMP/nested-import/lib/inner.ns" <<'NS'
+fn nested_value() {
+    return 7;
+}
+NS
+cat >"$TMP/nested-import/lib/outer.ns" <<'NS'
+use inner;
+fn outer_value() {
+    return nested_value() * 6;
+}
+NS
+cat >"$TMP/nested-import/main.ns" <<'NS'
+use outer;
+use inner;
+nix main() {
+    println(outer_value());
+    println(nested_value());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok nested_import_and_deduplication "$TMP/nested-import/main.ns" $'42\n7\n'
+
+mkdir -p "$TMP/libraries-folder/libraries"
+cat >"$TMP/libraries-folder/libraries/tools.ns" <<'NS'
+fn tool_answer() {
+    return 6 * 7;
+}
+NS
+cat >"$TMP/libraries-folder/main.ns" <<'NS'
+// comments before imports remain in the import section
+
+use tools;
+nix main() {
+    println(tool_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok libraries_directory_resolution "$TMP/libraries-folder/main.ns" $'42\n'
+
+mkdir -p "$TMP/adjacent-import"
+cat >"$TMP/adjacent-import/adjacent.ns" <<'NS'
+fn adjacent_answer() {
+    return 84 / 2;
+}
+NS
+cat >"$TMP/adjacent-import/main.ns" <<'NS'
+use adjacent;
+nix main() {
+    println(adjacent_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
+
+echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
+
+run_error uninitialized_variable "has not been initialized" <<'NS'
+nix main() {
+    var pending;
+    println(pending);
+}
+NS
+
+run_error unknown_variable "Unknown variable 'missing'" <<'NS'
+nix main() {
+    println(missing);
+}
+NS
+
+run_error unknown_function "Unknown function 'missing'" <<'NS'
+nix main() {
+    missing();
+}
+NS
+
+run_error division_by_zero "Division by zero" <<'NS'
+nix main() {
+    println(12 / 0);
+}
+NS
+
+run_error sqrt_negative "sqrt() requires a non-negative number" <<'NS'
+nix main() {
+    println(sqrt(-1));
+}
+NS
+
+run_error builtin_wrong_argument_count "sqrt() expects 1 argument(s)" <<'NS'
+nix main() {
+    println(sqrt());
+}
+NS
+
+run_error builtin_wrong_argument_type "sqrt() expects numeric arguments" <<'NS'
+nix main() {
+    println(sqrt("not a number"));
+}
+NS
+
+run_error incompatible_arithmetic "Arithmetic operators require numbers" <<'NS'
+nix main() {
+    println("left" - "right");
+}
+NS
+
+run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
+nix main() {
+    println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
+}
+NS
+
+run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
+fn typed(int value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error class_method_without_definition "declared but has no definition" <<'NS'
+class Incomplete {
+public:
+    int calculate(value);
+};
+nix main() {
+    var object = Incomplete();
+    println(object.calculate(2));
+}
+NS
+
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+class StaticOnly {
+public:
+    static int get() {
+        return 1;
+    }
+};
+nix main() {
+    var object = StaticOnly();
+    println(object.get());
+}
+NS
+
+run_error instance_field_called_through_class "is not static" <<'NS'
+class InstanceOnly {
+public:
+    int value = 4;
+};
+nix main() {
+    println(InstanceOnly::value);
+}
+NS
+
+run_ok implicit_public_access run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
+    int secret = 4;
+};
+nix main() {
+    var object = HiddenByChoice();
+    println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+dog\n' <<'NS'
+class Animal {
+public:
+    fn speak() {
+        println("animal");
+    }
+};
+class Dog : Animal {
+public:
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_ok out_of_class_constructor_method_and_destructor class Item {
+public:
+    var value;
+    Item(value);
+    string read();
+    ~Item();
+};
+Item::Item(initial) {
+    this.value = initial;
+}
+string Item::read() {
+    return this.value;
+}
+Item::~Item() {
+    println("item destroyed");
+}
+nix main() {
+    var item = Item("stored");
+    println(item.read());
+}
+NS
+
+run_ok static_field_initializer_and_scope_lookup $'5\n10\n' <<'NS'
+class Counts {
+public:
+    static int initial = 2 + 3;
+    static int doubleInitial() {
+        return Counts::initial * 2;
+    }
+};
+nix main() {
+    println(Counts::initial);
+    println(Counts::doubleInitial());
+}
+NS
+
+echo "=== Source import loader ==="
+
+mkdir -p "$TMP/import-comments/lib"
+cat >"$TMP/import-comments/lib/calc.ns" <<'NS'
+fn imported_answer() {
+    return 40 + 2;
+}
+NS
+cat >"$TMP/import-comments/main.ns" <<'NS'
+use calc; // trailing comments should not disable an import
+nix main() {
+    println(imported_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok import_with_trailing_comment "$TMP/import-comments/main.ns" $'42\n'
+
+mkdir -p "$TMP/nested-import/lib"
+cat >"$TMP/nested-import/lib/inner.ns" <<'NS'
+fn nested_value() {
+    return 7;
+}
+NS
+cat >"$TMP/nested-import/lib/outer.ns" <<'NS'
+use inner;
+fn outer_value() {
+    return nested_value() * 6;
+}
+NS
+cat >"$TMP/nested-import/main.ns" <<'NS'
+use outer;
+use inner;
+nix main() {
+    println(outer_value());
+    println(nested_value());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok nested_import_and_deduplication "$TMP/nested-import/main.ns" $'42\n7\n'
+
+mkdir -p "$TMP/libraries-folder/libraries"
+cat >"$TMP/libraries-folder/libraries/tools.ns" <<'NS'
+fn tool_answer() {
+    return 6 * 7;
+}
+NS
+cat >"$TMP/libraries-folder/main.ns" <<'NS'
+// comments before imports remain in the import section
+
+use tools;
+nix main() {
+    println(tool_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok libraries_directory_resolution "$TMP/libraries-folder/main.ns" $'42\n'
+
+mkdir -p "$TMP/adjacent-import"
+cat >"$TMP/adjacent-import/adjacent.ns" <<'NS'
+fn adjacent_answer() {
+    return 84 / 2;
+}
+NS
+cat >"$TMP/adjacent-import/main.ns" <<'NS'
+use adjacent;
+nix main() {
+    println(adjacent_answer());
+}
+NS
+NIXSCRIPT_LIB_PATH="$TMP/nonexistent-installed-root" run_file_ok adjacent_source_directory_fallback "$TMP/adjacent-import/main.ns" $'42\n'
+
+echo "=== Expected diagnostics and invalid programs ==="
+
+run_error duplicate_variable_same_scope "already declared in this scope" <<'NS'
+nix main() {
+    var value = 1;
+    var value = 2;
+    println(value);
+}
+NS
+
+run_error unknown_assignment_target "Unknown variable 'missing'" <<'NS'
+nix main() {
+    missing = 3;
+}
+NS
+
+run_error method_call_on_field "This expression is not callable" <<'NS'
+class Data {
+public:
+    int value = 42;
+};
+nix main() {
+    var data = Data();
+    data.value();
+}
+NS
+
+run_error malformed_interpolation "Unclosed interpolation" <<'NS'
+nix main() {
+    var value = 1;
+    println("value={$value");
+}
+NS
+
+run_error logical_operator_single_ampersand "Use '&&' for a logical AND" <<'NS'
+nix main() {
+    if (true & false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error logical_operator_single_pipe "Use '||' for a logical OR" <<'NS'
+nix main() {
+    if (true | false) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error second_entry_point_is_rejected "Expected a top-level function declaration/definition or qualified class method definition after 'nix main()'" <<'NS'
+nix main() {
+    println("first");
+}
+nix main() {
+    println("second");
+}
+NS
+
+run_error uninitialized_variable "has not been initialized" <<'NS'
+nix main() {
+    var pending;
+    println(pending);
+}
+NS
+
+run_error unknown_variable "Unknown variable 'missing'" <<'NS'
+nix main() {
+    println(missing);
+}
+NS
+
+run_error unknown_function "Unknown function 'missing'" <<'NS'
+nix main() {
+    missing();
+}
+NS
+
+run_error division_by_zero "Division by zero" <<'NS'
+nix main() {
+    println(12 / 0);
+}
+NS
+
+run_error sqrt_negative "sqrt() requires a non-negative number" <<'NS'
+nix main() {
+    println(sqrt(-1));
+}
+NS
+
+run_error builtin_wrong_argument_count "sqrt() expects 1 argument(s)" <<'NS'
+nix main() {
+    println(sqrt());
+}
+NS
+
+run_error builtin_wrong_argument_type "sqrt() expects numeric arguments" <<'NS'
+nix main() {
+    println(sqrt("not a number"));
+}
+NS
+
+run_error incompatible_arithmetic "Arithmetic operators require numbers" <<'NS'
+nix main() {
+    println("left" - "right");
+}
+NS
+
+run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
+nix main() {
+    println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
+}
+NS
+
+run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
+fn typed(int value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error class_method_without_definition "declared but has no definition" <<'NS'
+class Incomplete {
+public:
+    int calculate(value);
+};
+nix main() {
+    var object = Incomplete();
+    println(object.calculate(2));
+}
+NS
+
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+class StaticOnly {
+public:
+    static int get() {
+        return 1;
+    }
+};
+nix main() {
+    var object = StaticOnly();
+    println(object.get());
+}
+NS
+
+run_error instance_field_called_through_class "is not static" <<'NS'
+class InstanceOnly {
+public:
+    int value = 4;
+};
+nix main() {
+    println(InstanceOnly::value);
+}
+NS
+
+run_ok implicit_public_access run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
+    int secret = 4;
+};
+nix main() {
+    var object = HiddenByChoice();
+    println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
+}
+NS
+
+run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+stored\nitem destroyed\n' <<'NS'
 class Item {
 public:
     var value;
@@ -1258,13 +4933,636 @@ nix main() {
 }
 NS
 
-run_error implicit_private_access "not accessible here" <<'NS'
-class HiddenByDefault {
+run_ok implicit_public_access run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
     int secret = 4;
 };
 nix main() {
-    var object = HiddenByDefault();
+    var object = HiddenByChoice();
     println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported run_error repeat_iteration_limit "repeat() limit is 1,000,000 iterations" <<'NS'
+nix main() {
+    repeat(1000001) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error out_of_class_method_without_class "Unknown class 'Missing' in qualified method definition" <<'NS'
+int Missing::value() {
+    return 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+fn add(a, b) {
+    return a + b;
+}
+nix main() {
+    println(add(1));
+}
+NS
+
+run_error duplicate_function_parameter "appears more than once" <<'NS'
+fn duplicated(value, value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error reserved_function_name "is reserved" <<'NS'
+fn print(value) {
+    return value;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error return_outside_function "return' can only be used inside a function or method" <<'NS'
+nix main() {
+    return 3;
+}
+NS
+
+run_error invalid_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(-1) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error fractional_repeat_count "repeat() expects a non-negative whole number" <<'NS'
+nix main() {
+    repeat(1.5) {
+        println("unreachable");
+    }
+}
+NS
+
+run_error invalid_boolean_input "Expected true/false or 1/0 for bool input" "sometimes"$'\n' <<'NS'
+nix main() {
+    println(uin("Ready: ", bool));
+}
+NS
+
+run_error invalid_numeric_input "Invalid numeric input" "seventeen"$'\n' <<'NS'
+nix main() {
+    println(uin("Age: ", int));
+}
+NS
+
+run_error private_field_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code = 123;
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code);
+}
+NS
+
+run_error private_method_access "not accessible here" <<'NS'
+class Vault {
+private:
+    int code() {
+        return 123;
+    }
+};
+nix main() {
+    var vault = Vault();
+    println(vault.code());
+}
+NS
+
+run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+class NeedsValue {
+public:
+    NeedsValue(value) {
+        this.value = value;
+    }
+};
+nix main() {
+    var value = NeedsValue();
+    println(value);
+}
+NS
+
+run_error unknown_base_class "Unknown base class 'MissingBase'" <<'NS'
+class Child : MissingBase {
+public:
+    int value = 1;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error malformed_expression "Expected an expression" <<'NS'
+nix main() {
+    var value = ;
+}
+NS
+
+run_error missing_statement_semicolon "Expected ';' after print" <<'NS'
+nix main() {
+    println("missing semicolon")
+}
+NS
+
+run_error unexpected_character "Unexpected character: '@'" <<'NS'
+nix main() {
+    println(@);
+}
+NS
+
+run_error unterminated_string "Unterminated string" <<'NS'
+nix main() {
+    println("unterminated);
+}
+NS
+
+run_error missing_entry_point "Every executable NixScript file must contain 'nix main()'" <<'NS'
+fn helper() {
+    return 1;
+}
+NS
+
+run_error class_requires_trailing_semicolon "Expected ';' after class declaration" <<'NS'
+class MissingSemicolon {
+public:
+    int value = 1;
+}
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_name "already declared" <<'NS'
+class Same {
+public:
+    int value = 1;
+};
+class Same {
+public:
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error unresolved_prototype "declared but has no definition" <<'NS'
+fn declared_only(value);
+nix main() {
+    println(declared_only(3));
+}
+NS
+
+printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
 }
 NS
 
