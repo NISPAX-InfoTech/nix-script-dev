@@ -339,3 +339,45 @@ jobs:
           ./build/nix update numbers
           ./build/nix list > public-registry-test/after-update.txt
           diff -u public-registry-test/expected-installed.txt public-registry-test/after-update.txt
+
+  sanitizer-stress:
+    name: Address/undefined behavior sanitizer stress
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure sanitizer build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitized interpreter
+        run: cmake --build build-sanitized --config Debug --parallel
+
+      - name: Run language regression suite under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: bash tests/language_stress.sh ./build-sanitized/nix
+
+      - name: Run generated arithmetic stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/arithmetic_stress.py ./build-sanitized/nix
+
+      - name: Run generated boolean stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/boolean_stress.py ./build-sanitized/nix
+
+      - name: Run malformed-source stress under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/parser_stress.py ./build-sanitized/nix
