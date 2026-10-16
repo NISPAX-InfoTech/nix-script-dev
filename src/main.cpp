@@ -420,6 +420,13 @@ private:
 
     void parseMethodTail(ClassMember& member) {
         member.parameters = parameters();
+        std::unordered_set<std::string> seenParameters;
+        for (const auto& param : member.parameters) {
+            if (!seenParameters.insert(param).second) {
+                fail(previous(), "Parameter '" + param + "' appears more than once in method '" +
+                                 member.name + "'.");
+            }
+        }
         if (match(TokenKind::LeftBrace)) {
             member.body = statementsUntilBrace();
             member.defined = true;
@@ -440,6 +447,15 @@ private:
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
         Access access = Access::Private;
+        auto appendMember = [&](ClassMember&& member) {
+            for (const auto& existing : klass->members) {
+                if (existing.name == member.name) {
+                    fail(classToken, "Member '" + member.name + "' is declared more than once in class '" +
+                                     klass->name + "'.");
+                }
+            }
+            appendMember(std::move(member));
+        };
         while (!check(TokenKind::RightBrace) && !atEnd()) {
             if (check(TokenKind::Identifier) &&
                 (peek().text == "public" || peek().text == "private" || peek().text == "protected") &&
@@ -460,7 +476,7 @@ private:
                 member.name = "~" + consumeName("Expected a destructor name after '~'.");
                 member.isDestructor = true;
                 parseMethodTail(member);
-                klass->members.push_back(std::move(member));
+                appendMember(std::move(member));
                 continue;
             }
 
@@ -478,7 +494,7 @@ private:
                     member.kind = ClassMember::Kind::Method;
                     member.isConstructor = true;
                     parseMethodTail(member);
-                    klass->members.push_back(std::move(member));
+                    appendMember(std::move(member));
                     continue;
                 }
             }
@@ -492,7 +508,7 @@ private:
                 if (match(TokenKind::Equal)) member.initializer = expression();
                 consume(TokenKind::Semicolon, "Expected ';' after field declaration.");
             }
-            klass->members.push_back(std::move(member));
+            appendMember(std::move(member));
         }
         consume(TokenKind::RightBrace, "Expected '}' after class body.");
         consume(TokenKind::Semicolon, "Expected ';' after class declaration.");
@@ -557,6 +573,17 @@ private:
             for (auto& candidate : klass->members) {
                 if (candidate.name == definition.methodName) { member = &candidate; break; }
             }
+            const bool matchedDeclaration = member != nullptr;
+            if (matchedDeclaration && member->defined) {
+                fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
+                     "Method '" + definition.methodName + "' has more than one definition.");
+            }
+            if (matchedDeclaration && member->parameters.size() != definition.params.size()) {
+                fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
+                     "Method '" + definition.methodName + "' is declared with " +
+                     std::to_string(member->parameters.size()) + " parameter(s), but the definition has " +
+                     std::to_string(definition.params.size()) + ".");
+            }
             if (!member) {
                 ClassMember added;
                 added.kind = ClassMember::Kind::Method;
@@ -566,6 +593,7 @@ private:
                 added.access = Access::Public;
                 added.isConstructor = definition.methodName == klass->name;
                 added.isDestructor = definition.destructor;
+                added.defined = false;
                 klass->members.push_back(std::move(added));
                 member = &klass->members.back();
             }
@@ -1096,11 +1124,23 @@ private:
         if (expr.op == TokenKind::EqualEqual || expr.op == TokenKind::BangEqual) {
             bool equal = false;
             if (left.index() == right.index()) {
-                if (std::holds_alternative<std::monostate>(left)) equal = true;
+                if (std::holds_alternative<UninitializedValue>(left)) equal = true;
+                else if (std::holds_alternative<std::monostate>(left)) equal = true;
                 else if (isNumber(left)) equal = std::get<double>(left) == std::get<double>(right);
                 else if (const auto* s = std::get_if<std::string>(&left)) equal = *s == std::get<std::string>(right);
                 else if (const auto* b = std::get_if<bool>(&left)) equal = *b == std::get<bool>(right);
-                else equal = stringify(left) == stringify(right);
+                else if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&left))
+                    equal = *instance == std::get<std::shared_ptr<Instance>>(right);
+                else if (const auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&left))
+                    equal = *klass == std::get<std::shared_ptr<ClassDef>>(right);
+                else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&left)) {
+                    const auto& other = std::get<std::shared_ptr<BoundMethod>>(right);
+                    equal = *method == other ||
+                            ((*method) && other &&
+                             (*method)->instance == other->instance &&
+                             (*method)->klass == other->klass &&
+                             (*method)->member == other->member);
+                }
             }
             return expr.op == TokenKind::EqualEqual ? equal : !equal;
         }
@@ -1298,6 +1338,7 @@ private:
         if (klass->base) {
             ClassMember* baseCtor = findMember(klass->base, klass->base->name);
             if (baseCtor && baseCtor->isConstructor) {
+                checkAccess(*baseCtor, line);
                 auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass->base; bound->member = baseCtor;
                 callMethod(bound, {}, line);
             }
@@ -1305,6 +1346,7 @@ private:
         ClassMember* ctor = nullptr;
         for (auto& member : klass->members) if (member.isConstructor) { ctor = &member; break; }
         if (ctor) {
+            checkAccess(*ctor, line);
             auto bound = std::make_shared<BoundMethod>(); bound->instance = instance; bound->klass = klass; bound->member = ctor;
             callMethod(bound, args, line);
         } else if (!args.empty()) runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
