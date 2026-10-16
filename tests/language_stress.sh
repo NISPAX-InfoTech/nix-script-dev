@@ -618,6 +618,54 @@ nix main() {
 }
 NS
 
+run_ok contained_object_alias_remains_alive_when_referenced_outside $'container destroyed\nstill alive\ncomponent destroyed\n' <<'NS'
+class SharedComponent {
+public:
+    ~SharedComponent() {
+        println("component destroyed");
+    }
+};
+class OwnsComponent {
+public:
+    var component = SharedComponent();
+    ~OwnsComponent() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var component;
+    if (true) {
+        var owner = OwnsComponent();
+        component = owner.component;
+    }
+    println("still alive");
+}
+NS
+
+run_ok destructor_chain_runs_through_all_base_classes $'child destroyed\nparent destroyed\ngrandparent destroyed\n' <<'NS'
+class Grandparent {
+public:
+    ~Grandparent() {
+        println("grandparent destroyed");
+    }
+};
+class Parent : Grandparent {
+public:
+    ~Parent() {
+        println("parent destroyed");
+    }
+};
+class Child : Parent {
+public:
+    ~Child() {
+        println("child destroyed");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
 run_ok returned_object_survives_nested_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
 class ReturnLife {
 public:
