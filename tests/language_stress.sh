@@ -1457,7 +1457,7 @@ printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
 fi
-Hey. x = 6 now!\n' <<'NS'
+Hey. x = null × _×Hey, x = 6 now!\n' <<'NS'
 class Test {
 public:
     var x;
