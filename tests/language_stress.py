@@ -25,6 +25,7 @@ CASES = [
     Case("empty main", 'nix main() { }'),
         Case("zero literal", 'nix main() { println(0); }', "0\n"),
         Case("negative result", 'nix main() { println(3 - 9); }', "-6\n"),
+    Case("negative zero normalized", 'nix main() { println((0 - 1) * 0); }', "0\n"),
         Case("nested arithmetic precedence", 'nix main() { println(2 + 3 * 4 - 5); }', "9\n"),
         Case("empty string", 'nix main() { println(""); }', "\n"),
         Case("numeric interpolation", 'nix main() { var count = 7; println("count={$count}"); }', "count=7\n"),
