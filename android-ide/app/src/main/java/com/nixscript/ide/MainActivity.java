@@ -137,14 +137,14 @@ public class MainActivity extends Activity {
         editor.setHorizontallyScrolling(true);
         editor.setPadding(dp(8), dp(7), dp(8), dp(24));
         editor.setBackgroundColor(Color.rgb(48,48,48));
-        editor.setText("nix main() {\\n    print(\\\"Hello from NixScript!\\\");\\n    var answer = 40 + 2;\\n    print(answer);\\n}\\n");
+        editor.setText("nix main() {\n    print(\"Hello from NixScript!\");\n    var answer = 40 + 2;\n    print(answer);\n}\n");
         editorRow.addView(editor, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(editorRow, new LinearLayout.LayoutParams(-1, 0, 1));
 
         editor.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                int lines = Math.max(1, s.toString().split("\\\\n", -1).length);
+                int lines = Math.max(1, s.toString().split("\\n", -1).length);
                 StringBuilder nums = new StringBuilder();
                 for (int i = 1; i <= lines; i++) { if (i > 1) nums.append('\n'); nums.append(i); }
                 lineNumbers.setText(nums.toString());
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
                 String before = source.substring(lineStart, cursor);
                 String indent = before.substring(0, before.length() - before.stripLeading().length());
                 if (before.trim().endsWith("{")) indent += "    ";
-                editor.getText().replace(cursor, selectionEnd, "\\n" + indent);
+                editor.getText().replace(cursor, selectionEnd, "\n" + indent);
                 return true;
             }
             return false;
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
         LinearLayout symbols = new LinearLayout(this);
         symbols.setOrientation(LinearLayout.VERTICAL);
         symbols.setBackgroundColor(bar);
-        String[][] rows = {{"Tab","{}","\\\"\\\"",";","()","⇧","↻"},{"=","|","&",",","←","↓","→"}};
+        String[][] rows = {{"Tab","{}","\"\"",";","()","⇧","↻"},{"=","|","&",",","←","↓","→"}};
         for (String[] row : rows) {
             LinearLayout symbolRow = new LinearLayout(this);
             for (String symbol : row) {
@@ -223,9 +223,9 @@ public class MainActivity extends Activity {
         runWide.setOnClickListener(v -> execute());
         menu.setOnClickListener(v -> {
             PopupMenu popup = new PopupMenu(this, menu);
-            popup.getMenu().add("New file").setOnMenuItemClickListener(item -> { editor.setText("nix main() {\\n    \\n}\\n"); status.setText("New file"); return true; });
+            popup.getMenu().add("New file").setOnMenuItemClickListener(item -> { editor.setText("nix main() {\n    \n}\n"); status.setText("New file"); return true; });
             popup.getMenu().add("Clear output").setOnMenuItemClickListener(item -> { output.setText(""); return true; });
-            popup.getMenu().add("About NixScript").setOnMenuItemClickListener(item -> { output.setText("NixScript IDE 0.1.1\\nWrite and run .ns programs on your device."); return true; });
+            popup.getMenu().add("About NixScript").setOnMenuItemClickListener(item -> { output.setText("NixScript IDE 0.1.1\nWrite and run .ns programs on your device."); return true; });
             popup.show();
         });
 
