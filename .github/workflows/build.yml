@@ -164,7 +164,11 @@ jobs:
           ./build/nix update
           output="$(./build/nix package-test/use_demo.ns)"
           [[ "$output" == "20" ]] || { echo "Updating all packages failed" >&2; exit 1; }
-          grep -q '^demo 2.0.0
+          grep -Fxq "demo 2.0.0" package-test/installed/installed.txt
+
+      - name: Test control flow, built-ins, classes, inheritance and static methods
+        shell: bash
+        run: |
           actual="$(./build/nix examples/features.ns)"
           expected="$(printf '4\nnix:ABC:9:8:4:1:1:1:2:2:3:3\n2\n15\n1\n8\ndestroyed\ndestroyed')"
           printf '%s\n' "$actual"
