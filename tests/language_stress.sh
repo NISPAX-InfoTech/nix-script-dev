@@ -769,6 +769,48 @@ nix main() {
 }
 NS
 
+run_ok constructor_chain_runs_base_to_derived $'grandparent constructor\nparent constructor\nchild constructor\n' <<'NS'
+class Grandparent {
+public:
+    Grandparent() {
+        println("grandparent constructor");
+    }
+};
+class Parent : Grandparent {
+public:
+    Parent() {
+        println("parent constructor");
+    }
+};
+class Child : Parent {
+public:
+    Child() {
+        println("child constructor");
+    }
+};
+nix main() {
+    var child = Child();
+}
+NS
+
+run_ok derived_constructor_can_call_protected_base_constructor $'base constructor\nderived constructor\n' <<'NS'
+class ProtectedBase {
+protected:
+    ProtectedBase() {
+        println("base constructor");
+    }
+};
+class Derived : ProtectedBase {
+public:
+    Derived() {
+        println("derived constructor");
+    }
+};
+nix main() {
+    var child = Derived();
+}
+NS
+
 run_ok derived_method_overrides_base_method $'2\n' <<'NS'
 class Parent {
 public:
@@ -994,6 +1036,22 @@ private:
 nix main() {
     var object = Locked();
     println(object);
+}
+NS
+
+run_error derived_constructor_cannot_call_private_base_constructor "not accessible here" <<'NS'
+class PrivateBase {
+private:
+    PrivateBase() {
+    }
+};
+class Derived : PrivateBase {
+public:
+    Derived() {
+    }
+};
+nix main() {
+    var child = Derived();
 }
 NS
 
