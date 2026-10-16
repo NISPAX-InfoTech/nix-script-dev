@@ -1,0 +1,7 @@
+use library_extra;
+use library_util;
+
+nix main() {
+    println(add(20, 22));
+    println(triple(7));
+}
