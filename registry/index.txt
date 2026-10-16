@@ -1,0 +1,3 @@
+# Official NixScript libraries. Format: name MAJOR.MINOR.PATCH
+# Package names are lowercase NixScript identifiers.
+numbers 1.0.0
