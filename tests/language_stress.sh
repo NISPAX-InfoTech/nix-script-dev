@@ -214,6 +214,19 @@ nix main() {
 }
 NS
 
+run_ok typed_declaration_defaults $'0\n[]\nfalse\n' <<'NS'
+nix main() {
+    int count;
+    string label;
+    bool active;
+    println(count);
+    print("[");
+    print(label);
+    println("]");
+    println(active);
+}
+NS
+
 echo "=== Comparisons, logic, and branching ==="
 
 run_ok relational_and_equality_operators $'true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n' <<'NS'
@@ -321,6 +334,16 @@ nix main() {
 }
 NS
 
+run_ok for_loop_optional_initializer_and_increment $'0\n1\n2\n' <<'NS'
+nix main() {
+    var i = 0;
+    for (; i < 3; ) {
+        println(i);
+        i++;
+    }
+}
+NS
+
 echo "=== Functions and return values ==="
 
 run_ok calls_recursion_and_null_returns $'5\n15\n120\nfinished\nnull\n' <<'NS'
@@ -361,6 +384,20 @@ nix main() {
     var word = "outer";
     println(choose(6));
     println(word);
+}
+NS
+
+run_ok function_arguments_evaluate_left_to_right $'12\n' <<'NS'
+fn next_value() {
+    counter = counter + 1;
+    return counter;
+}
+fn pair(left, right) {
+    return left * 10 + right;
+}
+nix main() {
+    var counter = 0;
+    println(pair(next_value(), next_value()));
 }
 NS
 
@@ -652,6 +689,52 @@ nix main() {
 }
 NS
 
+run_ok class_field_initializers_use_prior_fields $'8\n' <<'NS'
+class InitOrder {
+public:
+    int base = 4;
+    int doubled = base * 2;
+};
+nix main() {
+    var value = InitOrder();
+    println(value.doubled);
+}
+NS
+
+run_ok derived_method_overrides_base_method $'2\n' <<'NS'
+class Parent {
+public:
+    int value() {
+        return 1;
+    }
+};
+class Child : Parent {
+public:
+    int value() {
+        return 2;
+    }
+};
+nix main() {
+    var child = Child();
+    println(child.value());
+}
+NS
+
+run_ok bound_method_identity $'true\nfalse\n' <<'NS'
+class Actions {
+public:
+    int go() {
+        return 1;
+    }
+};
+nix main() {
+    var first = Actions();
+    var second = Actions();
+    println(first.go == first.go);
+    println(first.go == second.go);
+}
+NS
+
 echo "=== Source import loader ==="
 
 mkdir -p "$TMP/import-comments/lib"
@@ -843,6 +926,52 @@ private:
 nix main() {
     var object = Locked();
     println(object);
+}
+NS
+
+run_error protected_field_access_from_outside "not accessible here" <<'NS'
+class ProtectedVault {
+protected:
+    int code = 123;
+};
+nix main() {
+    var vault = ProtectedVault();
+    println(vault.code);
+}
+NS
+
+run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+fn one(value) {
+    return value;
+}
+nix main() {
+    println(one(1, 2));
+}
+NS
+
+run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+class NeedsArgument {
+public:
+    int method(value) {
+        return value;
+    }
+};
+nix main() {
+    var object = NeedsArgument();
+    println(object.method());
+}
+NS
+
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+class DoubleConstruct {
+public:
+    DoubleConstruct() {
+    }
+    DoubleConstruct(value) {
+    }
+};
+nix main() {
+    println("unreachable");
 }
 NS
 
