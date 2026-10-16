@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import random
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,38 @@ def run_case(binary: Path, case: Case, root: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def generated_arithmetic(binary: Path, root: Path, count: int = 100) -> tuple[int, list[tuple[str, str]]]:
+    """Compare generated integer expressions against Python arithmetic."""
+    rng = random.Random(20261016)
+    passed = 0
+    failures: list[tuple[str, str]] = []
+
+    def expression(depth: int) -> tuple[str, int]:
+        if depth <= 0 or rng.random() < 0.32:
+            value = rng.randint(0, 12)
+            return str(value), value
+        left, lv = expression(depth - 1)
+        right, rv = expression(depth - 1)
+        op = rng.choice(["+", "-", "*"])
+        value = lv + rv if op == "+" else lv - rv if op == "-" else lv * rv
+        return "(" + left + " " + op + " " + right + ")", value
+
+    path = root / 'generated.ns'
+    for index in range(count):
+        expr, expected_value = expression(3)
+        path.write_text("nix main() { println(" + expr + "); }\n", encoding="utf-8")
+        try:
+            proc = subprocess.run([str(binary), str(path)], text=True, capture_output=True, timeout=5, check=False)
+        except subprocess.TimeoutExpired:
+            failures.append(("generated arithmetic #" + str(index + 1), "timed out"))
+            continue
+        expected = str(expected_value) + "\n"
+        if proc.returncode != 0 or proc.stdout != expected:
+            failures.append(("generated arithmetic #" + str(index + 1) + ": " + expr, "expected " + repr(expected) + ", exit=" + str(proc.returncode) + ", stdout=" + repr(proc.stdout) + ", stderr=" + repr(proc.stderr)))
+        else:
+            passed += 1
+    return passed, failures
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} PATH_TO_NIX_BINARY", file=sys.stderr)
@@ -116,7 +149,13 @@ def main() -> int:
                 failures.append((case.name, detail))
                 print(f"FAIL {case.name}: {detail}", file=sys.stderr)
 
-    print(f"\nLanguage stress suite: {passed}/{len(CASES)} passed.")
+        generated_passed, generated_failures = generated_arithmetic(binary, root)
+        passed += generated_passed
+        failures.extend(generated_failures)
+        print("Generated arithmetic expressions: " + str(generated_passed) + "/100 passed.")
+
+    total = len(CASES) + 100
+    print(f"\nLanguage stress suite: {passed}/{total} passed.")
     if failures:
         print("\nFailures:", file=sys.stderr)
         for name, detail in failures:
