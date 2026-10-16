@@ -1600,6 +1600,10 @@ struct SourceLoader {
         if (const char* home = std::getenv("USERPROFILE")) {
             if (*home != '\\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
         }
+#elif defined(__APPLE__)
+        if (const char* home = std::getenv("HOME")) {
+            if (*home != '\\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
+        }
 #else
         if (const char* xdg = std::getenv("XDG_DATA_HOME")) {
             if (*xdg != '\\0') return fs::path(xdg) / "nixscript" / "libraries";
