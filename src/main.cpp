@@ -292,6 +292,7 @@ private:
     std::vector<Token> tokens_;
     std::size_t current_ = 0;
     std::unordered_map<std::string, bool> classNames_;
+    std::unordered_map<std::string, bool> functionNames_;
     std::unordered_map<std::string, std::size_t> functionParameterCounts_;
     std::unordered_map<std::string, int> functionDefinitionLines_;
 
@@ -390,6 +391,7 @@ private:
         }
 
         if (declaredCount == functionParameterCounts_.end()) {
+            functionNames_[name] = true;
             functionParameterCounts_[name] = params.size();
         }
 
