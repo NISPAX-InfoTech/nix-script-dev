@@ -1,0 +1,5 @@
+use library_util;
+
+fn triple(value) {
+    return add(value, add(value, value));
+}
