@@ -407,6 +407,20 @@ NS
 
 echo "=== Classes, methods, inheritance, and access control ==="
 
+run_ok object_identity_and_aliasing $'false\ntrue\n' <<'NS'
+class Box {
+public:
+    int value = 1;
+};
+nix main() {
+    var first = Box();
+    var second = Box();
+    var alias = first;
+    println(first == second);
+    println(first == alias);
+}
+NS
+
 run_ok objects_constructors_methods_and_fields $'Point object\n30\n15\n15\n' <<'NS'
 class Point {
 public:
@@ -629,6 +643,72 @@ NS
 run_error incompatible_comparison "Comparison requires two numbers or two strings" <<'NS'
 nix main() {
     println(1 < "2");
+}
+NS
+
+run_error private_constructor_access "not accessible here" <<'NS'
+class Locked {
+private:
+    Locked() {
+    }
+};
+nix main() {
+    var object = Locked();
+    println(object);
+}
+NS
+
+run_error duplicate_method_parameters "appears more than once" <<'NS'
+class DuplicateParameters {
+public:
+    int combine(value, value) {
+        return value;
+    }
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error duplicate_class_member "declared more than once" <<'NS'
+class DuplicateMember {
+public:
+    int value = 1;
+    int value = 2;
+};
+nix main() {
+    println("unreachable");
+}
+NS
+
+run_error mismatched_out_of_class_method_signature "declared with 2 parameter(s).*definition has 1" <<'NS'
+class Calculator {
+public:
+    int combine(left, right);
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.combine(1, 2));
+}
+int Calculator::combine(only) {
+    return only;
+}
+NS
+
+run_error duplicate_out_of_class_method_definition "more than one definition" <<'NS'
+class Calculator {
+public:
+    int value();
+};
+nix main() {
+    var calculator = Calculator();
+    println(calculator.value());
+}
+int Calculator::value() {
+    return 1;
+}
+int Calculator::value() {
+    return 2;
 }
 NS
 
