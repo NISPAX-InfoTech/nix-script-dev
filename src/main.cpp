@@ -454,7 +454,7 @@ private:
         if (match(TokenKind::Colon)) klass->baseName = consumeName("Expected a base class name after ':'.");
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
-        Access access = Access::Private;
+        Access access = Access::Public;
         auto appendMember = [&](ClassMember&& member) {
             for (const auto& existing : klass->members) {
                 if (existing.name == member.name) {
