@@ -11,7 +11,7 @@ NixScript is a readable, multi-paradigm, general-purpose language with predictab
 - Source files use the `.ns` extension.
 - `use library_name;` loads a `.ns` library before the importing program is parsed.
 - Project-local resolution checks `lib/` and `libraries/` beside the importing file first, then the standard installed-library directory, then the importing file's directory as a fallback.
-- Standard installed-library directory: Linux/macOS `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when set); Windows `%APPDATA%/NixScript/libraries/`.
+- Standard installed-library directory: Linux `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when set); macOS `~/Library/Application Support/NixScript/libraries/`; Windows `%APPDATA%/NixScript/libraries/`.
 - Set `NIXSCRIPT_LIB_PATH` to override the installed-library directory.
 - Imports can be nested. Each resolved file is loaded once; circular imports and missing libraries produce readable errors.
 - Library files contain top-level `fn` and `class` declarations and optional method definitions, but must not define `nix main()`.
