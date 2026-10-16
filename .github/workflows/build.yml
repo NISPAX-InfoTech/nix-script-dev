@@ -308,6 +308,10 @@ jobs:
         shell: bash
         run: python3 tests/boolean_stress.py ./build/nix
 
+      - name: Stress malformed source parsing
+        shell: bash
+        run: python3 tests/parser_stress.py ./build/nix
+
       - name: Test installer against the live public official registry
         shell: bash
         run: |
