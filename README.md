@@ -54,7 +54,7 @@ The interpreter is still an evolving prototype: function values/callback passing
 
 **Standard installed-library directory:**
 - Linux: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when `XDG_DATA_HOME` is set)
-- macOS: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when set)
+- macOS: `~/Library/Application Support/NixScript/libraries/`
 - Windows: `%APPDATA%\\NixScript\\libraries\\`
 
 Set `NIXSCRIPT_LIB_PATH` to override the installed-library directory. Project-local `lib/` and `libraries/` folders are checked first; installed libraries are checked next; the importing file's directory is a final fallback for simple local examples.
