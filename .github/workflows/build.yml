@@ -40,6 +40,50 @@ jobs:
           printf 'Hello World\nLine one\nLine two\nReady\n\n' > expected-output.txt
           diff -u expected-output.txt actual-output.txt
 
+      - name: Test library imports, nested imports, and duplicate import suppression
+        shell: bash
+        run: |
+          actual="$(./build/nix examples/use_library.ns)"
+          expected="$(printf '42\\n21')"
+          printf '%s\\n' "$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Unexpected output from examples/use_library.ns" >&2
+            exit 1
+          fi
+
+          mkdir -p import-test/lib
+          cat > import-test/main.ns <<'EOF'
+          use absent_library;
+          nix main() {
+              println("unreachable");
+          }
+          EOF
+          if ./build/nix import-test/main.ns >import-test/missing.log 2>&1; then
+            echo "A missing library unexpectedly imported successfully" >&2
+            exit 1
+          fi
+          grep -q "Cannot resolve library 'absent_library'" import-test/missing.log
+
+          cat > import-test/lib/left.ns <<'EOF'
+          use right;
+          fn left() { return 1; }
+          EOF
+          cat > import-test/lib/right.ns <<'EOF'
+          use left;
+          fn right() { return 2; }
+          EOF
+          cat > import-test/circular.ns <<'EOF'
+          use left;
+          nix main() {
+              println("unreachable");
+          }
+          EOF
+          if ./build/nix import-test/circular.ns >import-test/circular.log 2>&1; then
+            echo "A circular library import unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "Circular library import detected" import-test/circular.log
+
       - name: Test control flow, built-ins, classes, inheritance and static methods
         shell: bash
         run: |
