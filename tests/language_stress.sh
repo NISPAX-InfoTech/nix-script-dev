@@ -598,6 +598,26 @@ nix main() {
 }
 NS
 
+run_ok contained_object_destructor_order $'before\ncontainer destroyed\ncomponent destroyed\n' <<'NS'
+class Component {
+public:
+    ~Component() {
+        println("component destroyed");
+    }
+};
+class Container {
+public:
+    var component = Component();
+    ~Container() {
+        println("container destroyed");
+    }
+};
+nix main() {
+    var container = Container();
+    println("before");
+}
+NS
+
 run_ok returned_object_survives_nested_scope_cleanup $'created\ncaller owns it\ndestroyed\n' <<'NS'
 class ReturnLife {
 public:
