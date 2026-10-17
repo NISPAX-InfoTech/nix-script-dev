@@ -1438,7 +1438,7 @@ NS
 run_error duplicate_constructor_declarations "declared more than once" <<'NS'
 class DoubleConstruct {
 public:
-    DoubleConstruct(value) {
+    DoubleConstruct() {
     }
     DoubleConstruct() {
     }
@@ -1551,7 +1551,7 @@ nix main() {
 }
 NS
 
-run_error static_method_called_through_instance "No overload of method 'get' accepts 0 argument(s)." <<'NS'
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
 class StaticOnly {
 public:
     static int get() {
@@ -1937,7 +1937,7 @@ nix main() {
 }
 NS
 
-run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited method 'run'" <<'NS'
+run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited overload of method 'run' for argument types" <<'NS'
 class LeftRunner {
 public:
     fn run(value) { println("left"); }
@@ -2093,7 +2093,7 @@ nix main() {
 }
 NS
 
-run_error ambiguous_direct_field_from_two_bases "has no member 'value'" <<'NS'
+run_error ambiguous_direct_field_from_two_bases "Ambiguous inherited member 'value'" <<'NS'
 class LeftField {
 public:
     var value = 1;
