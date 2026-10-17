@@ -2578,21 +2578,17 @@ nix main() {
 }
 NS
 
+
 run_ok file_handling_read_write_append_exists_and_delete 
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
 fi
 echo "PASS: $passed language regressions."
-
-nix main() {
-    readFile(42);
-}
-NS
-hello world\ntrue\ntrue\nfalse\n' <<NS
+hello world\\ntrue\\ntrue\\nfalse\\n' <<NS
 nix main() {
     var path = "${TMP}/nix-file-test.txt";
     writeFile(path, "hello");
-    appendFile(path, " world\n");
+    appendFile(path, " world");
     println(readFile(path));
     println(fileExists(path));
     println(deleteFile(path));
@@ -2605,12 +2601,7 @@ run_ok file_handling_lists_directory_entries
     exit 1
 fi
 echo "PASS: $passed language regressions."
-
-nix main() {
-    readFile(42);
-}
-NS
-a.txt\nz.txt\n' <<NS
+a.txt\\nz.txt\\n' <<NS
 nix main() {
     var path = "${TMP}/nix-file-list";
     createDirectory(path);
@@ -2623,14 +2614,13 @@ nix main() {
 NS
 
 run_error file_handling_requires_string_path "readFile() expects a string argument" <<'NS'
+nix main() {
+    readFile(42);
+}
+NS
 
 if [ "$failed" -ne 0 ]; then
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
 fi
 echo "PASS: $passed language regressions."
-
-nix main() {
-    readFile(42);
-}
-NS
