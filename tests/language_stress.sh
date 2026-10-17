@@ -2411,6 +2411,39 @@ NS
 run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
 run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
 
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].length);
+}
+NS
+
 if [ "$failed" -ne 0 ]; then
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
