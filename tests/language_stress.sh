@@ -1826,11 +1826,7 @@ NS
 
 echo "=== OOP QC edge cases ==="
 
-run_ok overload_sets_merge_across_two_bases 
-if (( failed > 0 )); then
-    exit 1
-fi
-left:1\nright:1:2\n' <<'NS'
+run_ok overload_sets_merge_across_two_bases $'left:1\nright:1:2\n' <<'NS'
 class LeftOps {
 public:
     fn apply(value) { println("left:", value); }
@@ -1847,11 +1843,7 @@ nix main() {
 }
 NS
 
-run_ok derived_same_arity_method_overrides_base 
-if (( failed > 0 )); then
-    exit 1
-fi
-derived:5\n' <<'NS'
+run_ok derived_same_arity_method_overrides_base $'derived:5\n' <<'NS'
 class BaseAction {
 public:
     fn run(value) { println("base:", value); }
@@ -1866,11 +1858,7 @@ nix main() {
 }
 NS
 
-run_ok inherited_static_method_uses_declaring_class_storage 
-if (( failed > 0 )); then
-    exit 1
-fi
-7\n' <<'NS'
+run_ok inherited_static_method_uses_declaring_class_storage $'7\n' <<'NS'
 class StaticBase {
 public:
     static var count = 7;
@@ -1898,11 +1886,7 @@ nix main() {
 }
 NS
 
-run_ok one_override_satisfies_shared_abstract_contract 
-if (( failed > 0 )); then
-    exit 1
-fi
-ready\n' <<'NS'
+run_ok one_override_satisfies_shared_abstract_contract $'ready\n' <<'NS'
 abstract class RootContract {
     abstract fn ready();
 };
@@ -1917,11 +1901,7 @@ nix main() {
 }
 NS
 
-run_ok diamond_base_constructors_run_once_in_order 
-if (( failed > 0 )); then
-    exit 1
-fi
-root\nleft\nright\nboth\n' <<'NS'
+run_ok diamond_base_constructors_run_once_in_order $'root\nleft\nright\nboth\n' <<'NS'
 class CtorRoot {
 public:
     CtorRoot() { println("root"); }
