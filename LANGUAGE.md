@@ -113,6 +113,35 @@ nix main() {
 }
 ```
 
+## Dictionaries and maps
+
+Map literals use braces and key/value pairs. Keys may be quoted strings, simple identifiers, numbers, booleans, or `null`; primitive keys are normalized to strings. Maps preserve insertion order, aliases share the same mutable map, and a missing key reads as `null`.
+
+```ns
+var profile = {
+    name: "NixScript",
+    year: 2026,
+    tags: ["readable", "multi-paradigm"]
+};
+
+profile.name = "NixScript Language";
+profile["status"] = "experimental";
+profile.tags.push("general-purpose");
+
+println(profile["name"]);
+println(profile.year);
+println(profile.length);
+println(profile.keys());
+println(profile.values());
+println(profile.has("status"));
+println(profile.get("missing")); // null
+profile.set("active", true);
+profile.remove("year");
+profile.clear();
+```
+
+Supported map methods are `get(key)`, `set(key, value)`, `has(key)`, `remove(key)`, `keys()`, `values()`, and `clear()`. Global helpers `keys(map)`, `values(map)`, `hasKey(map, key)`, and `removeKey(map, key)` are also available. Collection/object keys are not supported. Map values can contain arrays, nested maps, objects, or callbacks. Map/array cycles print safely and are broken when the interpreter exits.
+
 ## Classes and objects
 
 **Decision: use C++-style class syntax and core OOP concepts**, rather than inventing a custom class construct for now.
@@ -268,14 +297,14 @@ Discord-specific types such as `Bot`, `Message`, and `Embed` should live in the 
 
 ## Implementation status
 
-The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, a subset of C++-style classes/objects, and source-file library loading with `use`. Function values, arrays, module exports, package dependency management, and package integrity signatures remain unimplemented.
+The current C++17 interpreter prototype supports the required `nix main()` entry point, variable declarations, output/interpolation, arithmetic, comparisons, logical conditions, `if`/`elif`/`else`, top-level functions with arguments and return values, `repeat`, C-style `for`, `uin()`, common string/math built-ins, C++-style classes/objects, dynamic arrays, maps/dictionaries, first-class callbacks, and source-file library loading with `use`. Fixed-size typed arrays, complete assignment/return type enforcement, closures/lambdas, module exports, package dependency management, and package integrity signatures remain future work.
 
 ## Open decisions
 
 1. Exact type system and uninitialized-variable rules.
 2. Module exports and visibility.
 3. Full type checking and exact return-type rules.
-4. Array syntax and memory/layout guarantees.
+4. Fixed-size typed arrays and their memory/layout guarantees.
 5. Module loading and top-level function semantics.
 6. Full C++-style class details not covered by the current subset.
 7. Module exports, aliases, package dependency manifests, and registry integrity signatures.

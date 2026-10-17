@@ -179,20 +179,23 @@ struct Stmt;
 // Keep an uninitialized binding distinct from the language's valid null value.
 struct UninitializedValue {};
 struct ArrayValue;
+struct MapValue;
 struct FunctionValue;
 using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>, std::shared_ptr<ArrayValue>,
-                           std::shared_ptr<FunctionValue>>;
+                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>>;
 
 struct ArrayValue { std::vector<Value> elements; };
+struct MapValue { std::vector<std::pair<std::string, Value>> entries; };
 struct FunctionValue { std::string name; };
 
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, Index, List };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List };
     Kind kind = Kind::Literal;
     Value value{};
     std::string name;
+    std::vector<std::string> keys;
     TokenKind op = TokenKind::Plus;
     std::unique_ptr<Expr> left;
     std::unique_ptr<Expr> right;
@@ -377,8 +380,9 @@ private:
     bool isTypeName(const std::string& name) const {
         return name == "var" || name == "void" || name == "int" || name == "float" ||
                name == "double" || name == "number" || name == "string" || name == "bool" ||
-               name == "char" || name == "long" || name == "short" || name == "array" ||
-               name == "list" || name == "function" || name == "callable";
+               name == "char" || name == "long" || name == "short" ||
+               name == "list" || name == "array" || name == "map" || name == "dict" ||
+               name == "function" || name == "callable";
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
@@ -800,6 +804,7 @@ private:
     std::unique_ptr<Expr> cloneExpression(const Expr& source) {
         auto copy = std::make_unique<Expr>();
         copy->kind = source.kind; copy->value = source.value; copy->name = source.name;
+        copy->keys = source.keys;
         copy->line = source.line; copy->op = source.op;
         if (source.left) copy->left = cloneExpression(*source.left);
         if (source.right) copy->right = cloneExpression(*source.right);
@@ -1046,6 +1051,35 @@ private:
         if (match(TokenKind::LeftParen)) {
             auto expr = expression(); consume(TokenKind::RightParen, "Expected ')' after expression."); return expr;
         }
+        if (match(TokenKind::LeftBrace)) {
+            auto expr = std::make_unique<Expr>();
+            expr->kind = Expr::Kind::MapLiteral;
+            expr->line = token.line;
+            if (!check(TokenKind::RightBrace)) {
+                do {
+                    std::string key;
+                    if (match(TokenKind::String)) key = previous().text;
+                    else if (match(TokenKind::Identifier)) key = previous().text;
+                    else if (match(TokenKind::Number)) {
+                        try {
+                            const double numericKey = std::stod(previous().text);
+                            std::ostringstream keyText;
+                            if (std::floor(numericKey) == numericKey)
+                                keyText << std::fixed << std::setprecision(0) << numericKey;
+                            else keyText << numericKey;
+                            key = keyText.str();
+                        } catch (...) {
+                            fail(previous(), "Invalid numeric map key.");
+                        }
+                    } else fail(peek(), "Expected a string, number, or identifier map key.");
+                    expr->keys.push_back(key);
+                    consume(TokenKind::Colon, "Expected ':' after map key.");
+                    expr->items.push_back(expression());
+                } while (match(TokenKind::Comma) && !check(TokenKind::RightBrace));
+            }
+            consume(TokenKind::RightBrace, "Expected '}' after map entries.");
+            return expr;
+        }
         if (match(TokenKind::LeftBracket)) {
             auto expr = std::make_unique<Expr>();
             expr->kind = Expr::Kind::ArrayLiteral;
@@ -1069,7 +1103,7 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
-    ~Interpreter() { breakArrayReferenceCycles(); }
+    ~Interpreter() { breakContainerReferenceCycles(); }
 
     std::shared_ptr<ArrayValue> makeArray() const {
         auto array = std::make_shared<ArrayValue>();
@@ -1077,10 +1111,19 @@ public:
         return array;
     }
 
-    void breakArrayReferenceCycles() {
+    std::shared_ptr<MapValue> makeMap() const {
+        auto map = std::make_shared<MapValue>();
+        maps_.push_back(map);
+        return map;
+    }
+
+    void breakContainerReferenceCycles() {
         for (const auto& weak : arrays_)
             if (auto array = weak.lock()) array->elements.clear();
+        for (const auto& weak : maps_)
+            if (auto map = weak.lock()) map->entries.clear();
         arrays_.clear();
+        maps_.clear();
     }
 
     void run(const std::vector<Stmt>& statements) {
@@ -1112,6 +1155,7 @@ public:
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
+    mutable std::vector<std::weak_ptr<MapValue>> maps_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
@@ -1166,6 +1210,8 @@ private:
         }
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
             return expected == "array" || expected == "list" ? (*array ? 45 : -1) : -1;
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value))
+            return expected == "map" || expected == "dict" ? (*map ? 45 : -1) : -1;
         if (std::holds_alternative<std::shared_ptr<FunctionValue>>(value) ||
             std::holds_alternative<std::shared_ptr<BoundMethod>>(value))
             return expected == "function" || expected == "callable" ? 45 : -1;
@@ -1185,6 +1231,7 @@ private:
                 result += (*object) ? (*object)->klass->name : "null object";
             else if (std::holds_alternative<std::shared_ptr<ClassDef>>(arg)) result += "class";
             else if (std::holds_alternative<std::shared_ptr<ArrayValue>>(arg)) result += "array";
+            else if (std::holds_alternative<std::shared_ptr<MapValue>>(arg)) result += "map";
             else if (std::holds_alternative<std::shared_ptr<FunctionValue>>(arg) ||
                      std::holds_alternative<std::shared_ptr<BoundMethod>>(arg)) result += "function";
             else result += "value";
@@ -1241,6 +1288,7 @@ private:
     }
     static std::string stringifyValue(const Value& value,
                                       std::unordered_set<const ArrayValue*>& arraysOnStack,
+                                      std::unordered_set<const MapValue*>& mapsOnStack,
                                       std::size_t depth) {
         if (std::holds_alternative<std::monostate>(value)) return "null";
         if (const auto* number = std::get_if<double>(&value)) {
@@ -1261,10 +1309,23 @@ private:
             std::string result = "[";
             for (std::size_t i = 0; i < (*array)->elements.size(); ++i) {
                 if (i) result += ", ";
-                result += stringifyValue((*array)->elements[i], arraysOnStack, depth + 1);
+                result += stringifyValue((*array)->elements[i], arraysOnStack, mapsOnStack, depth + 1);
             }
             arraysOnStack.erase(array->get());
             return result + "]";
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map) return "{}";
+            if (depth > 32 || mapsOnStack.count(map->get())) return "{...}";
+            mapsOnStack.insert(map->get());
+            std::string result = "{";
+            for (std::size_t i = 0; i < (*map)->entries.size(); ++i) {
+                if (i) result += ", ";
+                result += "\"" + (*map)->entries[i].first + "\": ";
+                result += stringifyValue((*map)->entries[i].second, arraysOnStack, mapsOnStack, depth + 1);
+            }
+            mapsOnStack.erase(map->get());
+            return result + "}";
         }
         if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&value))
             return *function ? "<function " + (*function)->name + ">" : "<function>";
@@ -1272,7 +1333,8 @@ private:
     }
     static std::string stringify(const Value& value) {
         std::unordered_set<const ArrayValue*> arraysOnStack;
-        return stringifyValue(value, arraysOnStack, 0);
+        std::unordered_set<const MapValue*> mapsOnStack;
+        return stringifyValue(value, arraysOnStack, mapsOnStack, 0);
     }
     static bool truthy(const Value& value) {
         if (std::holds_alternative<std::monostate>(value)) return false;
@@ -1281,13 +1343,15 @@ private:
         if (const auto* s = std::get_if<std::string>(&value)) return !s->empty();
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
             return *array && !(*array)->elements.empty();
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value))
+            return *map && !(*map)->entries.empty();
         return true;
     }
     bool isBuiltinFunctionValue(const std::string& name) const {
         static const std::vector<std::string> names = {
             "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
             "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-            "len", "push", "append", "pop"
+            "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
         };
         return std::find(names.begin(), names.end(), name) != names.end();
     }
@@ -1397,12 +1461,25 @@ private:
                 for (const auto& item : expr.items) array->elements.push_back(evaluate(*item));
                 return array;
             }
+            case Expr::Kind::MapLiteral: {
+                auto map = makeMap();
+                for (std::size_t i = 0; i < expr.items.size(); ++i)
+                    mapSetKey(map, expr.keys.at(i), evaluate(*expr.items[i]), expr.line);
+                return map;
+            }
             case Expr::Kind::Index: {
-                Value arrayValue = evaluate(*expr.left);
-                auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
-                if (!array || !*array) runtimeError(expr.line, "Indexing requires an array value.");
-                const std::size_t index = checkedArrayIndex(evaluate(*expr.right), *array, expr.line);
-                return (*array)->elements[index];
+                Value container = evaluate(*expr.left);
+                Value keyValue = evaluate(*expr.right);
+                if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&container)) {
+                    if (!*array) runtimeError(expr.line, "Invalid array value.");
+                    const std::size_t index = checkedArrayIndex(keyValue, *array, expr.line);
+                    return (*array)->elements[index];
+                }
+                if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&container)) {
+                    const std::string key = checkedMapKey(keyValue, expr.line);
+                    return mapGetKey(*map, key);
+                }
+                runtimeError(expr.line, "Indexing requires an array or map value.");
             }
             case Expr::Kind::Unary: {
                 Value value = evaluate(*expr.right);
@@ -1418,6 +1495,11 @@ private:
                     if (!*array) runtimeError(expr.line, "Invalid array value.");
                     if (expr.name == "length") return static_cast<double>((*array)->elements.size());
                     runtimeError(expr.line, "Array has no member '" + expr.name + "'.");
+                }
+                if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&objectValue)) {
+                    if (!*map) runtimeError(expr.line, "Invalid map value.");
+                    if (expr.name == "length") return static_cast<double>((*map)->entries.size());
+                    return mapGetKey(*map, expr.name);
                 }
                 auto* object = std::get_if<std::shared_ptr<Instance>>(&objectValue);
                 if (!object || !*object) runtimeError(expr.line, "Member access requires an object.");
@@ -1462,6 +1544,14 @@ private:
                     equal = *instance == std::get<std::shared_ptr<Instance>>(right);
                 else if (const auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&left))
                     equal = *klass == std::get<std::shared_ptr<ClassDef>>(right);
+                else if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&left))
+                    equal = *array == std::get<std::shared_ptr<ArrayValue>>(right);
+                else if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&left))
+                    equal = *map == std::get<std::shared_ptr<MapValue>>(right);
+                else if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&left)) {
+                    const auto& other = std::get<std::shared_ptr<FunctionValue>>(right);
+                    equal = *function == other || ((*function) && other && (*function)->name == other->name);
+                }
                 else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&left)) {
                     const auto& other = std::get<std::shared_ptr<BoundMethod>>(right);
                     equal = *method == other ||
@@ -1615,15 +1705,28 @@ private:
     void setTarget(const Expr& target, Value value, int line) {
         if (target.kind == Expr::Kind::Variable) { assignName(target.name, std::move(value), line); return; }
         if (target.kind == Expr::Kind::Index) {
-            Value arrayValue = evaluate(*target.left);
-            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
-            if (!array || !*array) runtimeError(line, "Indexed assignment requires an array value.");
-            const std::size_t index = checkedArrayIndex(evaluate(*target.right), *array, line);
-            (*array)->elements[index] = std::move(value);
-            return;
+            Value container = evaluate(*target.left);
+            Value keyValue = evaluate(*target.right);
+            if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&container)) {
+                if (!*array) runtimeError(line, "Invalid array value.");
+                const std::size_t index = checkedArrayIndex(keyValue, *array, line);
+                (*array)->elements[index] = std::move(value);
+                return;
+            }
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&container)) {
+                const std::string key = checkedMapKey(keyValue, line);
+                mapSetKey(*map, key, std::move(value), line);
+                return;
+            }
+            runtimeError(line, "Indexed assignment requires an array or map value.");
         }
         if (target.kind == Expr::Kind::Member) {
             Value baseValue = evaluate(*target.left);
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&baseValue)) {
+                if (target.name == "length") runtimeError(line, "Map.length is read-only.");
+                mapSetKey(*map, target.name, std::move(value), line);
+                return;
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&baseValue);
             if (!instance || !*instance) runtimeError(line, "Member assignment requires an object.");
             ClassMember* member = findMemberForInstance(*instance, target.name, line);
@@ -1652,6 +1755,59 @@ private:
         }
         runtimeError(line, "Invalid assignment target.");
     }
+    std::string checkedMapKey(const Value& keyValue, int line) const {
+        if (const auto* key = std::get_if<std::string>(&keyValue)) return *key;
+        if (std::holds_alternative<double>(keyValue) || std::holds_alternative<bool>(keyValue) ||
+            std::holds_alternative<std::monostate>(keyValue))
+            return stringify(keyValue);
+        runtimeError(line, "Map keys must be strings, numbers, booleans, or null.");
+    }
+
+    bool mapHasKey(const std::shared_ptr<MapValue>& map, const std::string& key) const {
+        if (!map) return false;
+        return std::any_of(map->entries.begin(), map->entries.end(),
+                           [&](const auto& entry) { return entry.first == key; });
+    }
+
+    Value mapGetKey(const std::shared_ptr<MapValue>& map, const std::string& key) const {
+        if (!map) return std::monostate{};
+        for (const auto& entry : map->entries)
+            if (entry.first == key) return entry.second;
+        return std::monostate{};
+    }
+
+    void mapSetKey(const std::shared_ptr<MapValue>& map, const std::string& key, Value value, int line) {
+        if (!map) runtimeError(line, "Invalid map value.");
+        for (auto& entry : map->entries) {
+            if (entry.first == key) {
+                entry.second = std::move(value);
+                return;
+            }
+        }
+        map->entries.emplace_back(key, std::move(value));
+    }
+
+    bool mapRemoveKey(const std::shared_ptr<MapValue>& map, const std::string& key) {
+        if (!map) return false;
+        const auto oldSize = map->entries.size();
+        map->entries.erase(std::remove_if(map->entries.begin(), map->entries.end(),
+                                          [&](const auto& entry) { return entry.first == key; }),
+                           map->entries.end());
+        return map->entries.size() != oldSize;
+    }
+
+    std::shared_ptr<ArrayValue> mapKeys(const std::shared_ptr<MapValue>& map) const {
+        auto result = makeArray();
+        if (map) for (const auto& entry : map->entries) result->elements.emplace_back(entry.first);
+        return result;
+    }
+
+    std::shared_ptr<ArrayValue> mapValues(const std::shared_ptr<MapValue>& map) const {
+        auto result = makeArray();
+        if (map) for (const auto& entry : map->entries) result->elements.push_back(entry.second);
+        return result;
+    }
+
     std::size_t checkedArrayIndex(const Value& indexValue,
                                   const std::shared_ptr<ArrayValue>& array,
                                   int line) const {
@@ -1670,6 +1826,7 @@ private:
         if (type == "string" || type == "char") return std::string{};
         if (type == "bool") return false;
         if (type == "array" || type == "list") return makeArray();
+        if (type == "map" || type == "dict") return makeMap();
         return std::monostate{};
     }
     void initializeOwnFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
@@ -1870,15 +2027,21 @@ private:
         const Value& value,
         const std::shared_ptr<Instance>& target,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value))
-            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays);
+            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays, visitedMaps);
         if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value))
-            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays);
+            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays, visitedMaps);
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return false;
             for (const auto& element : (*array)->elements)
-                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays)) return true;
+                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays, visitedMaps)) return true;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return false;
+            for (const auto& entry : (*map)->entries)
+                if (valueGraphContainsInstance(entry.second, target, visitedInstances, visitedArrays, visitedMaps)) return true;
         }
         return false;
     }
@@ -1887,12 +2050,13 @@ private:
         const std::shared_ptr<Instance>& root,
         const std::shared_ptr<Instance>& target,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (!root || !target) return false;
         if (root == target) return true;
         if (!visitedInstances.insert(root.get()).second) return false;
         for (const auto& field : root->fields)
-            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays)) return true;
+            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays, visitedMaps)) return true;
         return false;
     }
 
@@ -1902,7 +2066,8 @@ private:
             for (const auto& pair : scopes_[i]) {
                 std::unordered_set<const Instance*> visitedInstances;
                 std::unordered_set<const ArrayValue*> visitedArrays;
-                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays)) return true;
+                std::unordered_set<const MapValue*> visitedMaps;
+                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays, visitedMaps)) return true;
             }
         }
         return false;
@@ -1912,7 +2077,8 @@ private:
         const Value& value,
         std::vector<std::shared_ptr<Instance>>& instances,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
             if (*instance && visitedInstances.insert(instance->get()).second) instances.push_back(*instance);
             return;
@@ -1926,7 +2092,13 @@ private:
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return;
             for (const auto& element : (*array)->elements)
-                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays);
+                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays, visitedMaps);
+            return;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return;
+            for (const auto& entry : (*map)->entries)
+                collectInstancesFromValue(entry.second, instances, visitedInstances, visitedArrays, visitedMaps);
         }
     }
 
@@ -1935,7 +2107,8 @@ private:
         const std::shared_ptr<Instance>& owner,
         std::size_t poppedIndex,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
             if (!*instance || *instance == owner || !visitedInstances.insert(instance->get()).second) return;
             if (!referencedOutsideScope(*instance, poppedIndex)) destroyInstance(*instance, poppedIndex);
@@ -1951,7 +2124,13 @@ private:
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return;
             for (const auto& element : (*array)->elements)
-                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays);
+                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
+            return;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return;
+            for (const auto& entry : (*map)->entries)
+                destroyContainedInstances(entry.second, owner, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
         }
     }
 
@@ -1985,7 +2164,8 @@ private:
             if (value == instance->fields.end()) continue;
             std::unordered_set<const Instance*> visitedInstances;
             std::unordered_set<const ArrayValue*> visitedArrays;
-            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays);
+            std::unordered_set<const MapValue*> visitedMaps;
+            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
         }
 
     }
@@ -2017,16 +2197,18 @@ private:
         if (preservedValue) {
             std::unordered_set<const Instance*> seenInstances;
             std::unordered_set<const ArrayValue*> seenArrays;
-            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays);
+            std::unordered_set<const MapValue*> seenMaps;
+            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays, seenMaps);
         }
 
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
         std::unordered_set<const Instance*> seenInstances;
         std::unordered_set<const ArrayValue*> seenArrays;
+        std::unordered_set<const MapValue*> seenMaps;
         for (const auto& pair : scopes_[index]) {
             if (pair.first == "this") continue;
-            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays);
+            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays, seenMaps);
         }
         scopes_.pop_back();
         if (runDestructors) {
@@ -2250,6 +2432,33 @@ private:
                 }
                 runtimeError(expr.line, "Array has no method '" + expr.left->name + "'.");
             }
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&receiver)) {
+                if (!*map) runtimeError(expr.line, "Invalid map value.");
+                const std::string& method = expr.left->name;
+                if (method == "length") runtimeError(expr.line, "Map.length is a property, not a method.");
+                if (method == "keys" || method == "values" || method == "clear") {
+                    if (!args.empty()) runtimeError(expr.line, "Map." + method + "() expects no arguments.");
+                    if (method == "keys") return mapKeys(*map);
+                    if (method == "values") return mapValues(*map);
+                    (*map)->entries.clear();
+                    return std::monostate{};
+                }
+                if (method == "has" || method == "hasKey" || method == "get" || method == "remove") {
+                    if (args.size() != 1)
+                        runtimeError(expr.line, "Map." + method + "() expects 1 argument.");
+                    const std::string key = checkedMapKey(args[0], expr.line);
+                    if (method == "has" || method == "hasKey") return mapHasKey(*map, key);
+                    if (method == "get") return mapGetKey(*map, key);
+                    return mapRemoveKey(*map, key);
+                }
+                if (method == "set") {
+                    if (args.size() != 2) runtimeError(expr.line, "Map.set() expects 2 arguments.");
+                    const std::string key = checkedMapKey(args[0], expr.line);
+                    mapSetKey(*map, key, args[1], expr.line);
+                    return std::monostate{};
+                }
+                runtimeError(expr.line, "Map has no method '" + method + "'.");
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&receiver);
             if (!instance || !*instance)
                 runtimeError(expr.line, "Method call requires an object.");
@@ -2307,7 +2516,7 @@ private:
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
                 "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-                "len", "push", "append", "pop"
+                "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2376,7 +2585,9 @@ private:
                 return static_cast<double>(textValue->size());
             if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]))
                 return *array ? static_cast<double>((*array)->elements.size()) : 0.0;
-            runtimeError(line, "len() expects a string or array.");
+            if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]))
+                return *map ? static_cast<double>((*map)->entries.size()) : 0.0;
+            runtimeError(line, "len() expects a string, array, or map.");
         }
         if (name == "push" || name == "append") {
             need(2);
@@ -2394,6 +2605,19 @@ private:
             Value result = std::move((*array)->elements.back());
             (*array)->elements.pop_back();
             return result;
+        }
+        if (name == "keys" || name == "values") {
+            need(1);
+            const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]);
+            if (!map || !*map) runtimeError(line, name + "() expects a map.");
+            return name == "keys" ? Value(mapKeys(*map)) : Value(mapValues(*map));
+        }
+        if (name == "hasKey" || name == "removeKey") {
+            need(2);
+            const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]);
+            if (!map || !*map) runtimeError(line, name + "() expects a map as its first argument.");
+            const std::string key = checkedMapKey(args[1], line);
+            return name == "hasKey" ? Value(mapHasKey(*map, key)) : Value(mapRemoveKey(*map, key));
         }
         if (name == "sqrt") { need(1); if (number(0) < 0) runtimeError(line, "sqrt() requires a non-negative number."); return std::sqrt(number(0)); }
         if (name == "sq") { need(1); const double n = number(0); return n * n; }

@@ -37,6 +37,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - C++-style classes, fields, overloaded constructors/methods, destructors, public/private/protected access, multiple inheritance, static members, and `ClassName::member`
 - `this`, typed parameters for overload selection, `return`, in-class and out-of-class method definitions, and base-constructor initializer lists
 - Dynamic arrays/lists with literals, nested values, checked indexing/assignment, `.length`, `push`, `append`, and `pop`
+- Dictionary/map literals, ordered key/value storage, primitive key normalization, indexed and dot-property access, and `get`/`set`/`has`/`remove`/`clear`
 - First-class function values and callbacks, including bound instance methods and selected built-ins
 - `\n` and `\t` string escapes; `//` line comments and parser/runtime errors with line numbers
 
@@ -45,9 +46,9 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Fixed-size typed arrays, array type enforcement, and fixed-size declaration syntax
 - Export/visibility rules for modules and package dependency management
 
-Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns`. For mutable arrays and callbacks, run `./build/nix examples/collections.ns` and `./build/nix examples/callbacks.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns`. For mutable arrays, maps, and callbacks, run `./build/nix examples/collections.ns`, `./build/nix examples/maps.ns`, and `./build/nix examples/callbacks.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
-The interpreter is still an evolving prototype. Typed fixed-size arrays, module export/visibility rules, package dependency management, and package integrity signatures remain future work. Arrays are dynamic lists today; they use non-negative integer indexes and report out-of-range access. Function values refer to top-level overload groups or bound methods (not closures/lambdas yet). String case conversion currently operates on ASCII characters.
+The interpreter is still an evolving prototype. Fixed-size typed arrays, full assignment/return type enforcement, closures/lambdas, module export/visibility rules, package dependency management, and package integrity signatures remain future work. Arrays are dynamic lists with bounds-checked non-negative integer indexes. Maps preserve insertion order and normalize primitive keys to strings; missing keys return `null`. Function values refer to top-level overload groups or bound methods (not closures/lambdas yet). String case conversion currently operates on ASCII characters.
 
 ## Libraries
 
