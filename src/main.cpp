@@ -1277,6 +1277,7 @@ private:
     }
     static std::string stringifyValue(const Value& value,
                                       std::unordered_set<const ArrayValue*>& arraysOnStack,
+                                      std::unordered_set<const MapValue*>& mapsOnStack,
                                       std::size_t depth) {
         if (std::holds_alternative<std::monostate>(value)) return "null";
         if (const auto* number = std::get_if<double>(&value)) {
@@ -1297,10 +1298,23 @@ private:
             std::string result = "[";
             for (std::size_t i = 0; i < (*array)->elements.size(); ++i) {
                 if (i) result += ", ";
-                result += stringifyValue((*array)->elements[i], arraysOnStack, depth + 1);
+                result += stringifyValue((*array)->elements[i], arraysOnStack, mapsOnStack, depth + 1);
             }
             arraysOnStack.erase(array->get());
             return result + "]";
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map) return "{}";
+            if (depth > 32 || mapsOnStack.count(map->get())) return "{...}";
+            mapsOnStack.insert(map->get());
+            std::string result = "{";
+            for (std::size_t i = 0; i < (*map)->entries.size(); ++i) {
+                if (i) result += ", ";
+                result += "\"" + (*map)->entries[i].first + "\": ";
+                result += stringifyValue((*map)->entries[i].second, arraysOnStack, mapsOnStack, depth + 1);
+            }
+            mapsOnStack.erase(map->get());
+            return result + "}";
         }
         if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&value))
             return *function ? "<function " + (*function)->name + ">" : "<function>";
@@ -1308,7 +1322,8 @@ private:
     }
     static std::string stringify(const Value& value) {
         std::unordered_set<const ArrayValue*> arraysOnStack;
-        return stringifyValue(value, arraysOnStack, 0);
+        std::unordered_set<const MapValue*> mapsOnStack;
+        return stringifyValue(value, arraysOnStack, mapsOnStack, 0);
     }
     static bool truthy(const Value& value) {
         if (std::holds_alternative<std::monostate>(value)) return false;
@@ -1317,6 +1332,8 @@ private:
         if (const auto* s = std::get_if<std::string>(&value)) return !s->empty();
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
             return *array && !(*array)->elements.empty();
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value))
+            return *map && !(*map)->entries.empty();
         return true;
     }
     bool isBuiltinFunctionValue(const std::string& name) const {
