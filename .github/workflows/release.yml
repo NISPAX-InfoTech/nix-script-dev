@@ -49,7 +49,7 @@ jobs:
           else
             BIN="./build/nix"
           fi
-          actual="$("$BIN" examples/hello.ns)"
+          actual="$("$BIN" examples/hello.ns | tr -d '\r')"
           expected="$(printf 'Hello, NixScript!\nHello, NixScript!\n50\nKeep building!\nKeep building!\nKeep building!')"
           [[ "$actual" == "$expected" ]] || {
             printf 'Unexpected smoke-test output:\n%s\n' "$actual" >&2
