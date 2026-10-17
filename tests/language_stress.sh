@@ -1822,6 +1822,128 @@ nix main() {
 }
 NS
 
+
+
+echo "=== OOP QC edge cases ==="
+
+run_ok overload_sets_merge_across_two_bases 
+if (( failed > 0 )); then
+    exit 1
+fi
+left:1\nright:1:2\n' <<'NS'
+class LeftOps {
+public:
+    fn apply(value) { println("left:", value); }
+};
+class RightOps {
+public:
+    fn apply(first, second) { println("right:", first, ":", second); }
+};
+class CombinedOps : LeftOps, RightOps {};
+nix main() {
+    var ops = CombinedOps();
+    ops.apply(1);
+    ops.apply(1, 2);
+}
+NS
+
+run_ok derived_same_arity_method_overrides_base 
+if (( failed > 0 )); then
+    exit 1
+fi
+derived:5\n' <<'NS'
+class BaseAction {
+public:
+    fn run(value) { println("base:", value); }
+};
+class DerivedAction : BaseAction {
+public:
+    fn run(value) { println("derived:", value); }
+};
+nix main() {
+    var action = DerivedAction();
+    action.run(5);
+}
+NS
+
+run_ok inherited_static_method_uses_declaring_class_storage 
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n' <<'NS'
+class StaticBase {
+public:
+    static var count = 7;
+    static fn read() { return StaticBase::count; }
+};
+class StaticChild : StaticBase {};
+nix main() {
+    println(StaticChild::read());
+}
+NS
+
+run_error ambiguous_direct_field_from_two_bases "has no member 'value'" <<'NS'
+class LeftField {
+public:
+    var value = 1;
+};
+class RightField {
+public:
+    var value = 2;
+};
+class BothFields : LeftField, RightField {};
+nix main() {
+    var item = BothFields();
+    println(item.value);
+}
+NS
+
+run_ok one_override_satisfies_shared_abstract_contract 
+if (( failed > 0 )); then
+    exit 1
+fi
+ready\n' <<'NS'
+abstract class RootContract {
+    abstract fn ready();
+};
+abstract class LeftContract : RootContract {};
+abstract class RightContract : RootContract {};
+class ReadyObject : LeftContract, RightContract {
+    fn ready() { println("ready"); }
+};
+nix main() {
+    var item = ReadyObject();
+    item.ready();
+}
+NS
+
+run_ok diamond_base_constructors_run_once_in_order 
+if (( failed > 0 )); then
+    exit 1
+fi
+root\nleft\nright\nboth\n' <<'NS'
+class CtorRoot {
+public:
+    CtorRoot() { println("root"); }
+};
+class CtorLeft : CtorRoot {
+public:
+    CtorLeft() { println("left"); }
+};
+class CtorRight : CtorRoot {
+public:
+    CtorRight() { println("right"); }
+};
+class CtorBoth : CtorLeft, CtorRight {
+public:
+    CtorBoth() { println("both"); }
+};
+nix main() {
+    var item = CtorBoth();
+}
+NS
+
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
