@@ -1924,10 +1924,6 @@ nix main() {
 NS
 
 
-printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
-if (( failed > 0 )); then
-    exit 1
-fi
 
 echo "=== Deep OOP QC: construction order, access, and lifetime ==="
 
