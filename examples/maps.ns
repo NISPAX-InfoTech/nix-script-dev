@@ -1,0 +1,23 @@
+nix main() {
+    var profile = {
+        name: "NixScript",
+        year: 2026,
+        tags: ["readable", "multi-paradigm"]
+    };
+
+    profile.name = "NixScript Language";
+    profile["status"] = "experimental";
+    profile.tags.push("general-purpose");
+
+    println(profile.name);
+    println(profile.year);
+    println(profile.tags);
+    println(profile.length);
+    println(keys(profile));
+    println(values(profile));
+    println(profile.has("status"));
+    println(profile.get("missing")); // null when a key is absent
+
+    profile.remove("year");
+    println(profile.length);
+}
