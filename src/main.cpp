@@ -1408,8 +1408,10 @@ private:
         return std::monostate{};
     }
     void initializeFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
+        // Initialize only this class's fields. Construction walks the inheritance
+        // graph base-first and initializes each class immediately before its
+        // constructor, matching the observable base/derived initialization order.
         if (!klass || !instance->initializedClasses.insert(klass.get()).second) return;
-        for (const auto& parent : klass->bases) initializeFields(instance, parent);
         for (auto& member : klass->members) {
             if (member.kind != ClassMember::Kind::Field) continue;
             if (member.isStatic) {
@@ -1486,6 +1488,9 @@ private:
         for (const auto& parent : klass->bases)
             constructBaseHierarchy(instance, parent, klass->name, line);
 
+        // Base fields must be initialized before that base's constructor runs.
+        initializeFields(instance, klass);
+
         ClassMember* ctor = nullptr;
         bool declaresConstructor = false;
         for (auto& member : klass->members) {
@@ -1528,9 +1533,10 @@ private:
             runtimeError(line, "Cannot instantiate abstract class '" + klass->name + "'.");
         auto instance = std::make_shared<Instance>();
         instance->klass = klass;
-        initializeFields(instance, klass);
         for (const auto& parent : klass->bases)
             constructBaseHierarchy(instance, parent, klass->name, line);
+        // Initialize the most-derived fields only after all base constructors.
+        initializeFields(instance, klass);
 
         std::vector<ClassMember*> constructors;
         for (auto& member : klass->members)
