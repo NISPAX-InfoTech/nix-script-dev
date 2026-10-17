@@ -1758,6 +1758,62 @@ nix main() {
 }
 NS
 
+
+run_ok same_named_fields_in_multiple_bases_keep_distinct_storage 
+if (( failed > 0 )); then
+    exit 1
+fi
+3\n4\n30\n40\n' <<'NS'
+class LeftValue {
+public:
+    var value = 3;
+    fn readLeft() { return this.value; }
+    fn writeLeft(next) { this.value = next; }
+};
+class RightValue {
+public:
+    var value = 4;
+    fn readRight() { return this.value; }
+    fn writeRight(next) { this.value = next; }
+};
+class BothValues : LeftValue, RightValue {};
+nix main() {
+    var both = BothValues();
+    println(both.readLeft());
+    println(both.readRight());
+    both.writeLeft(30);
+    both.writeRight(40);
+    println(both.readLeft());
+    println(both.readRight());
+}
+NS
+
+run_ok diamond_inheritance_destructs_each_shared_ancestor_once 
+if (( failed > 0 )); then
+    exit 1
+fi
+both\nright\nleft\nroot\n' <<'NS'
+class Root {
+public:
+    ~Root() { println("root"); }
+};
+class Left : Root {
+public:
+    ~Left() { println("left"); }
+};
+class Right : Root {
+public:
+    ~Right() { println("right"); }
+};
+class Both : Left, Right {
+public:
+    ~Both() { println("both"); }
+};
+nix main() {
+    var item = Both();
+}
+NS
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
