@@ -14,7 +14,9 @@ run_file_ok() {
     local name="$1" source_file="$2" expected="$3" input="${4:-}"
     local actual="$TMP/$name.actual" wanted="$TMP/$name.expected" log="$TMP/$name.log"
 
-    if ! printf '%s' "$input" | "$BIN" "$source_file" >"$actual" 2>"$log"; then
+    # Windows builds emit CRLF through the C runtime; normalize captured output so
+    # expected-output comparisons are platform-independent.
+    if ! printf '%s' "$input" | "$BIN" "$source_file" 2>"$log" | tr -d '\r' >"$actual"; then
         echo "FAIL: $name (program returned an error)" >&2
         cat "$log" >&2
         failed=$((failed + 1))
