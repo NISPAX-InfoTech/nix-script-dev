@@ -214,6 +214,7 @@ enum class Access { Public, Protected, Private };
 struct ClassMember {
     enum class Kind { Field, Method };
     Kind kind = Kind::Field;
+    bool isAbstract = false;
     std::string name;
     std::string typeName;
     std::string owner;
@@ -229,6 +230,7 @@ struct ClassMember {
 
 struct ClassDef {
     std::string name;
+    bool isAbstract = false;
     std::string baseName;
     std::shared_ptr<ClassDef> base;
     std::vector<ClassMember> members;
@@ -259,7 +261,10 @@ public:
         }
 
         while (!(check(TokenKind::Identifier) && peek().text == "nix") && !atEnd()) {
-            if (matchIdentifier("class")) {
+            if (matchIdentifier("abstract")) {
+                consumeIdentifierExact("class", "'abstract' must be followed by 'class'.");
+                program.push_back(parseClass(true));
+            } else if (matchIdentifier("class")) {
                 program.push_back(parseClass());
             } else if (check(TokenKind::Identifier) && peek().text == "fn" &&
                        look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
@@ -443,9 +448,10 @@ private:
             member.defined = false;
         }
     }
-    Stmt parseClass() {
+    Stmt parseClass(bool isAbstract = false) {
         const Token classToken = previous();
         auto klass = std::make_shared<ClassDef>();
+        klass->isAbstract = isAbstract;
         klass->name = consumeName("Expected a class name after 'class'.");
         if (classNames_.count(klass->name)) fail(classToken, "Class '" + klass->name + "' is already declared.");
         if (functionNames_.count(klass->name))
@@ -479,16 +485,23 @@ private:
             ClassMember member;
             member.owner = klass->name;
             member.access = access;
+            member.isAbstract = matchIdentifier("abstract");
             member.isStatic = matchIdentifier("static");
+            if (member.isAbstract && !klass->isAbstract) {
+                fail(peek(), "Abstract methods can only be declared inside an abstract class.");
+            }
             if (matchIdentifier("fn")) {
                 member.name = consumeName("Expected a method name after 'fn'.");
                 member.typeName = "var";
                 member.kind = ClassMember::Kind::Method;
                 member.isConstructor = member.name == klass->name;
                 parseMethodTail(member);
+                if (member.isAbstract && member.defined)
+                    fail(previous(), "An abstract method must end with ';' and have no body.");
                 appendMember(std::move(member));
                 continue;
             }
+            if (member.isAbstract) fail(peek(), "'abstract' must be followed by a method declaration.");
             if (match(TokenKind::Tilde)) {
                 member.kind = ClassMember::Kind::Method;
                 member.name = "~" + consumeName("Expected a destructor name after '~'.");
@@ -1400,6 +1413,8 @@ private:
     }
 
     Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
+        if (klass->isAbstract)
+            runtimeError(line, "Cannot instantiate abstract class '" + klass->name + "'.");
         auto instance = std::make_shared<Instance>();
         instance->klass = klass;
         initializeFields(instance, klass);
@@ -1676,6 +1691,26 @@ private:
             auto base = classes_.find(klass->baseName);
             if (base == classes_.end()) runtimeError(line, "Unknown base class '" + klass->baseName + "'.");
             klass->base = base->second;
+        }
+        if (!klass->isAbstract) {
+            for (auto ancestor = klass->base; ancestor; ancestor = ancestor->base) {
+                for (const auto& inherited : ancestor->members) {
+                    if (!inherited.isAbstract) continue;
+                    const ClassMember* implementation = nullptr;
+                    for (auto current = klass; current && !implementation; current = current->base) {
+                        for (const auto& candidate : current->members) {
+                            if (candidate.name == inherited.name && candidate.kind == ClassMember::Kind::Method) {
+                                implementation = &candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (!implementation || implementation->isAbstract || !implementation->defined) {
+                        runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
+                                            inherited.name + "' or be declared abstract.");
+                    }
+                }
+            }
         }
         classes_[klass->name] = klass;
         for (auto& member : klass->members) {
