@@ -1351,7 +1351,8 @@ private:
         static const std::vector<std::string> names = {
             "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
             "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-            "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
+            "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey",
+            "readFile", "writeFile", "appendFile", "fileExists", "deleteFile", "listFiles", "createDirectory"
         };
         return std::find(names.begin(), names.end(), name) != names.end();
     }
@@ -2516,7 +2517,8 @@ private:
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
                 "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-                "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
+                "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey",
+            "readFile", "writeFile", "appendFile", "fileExists", "deleteFile", "listFiles", "createDirectory"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2579,6 +2581,69 @@ private:
                 runtimeError(line, name + "() expects a string argument.");
             return std::get<std::string>(args[index]);
         };
+        if (name == "readFile") {
+            need(1);
+            const std::string path = text(0);
+            std::ifstream input(path, std::ios::binary);
+            if (!input) runtimeError(line, "readFile() could not open '" + path + "'.");
+            std::ostringstream contents;
+            contents << input.rdbuf();
+            if (input.bad()) runtimeError(line, "readFile() failed while reading '" + path + "'.");
+            return contents.str();
+        }
+        if (name == "writeFile" || name == "appendFile") {
+            need(2);
+            const std::string path = text(0);
+            const auto* content = std::get_if<std::string>(&args[1]);
+            if (!content) runtimeError(line, name + "() expects the file content as a string.");
+            const auto mode = std::ios::binary | (name == "appendFile" ? std::ios::app : std::ios::trunc);
+            std::ofstream output(path, mode);
+            if (!output) runtimeError(line, name + "() could not open '" + path + "' for writing.");
+            output.write(content->data(), static_cast<std::streamsize>(content->size()));
+            output.close();
+            if (!output) runtimeError(line, name + "() failed while writing '" + path + "'.");
+            return true;
+        }
+        if (name == "fileExists") {
+            need(1);
+            std::error_code ec;
+            const bool result = std::filesystem::exists(text(0), ec);
+            if (ec) runtimeError(line, "fileExists() failed: " + ec.message());
+            return result;
+        }
+        if (name == "deleteFile") {
+            need(1);
+            const std::string path = text(0);
+            std::error_code ec;
+            const bool removed = std::filesystem::remove(path, ec);
+            if (ec) runtimeError(line, "deleteFile() failed for '" + path + "': " + ec.message());
+            return removed;
+        }
+        if (name == "createDirectory") {
+            need(1);
+            const std::string path = text(0);
+            std::error_code ec;
+            const bool created = std::filesystem::create_directories(path, ec);
+            if (ec) runtimeError(line, "createDirectory() failed for '" + path + "': " + ec.message());
+            return created;
+        }
+        if (name == "listFiles") {
+            need(1);
+            const std::string path = text(0);
+            std::error_code ec;
+            std::filesystem::directory_iterator it(path, ec), end;
+            if (ec) runtimeError(line, "listFiles() could not open directory '" + path + "': " + ec.message());
+            auto result = std::make_shared<ArrayValue>();
+            for (; it != end; it.increment(ec)) {
+                if (ec) runtimeError(line, "listFiles() failed for '" + path + "': " + ec.message());
+                result->elements.emplace_back(it->path().filename().string());
+            }
+            std::sort(result->elements.begin(), result->elements.end(),
+                      [](const Value& a, const Value& b) {
+                          return std::get<std::string>(a) < std::get<std::string>(b);
+                      });
+            return result;
+        }
         if (name == "len") {
             need(1);
             if (const auto* textValue = std::get_if<std::string>(&args[0]))
