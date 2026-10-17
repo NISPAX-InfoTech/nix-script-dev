@@ -1059,8 +1059,19 @@ private:
                 do {
                     std::string key;
                     if (match(TokenKind::String)) key = previous().text;
-                    else if (match(TokenKind::Identifier) || match(TokenKind::Number)) key = previous().text;
-                    else fail(peek(), "Expected a string, number, or identifier map key.");
+                    else if (match(TokenKind::Identifier)) key = previous().text;
+                    else if (match(TokenKind::Number)) {
+                        try {
+                            const double numericKey = std::stod(previous().text);
+                            std::ostringstream keyText;
+                            if (std::floor(numericKey) == numericKey)
+                                keyText << std::fixed << std::setprecision(0) << numericKey;
+                            else keyText << numericKey;
+                            key = keyText.str();
+                        } catch (...) {
+                            fail(previous(), "Invalid numeric map key.");
+                        }
+                    } else fail(peek(), "Expected a string, number, or identifier map key.");
                     expr->keys.push_back(key);
                     consume(TokenKind::Colon, "Expected ':' after map key.");
                     expr->items.push_back(expression());
@@ -1533,6 +1544,14 @@ private:
                     equal = *instance == std::get<std::shared_ptr<Instance>>(right);
                 else if (const auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&left))
                     equal = *klass == std::get<std::shared_ptr<ClassDef>>(right);
+                else if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&left))
+                    equal = *array == std::get<std::shared_ptr<ArrayValue>>(right);
+                else if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&left))
+                    equal = *map == std::get<std::shared_ptr<MapValue>>(right);
+                else if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&left)) {
+                    const auto& other = std::get<std::shared_ptr<FunctionValue>>(right);
+                    equal = *function == other || ((*function) && other && (*function)->name == other->name);
+                }
                 else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&left)) {
                     const auto& other = std::get<std::shared_ptr<BoundMethod>>(right);
                     equal = *method == other ||
@@ -1737,9 +1756,11 @@ private:
         runtimeError(line, "Invalid assignment target.");
     }
     std::string checkedMapKey(const Value& keyValue, int line) const {
-        const auto* key = std::get_if<std::string>(&keyValue);
-        if (!key) runtimeError(line, "Map keys must be strings.");
-        return *key;
+        if (const auto* key = std::get_if<std::string>(&keyValue)) return *key;
+        if (std::holds_alternative<double>(keyValue) || std::holds_alternative<bool>(keyValue) ||
+            std::holds_alternative<std::monostate>(keyValue))
+            return stringify(keyValue);
+        runtimeError(line, "Map keys must be strings, numbers, booleans, or null.");
     }
 
     bool mapHasKey(const std::shared_ptr<MapValue>& map, const std::string& key) const {
