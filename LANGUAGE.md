@@ -284,6 +284,35 @@ println(numbers.pop());
 
 Indexes must be non-negative whole numbers and must be in range; invalid indexes produce a line-numbered runtime error. `push`/`append` add one element, while `pop` removes and returns the final element. The equivalent built-ins are `push(array, value)`, `append(array, value)`, and `pop(array)`. Strings also support `len(string)`. Fixed-size typed declarations such as `int values[10]` are not implemented yet.
 
+
+## File handling
+
+NixScript provides a small standard file API for scripts and bots:
+
+```ns
+nix main() {
+    var config = "bot-config.json";
+    if (fileExists(config)) {
+        var contents = readFile(config);
+        println(contents);
+    }
+
+    writeFile("log.txt", "Bot started\\n"); // creates or replaces the file
+    appendFile("log.txt", "Bot is online\\n"); // adds to the end
+    println(listFiles(".")); // array of entry names, sorted alphabetically
+}
+```
+
+- `readFile(path)` returns the complete file as a string.
+- `writeFile(path, text)` creates or replaces a file.
+- `appendFile(path, text)` creates a file if needed and appends text.
+- `fileExists(path)` returns a boolean.
+- `deleteFile(path)` removes a file and returns whether an entry was removed.
+- `listFiles(path)` returns an array of entry names (not full paths), sorted alphabetically.
+- `createDirectory(path)` creates a directory and any missing parent directories.
+
+Paths are interpreted relative to the process working directory unless absolute. File operations report runtime errors when an operation fails. These functions provide local file I/O; Discord networking and gateway support belong in a separate Discord library.
+
 ## Multi-paradigm direction
 
 - Procedural programming with functions and control flow.
