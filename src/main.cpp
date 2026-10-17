@@ -179,20 +179,23 @@ struct Stmt;
 // Keep an uninitialized binding distinct from the language's valid null value.
 struct UninitializedValue {};
 struct ArrayValue;
+struct MapValue;
 struct FunctionValue;
 using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>, std::shared_ptr<ArrayValue>,
-                           std::shared_ptr<FunctionValue>>;
+                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>>;
 
 struct ArrayValue { std::vector<Value> elements; };
+struct MapValue { std::vector<std::pair<std::string, Value>> entries; };
 struct FunctionValue { std::string name; };
 
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, Index, List };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List };
     Kind kind = Kind::Literal;
     Value value{};
     std::string name;
+    std::vector<std::string> keys;
     TokenKind op = TokenKind::Plus;
     std::unique_ptr<Expr> left;
     std::unique_ptr<Expr> right;
@@ -378,7 +381,8 @@ private:
         return name == "var" || name == "void" || name == "int" || name == "float" ||
                name == "double" || name == "number" || name == "string" || name == "bool" ||
                name == "char" || name == "long" || name == "short" || name == "array" ||
-               name == "list" || name == "function" || name == "callable";
+               name == "list" || name == "array" || name == "map" || name == "dict" ||
+               name == "function" || name == "callable";
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
@@ -800,6 +804,7 @@ private:
     std::unique_ptr<Expr> cloneExpression(const Expr& source) {
         auto copy = std::make_unique<Expr>();
         copy->kind = source.kind; copy->value = source.value; copy->name = source.name;
+        copy->keys = source.keys;
         copy->line = source.line; copy->op = source.op;
         if (source.left) copy->left = cloneExpression(*source.left);
         if (source.right) copy->right = cloneExpression(*source.right);
@@ -1046,6 +1051,24 @@ private:
         if (match(TokenKind::LeftParen)) {
             auto expr = expression(); consume(TokenKind::RightParen, "Expected ')' after expression."); return expr;
         }
+        if (match(TokenKind::LeftBrace)) {
+            auto expr = std::make_unique<Expr>();
+            expr->kind = Expr::Kind::MapLiteral;
+            expr->line = token.line;
+            if (!check(TokenKind::RightBrace)) {
+                do {
+                    std::string key;
+                    if (match(TokenKind::String)) key = previous().text;
+                    else if (match(TokenKind::Identifier) || match(TokenKind::Number)) key = previous().text;
+                    else fail(peek(), "Expected a string, number, or identifier map key.");
+                    expr->keys.push_back(key);
+                    consume(TokenKind::Colon, "Expected ':' after map key.");
+                    expr->items.push_back(expression());
+                } while (match(TokenKind::Comma) && !check(TokenKind::RightBrace));
+            }
+            consume(TokenKind::RightBrace, "Expected '}' after map entries.");
+            return expr;
+        }
         if (match(TokenKind::LeftBracket)) {
             auto expr = std::make_unique<Expr>();
             expr->kind = Expr::Kind::ArrayLiteral;
@@ -1069,7 +1092,7 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
-    ~Interpreter() { breakArrayReferenceCycles(); }
+    ~Interpreter() { breakContainerReferenceCycles(); }
 
     std::shared_ptr<ArrayValue> makeArray() const {
         auto array = std::make_shared<ArrayValue>();
@@ -1077,10 +1100,19 @@ public:
         return array;
     }
 
-    void breakArrayReferenceCycles() {
+    std::shared_ptr<MapValue> makeMap() const {
+        auto map = std::make_shared<MapValue>();
+        maps_.push_back(map);
+        return map;
+    }
+
+    void breakContainerReferenceCycles() {
         for (const auto& weak : arrays_)
             if (auto array = weak.lock()) array->elements.clear();
+        for (const auto& weak : maps_)
+            if (auto map = weak.lock()) map->entries.clear();
         arrays_.clear();
+        maps_.clear();
     }
 
     void run(const std::vector<Stmt>& statements) {
@@ -1112,6 +1144,7 @@ public:
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
+    mutable std::vector<std::weak_ptr<MapValue>> maps_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
@@ -1166,6 +1199,8 @@ private:
         }
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
             return expected == "array" || expected == "list" ? (*array ? 45 : -1) : -1;
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value))
+            return expected == "map" || expected == "dict" ? (*map ? 45 : -1) : -1;
         if (std::holds_alternative<std::shared_ptr<FunctionValue>>(value) ||
             std::holds_alternative<std::shared_ptr<BoundMethod>>(value))
             return expected == "function" || expected == "callable" ? 45 : -1;
@@ -1185,6 +1220,7 @@ private:
                 result += (*object) ? (*object)->klass->name : "null object";
             else if (std::holds_alternative<std::shared_ptr<ClassDef>>(arg)) result += "class";
             else if (std::holds_alternative<std::shared_ptr<ArrayValue>>(arg)) result += "array";
+            else if (std::holds_alternative<std::shared_ptr<MapValue>>(arg)) result += "map";
             else if (std::holds_alternative<std::shared_ptr<FunctionValue>>(arg) ||
                      std::holds_alternative<std::shared_ptr<BoundMethod>>(arg)) result += "function";
             else result += "value";
@@ -1670,6 +1706,7 @@ private:
         if (type == "string" || type == "char") return std::string{};
         if (type == "bool") return false;
         if (type == "array" || type == "list") return makeArray();
+        if (type == "map" || type == "dict") return makeMap();
         return std::monostate{};
     }
     void initializeOwnFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
