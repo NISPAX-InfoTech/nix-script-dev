@@ -247,6 +247,7 @@ struct Instance {
     bool destroyed = false;
     std::unordered_set<const ClassDef*> initializedClasses;
     std::unordered_set<const ClassDef*> constructedClasses;
+    std::unordered_set<const ClassDef*> destroyedClasses;
 };
 
 struct BoundMethod {
@@ -1235,22 +1236,40 @@ private:
     }
 
     std::vector<ClassMember*> findMembers(const std::shared_ptr<ClassDef>& klass, const std::string& name) const {
+        // Resolve each signature by inheritance distance, not by whichever base
+        // happens to appear first in the traversal. This preserves inherited
+        // overloads while correctly reporting same-signature base ambiguity.
         std::vector<ClassMember*> found;
         std::unordered_set<const ClassDef*> visited;
-        std::vector<std::shared_ptr<ClassDef>> pending;
-        if (klass) pending.push_back(klass);
-        while (!pending.empty()) {
-            auto current = pending.front();
-            pending.erase(pending.begin());
-            if (!current || !visited.insert(current.get()).second) continue;
-            for (const auto& member : current->members)
-                if (member.name == name) found.push_back(const_cast<ClassMember*>(&member));
-            if (!found.empty()) {
-                // Prefer the closest declaration level. Do not search more distant ancestors
-                // once this level has supplied candidates.
-                break;
+        std::unordered_set<std::string> resolvedSignatures;
+        std::vector<std::shared_ptr<ClassDef>> level;
+        if (klass) level.push_back(klass);
+        while (!level.empty()) {
+            std::vector<std::shared_ptr<ClassDef>> nextLevel;
+            std::vector<ClassMember*> matchesAtLevel;
+            for (const auto& current : level) {
+                if (!current || !visited.insert(current.get()).second) continue;
+                for (const auto& member : current->members) {
+                    if (member.name == name)
+                        matchesAtLevel.push_back(const_cast<ClassMember*>(&member));
+                }
+                for (const auto& base : current->bases)
+                    if (base && !visited.count(base.get())) nextLevel.push_back(base);
             }
-            for (const auto& base : current->bases) pending.push_back(base);
+
+            std::unordered_map<std::string, std::vector<ClassMember*>> bySignature;
+            for (auto* member : matchesAtLevel) {
+                const std::string signature = member->kind == ClassMember::Kind::Method
+                    ? "method#" + std::to_string(member->parameters.size())
+                    : "field";
+                if (!resolvedSignatures.count(signature))
+                    bySignature[signature].push_back(member);
+            }
+            for (auto& entry : bySignature) {
+                resolvedSignatures.insert(entry.first);
+                for (auto* member : entry.second) found.push_back(member);
+            }
+            level = std::move(nextLevel);
         }
         return found;
     }
@@ -1441,7 +1460,15 @@ private:
                 break;
             }
         }
-        if (!ctor) return;
+        if (!ctor) {
+            for (const auto& member : klass->members) {
+                if (member.isConstructor && member.name == klass->name) {
+                    runtimeError(line, "Base class '" + klass->name +
+                                       "' has no zero-argument constructor for implicit base initialization.");
+                }
+            }
+            return;
+        }
 
         // A base constructor is invoked in the context of the derived class,
         // so protected base constructors remain usable while private ones do not.
@@ -1529,7 +1556,7 @@ private:
     void destroyClassPart(const std::shared_ptr<Instance>& instance,
                           const std::shared_ptr<ClassDef>& klass,
                           std::size_t poppedIndex) {
-        if (!instance || !klass) return;
+        if (!instance || !klass || !instance->destroyedClasses.insert(klass.get()).second) return;
 
         // C++-style destruction order for this class part: destructor body,
         // fields in reverse declaration order, then the base-class part.
@@ -1560,7 +1587,7 @@ private:
                 destroyInstance(*child, poppedIndex);
         }
 
-        if (klass->base) destroyClassPart(instance, klass->base, poppedIndex);
+        for (const auto& parent : klass->bases) destroyClassPart(instance, parent, poppedIndex);
     }
 
     void destroyInstance(const std::shared_ptr<Instance>& instance,
@@ -1795,7 +1822,9 @@ private:
     }
 
     void registerClass(const std::shared_ptr<ClassDef>& klass, int line) {
-        if (classes_.count(klass->name)) runtimeError(line, "Class '" + klass->name + "' is already declared.");
+        if (classes_.count(klass->name))
+            runtimeError(line, "Class '" + klass->name + "' is already declared.");
+
         klass->bases.clear();
         for (const auto& baseName : klass->baseNames) {
             auto base = classes_.find(baseName);
@@ -1806,30 +1835,73 @@ private:
             klass->bases.push_back(base->second);
         }
         klass->base = klass->bases.empty() ? nullptr : klass->bases.front();
+
+        // A concrete class must satisfy every abstract signature inherited
+        // through every path, not only the first base chain. The nearest
+        // declaration for a name+arity pair wins; an abstract redeclaration
+        // deliberately keeps the contract abstract.
         if (!klass->isAbstract) {
-            for (auto ancestor = klass->base; ancestor; ancestor = ancestor->base) {
-                for (const auto& inherited : ancestor->members) {
-                    if (!inherited.isAbstract) continue;
-                    const ClassMember* implementation = nullptr;
-                    for (auto current = klass; current && !implementation; current = current->base) {
-                        for (const auto& candidate : current->members) {
-                            if (candidate.name == inherited.name && candidate.kind == ClassMember::Kind::Method) {
-                                implementation = &candidate;
-                                break;
-                            }
+            std::unordered_map<std::string, bool> required;
+            std::unordered_set<const ClassDef*> visited;
+            std::vector<std::shared_ptr<ClassDef>> pending{klass};
+            while (!pending.empty()) {
+                auto current = pending.back();
+                pending.pop_back();
+                if (!current || !visited.insert(current.get()).second) continue;
+                for (const auto& member : current->members) {
+                    if (member.kind != ClassMember::Kind::Method || member.isConstructor ||
+                        member.isDestructor) continue;
+                    const std::string signature = member.name + "#" +
+                                                  std::to_string(member.parameters.size());
+                    if (member.isAbstract) required[signature] = true;
+                    else if (!required.count(signature)) required[signature] = false;
+                }
+                for (const auto& base : current->bases) pending.push_back(base);
+            }
+
+            for (const auto& contract : required) {
+                if (!contract.second) continue;
+                const auto split = contract.first.rfind('#');
+                const std::string methodName = contract.first.substr(0, split);
+                const std::size_t arity = static_cast<std::size_t>(
+                    std::stoul(contract.first.substr(split + 1)));
+                std::unordered_set<const ClassDef*> seen;
+                std::vector<std::shared_ptr<ClassDef>> level{klass};
+                bool satisfied = false;
+                while (!level.empty() && !satisfied) {
+                    std::vector<std::shared_ptr<ClassDef>> next;
+                    std::vector<const ClassMember*> candidates;
+                    for (const auto& current : level) {
+                        if (!current || !seen.insert(current.get()).second) continue;
+                        for (const auto& member : current->members) {
+                            if (member.kind == ClassMember::Kind::Method &&
+                                !member.isConstructor && !member.isDestructor &&
+                                member.name == methodName && member.parameters.size() == arity)
+                                candidates.push_back(&member);
                         }
+                        for (const auto& base : current->bases)
+                            if (base && !seen.count(base.get())) next.push_back(base);
                     }
-                    if (!implementation || implementation->isAbstract || !implementation->defined) {
-                        runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
-                                            inherited.name + "' or be declared abstract.");
+                    if (!candidates.empty()) {
+                        satisfied = candidates.size() == 1 && !candidates.front()->isAbstract &&
+                                    candidates.front()->defined;
+                        break;
                     }
+                    level = std::move(next);
+                }
+                if (!satisfied) {
+                    runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
+                                        methodName + "' with " + std::to_string(arity) +
+                                        " parameter(s), or be declared abstract.");
                 }
             }
         }
+
         classes_[klass->name] = klass;
         for (auto& member : klass->members) {
             if (member.kind == ClassMember::Kind::Field && member.isStatic) {
-                klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) : defaultValue(member.typeName);
+                klass->staticValues[member.name] = member.initializer
+                    ? evaluate(*member.initializer) : defaultValue(member.typeName);
             }
         }
     }
