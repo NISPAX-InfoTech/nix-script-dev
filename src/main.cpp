@@ -1701,11 +1701,16 @@ private:
 
     void registerClass(const std::shared_ptr<ClassDef>& klass, int line) {
         if (classes_.count(klass->name)) runtimeError(line, "Class '" + klass->name + "' is already declared.");
-        if (!klass->baseName.empty()) {
-            auto base = classes_.find(klass->baseName);
-            if (base == classes_.end()) runtimeError(line, "Unknown base class '" + klass->baseName + "'.");
-            klass->base = base->second;
+        klass->bases.clear();
+        for (const auto& baseName : klass->baseNames) {
+            auto base = classes_.find(baseName);
+            if (base == classes_.end())
+                runtimeError(line, "Unknown base class '" + baseName + "'.");
+            if (base->second == klass)
+                runtimeError(line, "Class '" + klass->name + "' cannot inherit from itself.");
+            klass->bases.push_back(base->second);
         }
+        klass->base = klass->bases.empty() ? nullptr : klass->bases.front();
         if (!klass->isAbstract) {
             for (auto ancestor = klass->base; ancestor; ancestor = ancestor->base) {
                 for (const auto& inherited : ancestor->members) {
