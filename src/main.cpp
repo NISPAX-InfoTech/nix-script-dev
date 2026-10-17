@@ -1924,8 +1924,12 @@ private:
         if (!instance || !instance->klass) runtimeError(line, "Method call requires a valid object.");
         std::unordered_set<std::string> ambiguous;
         auto candidates = methodOverloads(instance->klass, name, ambiguous, line);
-        if (candidates.empty())
+        if (candidates.empty()) {
+            ClassMember* fieldOrMember = findMember(instance->klass, name, line);
+            if (fieldOrMember && fieldOrMember->kind == ClassMember::Kind::Field)
+                runtimeError(line, "Member '" + name + "' is a field, not a callable method.");
             runtimeError(line, "Class '" + instance->klass->name + "' has no method '" + name + "'.");
+        }
         const ClassMember* selected = selectOverload(candidates, args, name, "method", line, &ambiguous);
         checkAccess(*selected, line);
         if (staticCall && !selected->isStatic)
