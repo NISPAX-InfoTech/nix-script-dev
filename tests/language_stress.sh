@@ -1928,3 +1928,126 @@ printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
 fi
+
+echo "=== Deep OOP QC: construction order, access, and lifetime ==="
+
+run_ok base_and_derived_field_initialization_interleave_with_constructors $'base field\nbase constructor\nderived field\nderived constructor\n' <<'NS'
+fn mark(message) {
+    println(message);
+    return 1;
+}
+class BaseOrder {
+public:
+    int baseValue = mark("base field");
+    BaseOrder() {
+        println("base constructor");
+    }
+};
+class DerivedOrder : BaseOrder {
+public:
+    int derivedValue = mark("derived field");
+    DerivedOrder() {
+        println("derived constructor");
+    }
+};
+nix main() {
+    var object = DerivedOrder();
+}
+NS
+
+run_error derived_method_cannot_access_private_base_field "not accessible here" <<'NS'
+class PrivateBaseField {
+private:
+    int secret = 7;
+};
+class PrivateDerivedField : PrivateBaseField {
+public:
+    int leak() {
+        return this.secret;
+    }
+};
+nix main() {
+    var object = PrivateDerivedField();
+    println(object.leak());
+}
+NS
+
+run_error derived_method_cannot_access_private_base_method "not accessible here" <<'NS'
+class PrivateBaseMethod {
+private:
+    int secret() {
+        return 7;
+    }
+};
+class PrivateDerivedMethod : PrivateBaseMethod {
+public:
+    int leak() {
+        return this.secret();
+    }
+};
+nix main() {
+    var object = PrivateDerivedMethod();
+    println(object.leak());
+}
+NS
+
+run_ok private_base_member_remains_accessible_to_base_method $'7\n' <<'NS'
+class PrivateBaseSafe {
+private:
+    int secret = 7;
+    int readSecret() {
+        return secret;
+    }
+public:
+    int read() {
+        return readSecret();
+    }
+};
+class DerivedSafe : PrivateBaseSafe {
+public:
+    int value() {
+        return this.read();
+    }
+};
+nix main() {
+    var object = DerivedSafe();
+    println(object.value());
+}
+NS
+
+run_ok destructor_chain_destroys_shared_diamond_ancestor_once $'diamond destroyed\nleft destroyed\nright destroyed\nroot destroyed\n' <<'NS'
+class RootLife {
+public:
+    ~RootLife() {
+        println("root destroyed");
+    }
+};
+class LeftLife : RootLife {
+public:
+    ~LeftLife() {
+        println("left destroyed");
+    }
+};
+class RightLife : RootLife {
+public:
+    ~RightLife() {
+        println("right destroyed");
+    }
+};
+class DiamondLife : LeftLife, RightLife {
+public:
+    ~DiamondLife() {
+        println("diamond destroyed");
+    }
+};
+nix main() {
+    var object = DiamondLife();
+}
+NS
+
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
