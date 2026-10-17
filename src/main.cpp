@@ -475,9 +475,13 @@ private:
         Access access = Access::Public;
         auto appendMember = [&](ClassMember&& member) {
             for (const auto& existing : klass->members) {
-                if (existing.name == member.name) {
-                    fail(classToken, "Member '" + member.name + "' is declared more than once in class '" +
-                                     klass->name + "'.");
+                if (existing.name != member.name) continue;
+                const bool bothMethods = existing.kind == ClassMember::Kind::Method &&
+                                         member.kind == ClassMember::Kind::Method;
+                if (!bothMethods || existing.parameters.size() == member.parameters.size()) {
+                    fail(classToken, "Member '" + member.name + "' with " +
+                                     std::to_string(member.parameters.size()) +
+                                     " parameter(s) is declared more than once in class '" + klass->name + "'.");
                 }
             }
             klass->members.push_back(std::move(member));
@@ -1467,13 +1471,15 @@ private:
         for (const auto& parent : klass->bases)
             constructBaseHierarchy(instance, parent, klass->name, line);
 
+        std::vector<ClassMember*> constructors;
+        for (auto& member : klass->members)
+            if (member.isConstructor && member.name == klass->name) constructors.push_back(&member);
         ClassMember* ctor = nullptr;
-        for (auto& member : klass->members) {
-            if (member.isConstructor && member.name == klass->name) {
-                ctor = &member;
-                break;
+        for (auto* candidate : constructors)
+            if (candidate->parameters.size() == args.size()) {
+                if (ctor) runtimeError(line, "Ambiguous constructor call for class '" + klass->name + "'.");
+                ctor = candidate;
             }
-        }
         if (ctor) {
             checkAccess(*ctor, line);
             auto bound = std::make_shared<BoundMethod>();
@@ -1481,8 +1487,9 @@ private:
             bound->klass = klass;
             bound->member = ctor;
             callMethod(bound, args, line);
-        } else if (!args.empty()) {
-            runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
+        } else if (!args.empty() || !constructors.empty()) {
+            runtimeError(line, "Class '" + klass->name + "' has no constructor accepting " +
+                               std::to_string(args.size()) + " argument(s).");
         }
         return instance;
     }
