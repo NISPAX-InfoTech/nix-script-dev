@@ -1450,12 +1450,25 @@ private:
                 for (const auto& item : expr.items) array->elements.push_back(evaluate(*item));
                 return array;
             }
+            case Expr::Kind::MapLiteral: {
+                auto map = makeMap();
+                for (std::size_t i = 0; i < expr.items.size(); ++i)
+                    mapSetKey(map, expr.keys.at(i), evaluate(*expr.items[i]), expr.line);
+                return map;
+            }
             case Expr::Kind::Index: {
-                Value arrayValue = evaluate(*expr.left);
-                auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
-                if (!array || !*array) runtimeError(expr.line, "Indexing requires an array value.");
-                const std::size_t index = checkedArrayIndex(evaluate(*expr.right), *array, expr.line);
-                return (*array)->elements[index];
+                Value container = evaluate(*expr.left);
+                Value keyValue = evaluate(*expr.right);
+                if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&container)) {
+                    if (!*array) runtimeError(expr.line, "Invalid array value.");
+                    const std::size_t index = checkedArrayIndex(keyValue, *array, expr.line);
+                    return (*array)->elements[index];
+                }
+                if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&container)) {
+                    const std::string key = checkedMapKey(keyValue, expr.line);
+                    return mapGetKey(*map, key);
+                }
+                runtimeError(expr.line, "Indexing requires an array or map value.");
             }
             case Expr::Kind::Unary: {
                 Value value = evaluate(*expr.right);
@@ -1471,6 +1484,11 @@ private:
                     if (!*array) runtimeError(expr.line, "Invalid array value.");
                     if (expr.name == "length") return static_cast<double>((*array)->elements.size());
                     runtimeError(expr.line, "Array has no member '" + expr.name + "'.");
+                }
+                if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&objectValue)) {
+                    if (!*map) runtimeError(expr.line, "Invalid map value.");
+                    if (expr.name == "length") return static_cast<double>((*map)->entries.size());
+                    return mapGetKey(*map, expr.name);
                 }
                 auto* object = std::get_if<std::shared_ptr<Instance>>(&objectValue);
                 if (!object || !*object) runtimeError(expr.line, "Member access requires an object.");
@@ -1668,15 +1686,28 @@ private:
     void setTarget(const Expr& target, Value value, int line) {
         if (target.kind == Expr::Kind::Variable) { assignName(target.name, std::move(value), line); return; }
         if (target.kind == Expr::Kind::Index) {
-            Value arrayValue = evaluate(*target.left);
-            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
-            if (!array || !*array) runtimeError(line, "Indexed assignment requires an array value.");
-            const std::size_t index = checkedArrayIndex(evaluate(*target.right), *array, line);
-            (*array)->elements[index] = std::move(value);
-            return;
+            Value container = evaluate(*target.left);
+            Value keyValue = evaluate(*target.right);
+            if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&container)) {
+                if (!*array) runtimeError(line, "Invalid array value.");
+                const std::size_t index = checkedArrayIndex(keyValue, *array, line);
+                (*array)->elements[index] = std::move(value);
+                return;
+            }
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&container)) {
+                const std::string key = checkedMapKey(keyValue, line);
+                mapSetKey(*map, key, std::move(value), line);
+                return;
+            }
+            runtimeError(line, "Indexed assignment requires an array or map value.");
         }
         if (target.kind == Expr::Kind::Member) {
             Value baseValue = evaluate(*target.left);
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&baseValue)) {
+                if (target.name == "length") runtimeError(line, "Map.length is read-only.");
+                mapSetKey(*map, target.name, std::move(value), line);
+                return;
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&baseValue);
             if (!instance || !*instance) runtimeError(line, "Member assignment requires an object.");
             ClassMember* member = findMemberForInstance(*instance, target.name, line);
