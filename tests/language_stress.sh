@@ -2408,6 +2408,9 @@ nix main() {
 }
 NS
 
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
 if [ "$failed" -ne 0 ]; then
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
