@@ -1814,6 +1814,30 @@ nix main() {
 }
 NS
 
+
+run_ok out_of_class_method_overload_definitions 
+if (( failed > 0 )); then
+    exit 1
+fi
+one:7\ntwo:7:8\n' <<'NS'
+class Display {
+public:
+    fn show(value);
+    fn show(left, right);
+};
+fn Display::show(value) {
+    println("one:", value);
+}
+fn Display::show(left, right) {
+    println("two:", left, ":", right);
+}
+nix main() {
+    var display = Display();
+    display.show(7);
+    display.show(7, 8);
+}
+NS
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
