@@ -1230,16 +1230,47 @@ private:
         }
     }
 
-    ClassMember* findMember(const std::shared_ptr<ClassDef>& klass, const std::string& name) const {
-        for (auto current = klass; current; current = current->base) {
-            for (auto& member : current->members) if (member.name == name) return const_cast<ClassMember*>(&member);
+    std::vector<ClassMember*> findMembers(const std::shared_ptr<ClassDef>& klass, const std::string& name) const {
+        std::vector<ClassMember*> found;
+        std::unordered_set<const ClassDef*> visited;
+        std::vector<std::shared_ptr<ClassDef>> pending;
+        if (klass) pending.push_back(klass);
+        while (!pending.empty()) {
+            auto current = pending.front();
+            pending.erase(pending.begin());
+            if (!current || !visited.insert(current.get()).second) continue;
+            for (const auto& member : current->members)
+                if (member.name == name) found.push_back(const_cast<ClassMember*>(&member));
+            if (!found.empty()) {
+                // Prefer the closest declaration level. Do not search more distant ancestors
+                // once this level has supplied candidates.
+                break;
+            }
+            for (const auto& base : current->bases) pending.push_back(base);
         }
-        return nullptr;
+        return found;
+    }
+    ClassMember* findMember(const std::shared_ptr<ClassDef>& klass, const std::string& name) const {
+        auto found = findMembers(klass, name);
+        if (found.empty()) return nullptr;
+        // A name inherited from independent bases is ambiguous until overload
+        // resolution can select a unique signature.
+        std::unordered_set<std::string> owners;
+        for (const auto* member : found) owners.insert(member->owner);
+        if (owners.size() > 1) return nullptr;
+        return found.front();
     }
     bool derivesFrom(const std::string& candidate, const std::string& base) const {
         auto it = classes_.find(candidate);
-        for (auto k = it == classes_.end() ? nullptr : it->second; k; k = k->base)
-            if (k->name == base) return true;
+        if (it == classes_.end()) return false;
+        std::unordered_set<const ClassDef*> visited;
+        std::vector<std::shared_ptr<ClassDef>> pending{it->second};
+        while (!pending.empty()) {
+            auto current = pending.back(); pending.pop_back();
+            if (!current || !visited.insert(current.get()).second) continue;
+            if (current->name == base) return true;
+            for (const auto& parent : current->bases) pending.push_back(parent);
+        }
         return false;
     }
     void checkAccess(const ClassMember& member, int line) const {
@@ -1321,7 +1352,7 @@ private:
         return std::monostate{};
     }
     void initializeFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
-        if (klass->base) initializeFields(instance, klass->base);
+        for (const auto& parent : klass->bases) initializeFields(instance, parent);
         for (auto& member : klass->members) {
             if (member.kind != ClassMember::Kind::Field) continue;
             if (member.isStatic) {
@@ -1395,8 +1426,8 @@ private:
                                 const std::string& accessingClass,
                                 int line) {
         if (!klass) return;
-        if (klass->base)
-            constructBaseHierarchy(instance, klass->base, klass->name, line);
+        for (const auto& parent : klass->bases)
+            constructBaseHierarchy(instance, parent, klass->name, line);
 
         ClassMember* ctor = nullptr;
         for (auto& member : klass->members) {
@@ -1432,8 +1463,8 @@ private:
         auto instance = std::make_shared<Instance>();
         instance->klass = klass;
         initializeFields(instance, klass);
-        if (klass->base)
-            constructBaseHierarchy(instance, klass->base, klass->name, line);
+        for (const auto& parent : klass->bases)
+            constructBaseHierarchy(instance, parent, klass->name, line);
 
         ClassMember* ctor = nullptr;
         for (auto& member : klass->members) {
