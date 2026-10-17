@@ -2559,6 +2559,35 @@ NS
 
 run_file_ok maps_example examples/maps.ns $'NixScript Language\n2026\n[readable, multi-paradigm, general-purpose]\n4\n[name, year, tags, status]\n[NixScript Language, 2026, [readable, multi-paradigm, general-purpose], experimental]\ntrue\nnull\n3\n'
 
+run_ok map_null_boolean_keys_and_duplicate_key_overwrite 
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+nil\nyes\nupdated\n3\n' <<'NS'
+nix main() {
+    var data = {null: "nil", false: "no", true: "yes", label: "original"};
+    println(data[null]);
+    println(data[true]);
+    data.label = "updated";
+    println(data["label"]);
+    println(data.length);
+}
+NS
+
+run_ok map_literal_duplicate_keys_keep_one_entry 
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+last\n1\n' <<'NS'
+nix main() {
+    var data = {key: "first", key: "last"};
+    println(data.key);
+    println(data.length);
+}
+NS
+
 if [ "$failed" -ne 0 ]; then
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
