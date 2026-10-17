@@ -16,13 +16,23 @@ NixScript is an evolving C++17 interpreter. Treat releases as **preview releases
 
 ## Build artifacts
 
-Pushing a `vX.Y.Z` tag starts `.github/workflows/release.yml`. It builds and smoke-tests the CLI on Linux and Windows, packages the executable with the README, language reference, and examples, and publishes the archives with SHA-256 checksums.
+Pushing a `vX.Y.Z` tag to the private `NISPAX-InfoTech/nix-script-dev` repository starts `.github/workflows/release.yml`. It builds and smoke-tests the CLI on Linux and Windows, packages the executable with the README, language reference, and examples, and publishes the archives with SHA-256 checksums to the public `NISPAX-InfoTech/nix-script` releases repository. The source tag must point to a commit reachable from `nix-script-dev/main`; the published release tag is created on the release repository's `main` branch.
 
 - Linux x64: `nixscript-linux-x64.tar.gz`
 - Windows x64: `nixscript-windows-x64.zip`
 - Checksums: `SHA256SUMS.txt`
 
-The workflow dispatch option can package an existing tag. It does not create or move tags.
+The workflow dispatch option can package an existing source tag. It does not create or move source tags. It publishes the release to the public release repository and will fail if that version already has a release there.
+
+## One-time GitHub setup
+
+- [ ] Create `NISPAX-InfoTech/nix-script` as a **public** repository for releases only, with a `main` branch (a README-only initial commit is fine). Do not rename `nix-script-dev` back to `nix-script`.
+- [ ] Create a fine-grained personal access token (or equivalent GitHub App token) scoped only to `NISPAX-InfoTech/nix-script`, with **Contents: Read and write** permission.
+- [ ] In `nix-script-dev`, add that token as an Actions repository secret named `NIXSCRIPT_RELEASE_TOKEN`.
+- [ ] Ensure Actions are allowed to run for tags and workflow dispatch in the development repository.
+- [ ] Verify the target repository is public and the secret can create releases before tagging a version.
+
+The release workflow deliberately uses the dedicated secret instead of the source repository's `GITHUB_TOKEN`, because that token normally cannot publish releases into a different repository.
 
 ## Before calling a release stable
 
