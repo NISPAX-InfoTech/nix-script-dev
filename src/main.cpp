@@ -1526,8 +1526,7 @@ private:
         if (type == "bool") return false;
         return std::monostate{};
     }
-    void initializeFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
-        if (klass->base) initializeFields(instance, klass->base);
+    void initializeOwnFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
         for (auto& member : klass->members) {
             if (member.kind != ClassMember::Kind::Field) continue;
             if (member.isStatic) {
@@ -1596,70 +1595,119 @@ private:
         popScope(true, &result);
         return result;
     }
-    void constructBaseHierarchy(const std::shared_ptr<Instance>& instance,
-                                const std::shared_ptr<ClassDef>& klass,
-                                const std::string& accessingClass,
-                                int line) {
-        if (!klass) return;
-        if (klass->base)
-            constructBaseHierarchy(instance, klass->base, klass->name, line);
+    const ClassMember* selectConstructor(const std::shared_ptr<ClassDef>& klass,
+                                         const std::vector<Value>& args,
+                                         int line) const {
+        std::vector<const ClassMember*> constructors;
+        for (const auto& member : klass->members)
+            if (member.kind == ClassMember::Kind::Method && member.isConstructor &&
+                member.name == klass->name) constructors.push_back(&member);
+        if (constructors.empty()) {
+            if (!args.empty())
+                runtimeError(line, "Class '" + klass->name + "' has no matching constructor for " +
+                                   describeArgumentTypes(args) + ".");
+            return nullptr; // implicit default constructor
+        }
+        return selectOverload(constructors, args, klass->name, "constructor", line);
+    }
 
-        ClassMember* ctor = nullptr;
-        for (auto& member : klass->members) {
-            if (member.isConstructor && member.name == klass->name) {
-                ctor = &member;
-                break;
+    void constructClassHierarchy(
+        const std::shared_ptr<Instance>& instance,
+        const std::shared_ptr<ClassDef>& klass,
+        const ClassMember* constructor,
+        const std::vector<Value>& constructorArgs,
+        std::unordered_set<const ClassDef*>& constructed,
+        std::unordered_map<std::string, std::vector<Value>>& baseArguments,
+        std::unordered_map<std::string, std::string>& baseArgumentOwners,
+        int line) {
+        if (!klass || !constructed.insert(klass.get()).second) return;
+
+        // Evaluate initializer expressions in the selected constructor's parameter
+        // scope. The most-derived constructor has priority for shared diamond bases.
+        if (constructor && !constructor->baseInitializers.empty()) {
+            scopes_.emplace_back();
+            scopes_.back()["this"] = instance;
+            for (std::size_t i = 0; i < constructorArgs.size() && i < constructor->parameters.size(); ++i)
+                scopes_.back()[constructor->parameters[i]] = constructorArgs[i];
+            const std::string oldClass = currentClass_;
+            currentClass_ = klass->name;
+            try {
+                for (const auto& initializer : constructor->baseInitializers) {
+                    auto previousOwner = baseArgumentOwners.find(initializer.baseName);
+                    if (previousOwner != baseArgumentOwners.end()) {
+                        if (classDerivesFrom(classes_.count(previousOwner->second) ?
+                                             classes_.at(previousOwner->second) : nullptr, klass->name)) {
+                            // A more-derived constructor already selected the shared base arguments.
+                            continue;
+                        }
+                        runtimeError(line, "Base class '" + initializer.baseName +
+                                           "' receives conflicting constructor initializers through multiple inheritance.");
+                    }
+                    std::vector<Value> values;
+                    for (const auto& expression : initializer.arguments) values.push_back(evaluate(*expression));
+                    baseArguments[initializer.baseName] = std::move(values);
+                    baseArgumentOwners[initializer.baseName] = klass->name;
+                }
+            } catch (...) {
+                currentClass_ = oldClass;
+                popScope(false);
+                throw;
             }
-        }
-        if (!ctor) return;
-
-        // A base constructor is invoked in the context of the derived class,
-        // so protected base constructors remain usable while private ones do not.
-        const std::string oldClass = currentClass_;
-        currentClass_ = accessingClass;
-        try {
-            checkAccess(*ctor, line);
-        } catch (...) {
             currentClass_ = oldClass;
-            throw;
+            popScope(false);
         }
-        currentClass_ = oldClass;
 
-        auto bound = std::make_shared<BoundMethod>();
-        bound->instance = instance;
-        bound->klass = klass;
-        bound->member = ctor;
-        callMethod(bound, {}, line);
+        for (const auto& base : klass->bases) {
+            if (!base || constructed.count(base.get())) continue;
+            std::vector<Value> baseArgs;
+            const auto argsIt = baseArguments.find(base->name);
+            if (argsIt != baseArguments.end()) baseArgs = argsIt->second;
+            const ClassMember* baseCtor = selectConstructor(base, baseArgs, line);
+
+            const std::string oldClass = currentClass_;
+            currentClass_ = klass->name;
+            try {
+                if (baseCtor) checkAccess(*baseCtor, line);
+            } catch (...) {
+                currentClass_ = oldClass;
+                throw;
+            }
+            currentClass_ = oldClass;
+            constructClassHierarchy(instance, base, baseCtor, baseArgs,
+                                    constructed, baseArguments, baseArgumentOwners, line);
+        }
+
+        initializeOwnFields(instance, klass);
+        if (constructor) {
+            if (!constructor->defined)
+                runtimeError(line, "Constructor overload '" +
+                                   overloadSignatureKey(klass->name, constructor->parameterTypes) +
+                                   "' is declared but has no definition.");
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = const_cast<ClassMember*>(constructor);
+            callMethod(bound, constructorArgs, line);
+        }
     }
 
     Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
         if (klass->isAbstract)
             runtimeError(line, "Cannot instantiate abstract class '" + klass->name + "'.");
+
+        const ClassMember* constructor = selectConstructor(klass, args, line);
+        if (constructor) checkAccess(*constructor, line);
+
         auto instance = std::make_shared<Instance>();
         instance->klass = klass;
-        initializeFields(instance, klass);
-        if (klass->base)
-            constructBaseHierarchy(instance, klass->base, klass->name, line);
-
-        ClassMember* ctor = nullptr;
-        for (auto& member : klass->members) {
-            if (member.isConstructor && member.name == klass->name) {
-                ctor = &member;
-                break;
-            }
-        }
-        if (ctor) {
-            checkAccess(*ctor, line);
-            auto bound = std::make_shared<BoundMethod>();
-            bound->instance = instance;
-            bound->klass = klass;
-            bound->member = ctor;
-            callMethod(bound, args, line);
-        } else if (!args.empty()) {
-            runtimeError(line, "Class '" + klass->name + "' has no matching constructor.");
-        }
+        std::unordered_set<const ClassDef*> constructed;
+        std::unordered_map<std::string, std::vector<Value>> baseArguments;
+        std::unordered_map<std::string, std::string> baseArgumentOwners;
+        constructClassHierarchy(instance, klass, constructor, args,
+                                constructed, baseArguments, baseArgumentOwners, line);
         return instance;
     }
+    
     bool instanceGraphContains(
         const std::shared_ptr<Instance>& root,
         const std::shared_ptr<Instance>& target,
