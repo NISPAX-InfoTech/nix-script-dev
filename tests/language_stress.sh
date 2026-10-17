@@ -2267,57 +2267,65 @@ NS
 
 echo "=== Core collections and callable values ==="
 
-run_ok mutable_arrays_and_safe_indexing  <<'NS'
-var values = [1, 2, 3];
-var alias = values;
-alias[1] = 8;
-values.push(4);
-values.append(5);
-println(values);
-alias[0] = 77;
-println(values[0]);
-println(values.length);
-NS
-[1, 8, 3, 4, 5]\\n77\\n5\\n' <<'NS'
-var values = [1, 2, 3];
-var alias = values;
-alias[1] = 8;
-values.push(4);
-values.append(5);
-println(values);
-alias[0] = 77;
-println(values[0]);
-println(values.length);
-NS
-
-run_ok nested_array_literals_and_iteration $'2\\n5\\n[1, [2, 3], null]\\n' <<'NS'
-var values = [1, [2, 3], null];
-println(values[1][0]);
-println(values[1][1] + 2);
-println(values);
+run_ok mutable_arrays_and_safe_indexing  <<'NS'nix main() {
+    
+    var values = [1, 2, 3];
+    var alias = values;
+    alias[1] = 8;
+    values.push(4);
+    values.append(5);
+    println(values);
+    alias[0] = 77;
+    println(values[0]);
+    println(values.length);
+    NS
+    [1, 8, 3, 4, 5]\\n77\\n5\\n' <<'NS'
+    var values = [1, 2, 3];
+    var alias = values;
+    alias[1] = 8;
+    values.push(4);
+    values.append(5);
+    println(values);
+    alias[0] = 77;
+    println(values[0]);
+    println(values.length);
+}
 NS
 
-run_ok array_pop_and_builtin_length  <<'NS'
-var values = [1, 2, 3];
-println(len(values));
-println(values.push(4));
-println(values.pop());
-println(pop(values));
-println(len("abc"));
-NS
-3\\n4\\n4\\n3\\n3\\n' <<'NS'
-var values = [1, 2, 3];
-println(len(values));
-println(values.push(4));
-println(values.pop());
-println(pop(values));
-println(len("abc"));
+run_ok nested_array_literals_and_iteration $'2\\n5\\n[1, [2, 3], null]\\n' <<'NS'nix main() {
+    
+    var values = [1, [2, 3], null];
+    println(values[1][0]);
+    println(values[1][1] + 2);
+    println(values);
+}
 NS
 
-run_ok array_index_increment $'12\\n' <<'NS'
-var values = [11];
-values[0]++;
-println(values[0]);
+run_ok array_pop_and_builtin_length  <<'NS'nix main() {
+    
+    var values = [1, 2, 3];
+    println(len(values));
+    println(values.push(4));
+    println(values.pop());
+    println(pop(values));
+    println(len("abc"));
+    NS
+    3\\n4\\n4\\n3\\n3\\n' <<'NS'
+    var values = [1, 2, 3];
+    println(len(values));
+    println(values.push(4));
+    println(values.pop());
+    println(pop(values));
+    println(len("abc"));
+}
+NS
+
+run_ok array_index_increment $'12\\n' <<'NS'nix main() {
+    
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
 NS
 
 run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
