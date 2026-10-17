@@ -1743,11 +1743,10 @@ private:
 
     void destroyClassPart(const std::shared_ptr<Instance>& instance,
                           const std::shared_ptr<ClassDef>& klass,
-                          std::size_t poppedIndex) {
-        if (!instance || !klass) return;
+                          std::size_t poppedIndex,
+                          std::unordered_set<const ClassDef*>& visited) {
+        if (!instance || !klass || !visited.insert(klass.get()).second) return;
 
-        // C++-style destruction order for this class part: destructor body,
-        // fields in reverse declaration order, then the base-class part.
         const std::string destructorName = "~" + klass->name;
         ClassMember* destructor = nullptr;
         for (auto& member : klass->members) {
@@ -1765,6 +1764,8 @@ private:
             try { callMethod(bound, {}, 1); } catch (...) {}
         }
 
+        // Destroy fields introduced by this class in reverse declaration order,
+        // then its base subobjects in reverse declaration order.
         for (auto member = klass->members.rbegin(); member != klass->members.rend(); ++member) {
             if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
             const auto value = instance->fields.find(member->name);
@@ -1775,14 +1776,20 @@ private:
                 destroyInstance(*child, poppedIndex);
         }
 
-        if (klass->base) destroyClassPart(instance, klass->base, poppedIndex);
+        if (!klass->bases.empty()) {
+            for (auto base = klass->bases.rbegin(); base != klass->bases.rend(); ++base)
+                destroyClassPart(instance, *base, poppedIndex, visited);
+        } else if (klass->base) {
+            destroyClassPart(instance, klass->base, poppedIndex, visited);
+        }
     }
 
     void destroyInstance(const std::shared_ptr<Instance>& instance,
                          std::size_t poppedIndex = static_cast<std::size_t>(-1)) {
         if (!instance || instance->destroyed) return;
         instance->destroyed = true;
-        destroyClassPart(instance, instance->klass, poppedIndex);
+        std::unordered_set<const ClassDef*> visited;
+        destroyClassPart(instance, instance->klass, poppedIndex, visited);
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
