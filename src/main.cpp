@@ -405,19 +405,15 @@ private:
         }
 
         const bool defined = check(TokenKind::LeftBrace);
-        auto declaredCount = functionParameterCounts_.find(name);
-        if (declaredCount != functionParameterCounts_.end() && declaredCount->second != params.size()) {
-            fail(fnToken, "Function '" + name + "' is declared with " +
-                          std::to_string(declaredCount->second) + " parameter(s), but this declaration has " +
-                          std::to_string(params.size()) + ".");
+        const std::string signature = name + "#" + std::to_string(params.size());
+        auto declaredCount = functionParameterCounts_.find(signature);
+        if (defined && functionDefinitionLines_.count(signature)) {
+            fail(fnToken, "Function '" + name + "' with " + std::to_string(params.size()) +
+                          " parameter(s) has more than one definition.");
         }
-        if (defined && functionDefinitionLines_.count(name)) {
-            fail(fnToken, "Function '" + name + "' has more than one definition.");
-        }
-
         if (declaredCount == functionParameterCounts_.end()) {
             functionNames_[name] = true;
-            functionParameterCounts_[name] = params.size();
+            functionParameterCounts_[signature] = params.size();
         }
 
         Stmt function;
@@ -430,7 +426,7 @@ private:
         if (defined) {
             consume(TokenKind::LeftBrace, "Expected '{' before function body.");
             function.body = statementsUntilBrace();
-            functionDefinitionLines_[name] = fnToken.line;
+            functionDefinitionLines_[signature] = fnToken.line;
         } else {
             consume(TokenKind::Semicolon, "Expected a function body or ';' after declaration.");
         }
@@ -996,12 +992,14 @@ public:
         for (const auto& stmt : statements) {
             if (stmt.kind != Stmt::Kind::Function) continue;
             if (!stmt.functionDefined) {
-                functionDeclarations_[stmt.name] = &stmt;
+                functionDeclarations_[stmt.name + "#" + std::to_string(stmt.parameters.size())] = &stmt;
                 continue;
             }
-            if (functions_.count(stmt.name))
-                runtimeError(stmt.line, "Function '" + stmt.name + "' is already declared.");
-            functions_[stmt.name] = &stmt;
+            const std::string signature = stmt.name + "#" + std::to_string(stmt.parameters.size());
+            if (functions_.count(signature))
+                runtimeError(stmt.line, "Function '" + stmt.name + "' with " +
+                                        std::to_string(stmt.parameters.size()) + " parameter(s) is already defined.");
+            functions_[signature] = &stmt;
         }
         try {
             for (const auto& stmt : statements) execute(stmt);
@@ -1664,11 +1662,21 @@ private:
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
             if (std::find(builtins.begin(), builtins.end(), name) != builtins.end())
                 return builtin(name, args, expr.line);
-            auto function = functions_.find(name);
+            const std::string signature = name + "#" + std::to_string(args.size());
+            auto function = functions_.find(signature);
             if (function != functions_.end())
                 return callFunction(*function->second, args, expr.line);
-            if (functionDeclarations_.count(name))
-                runtimeError(expr.line, "Function '" + name + "' is declared but has no definition.");
+            if (functionDeclarations_.count(signature))
+                runtimeError(expr.line, "Function '" + name + "' with " + std::to_string(args.size()) +
+                                        " argument(s) is declared but has no definition.");
+            bool hasNamedOverload = false;
+            for (const auto& candidate : functions_)
+                if (candidate.second->name == name) { hasNamedOverload = true; break; }
+            for (const auto& candidate : functionDeclarations_)
+                if (candidate.second->name == name) { hasNamedOverload = true; break; }
+            if (hasNamedOverload)
+                runtimeError(expr.line, "No overload of function '" + name + "' accepts " +
+                                        std::to_string(args.size()) + " argument(s).");
             if (currentClass_.empty()) runtimeError(expr.line, "Unknown function '" + name + "'.");
             Value possibleMethod = lookup(name, expr.line);
             if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
