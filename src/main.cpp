@@ -191,12 +191,18 @@ struct Expr {
     int line = 1;
 };
 
+struct BaseInitializer {
+    std::string baseName;
+    std::vector<std::unique_ptr<Expr>> arguments;
+};
+
 struct Stmt {
     enum class Kind { Var, Assign, Print, Repeat, If, For, Return, Expression, Class, Function };
     Kind kind = Kind::Expression;
     std::string name;
     std::string typeName;
     std::vector<std::string> parameters;
+    std::vector<std::string> parameterTypes;
     bool functionDefined = false;
     bool printNewline = false;
     std::unique_ptr<Expr> target;
@@ -225,6 +231,8 @@ struct ClassMember {
     Access access = Access::Public;
     std::unique_ptr<Expr> initializer;
     std::vector<std::string> parameters;
+    std::vector<std::string> parameterTypes;
+    std::vector<BaseInitializer> baseInitializers;
     std::vector<Stmt> body;
 };
 
@@ -232,6 +240,8 @@ struct ClassDef {
     std::string name;
     bool isAbstract = false;
     std::string baseName;
+    std::vector<std::string> baseNames;
+    std::vector<std::shared_ptr<ClassDef>> bases;
     std::shared_ptr<ClassDef> base;
     std::vector<ClassMember> members;
     std::unordered_map<std::string, Value> staticValues;
@@ -242,6 +252,17 @@ struct Instance {
     std::unordered_map<std::string, Value> fields;
     bool destroyed = false;
 };
+
+static std::string overloadSignatureKey(const std::string& name,
+                                        const std::vector<std::string>& parameterTypes) {
+    std::string key = name + "(";
+    for (const auto& type : parameterTypes) {
+        key += type;
+        key += ';';
+    }
+    key += ')';
+    return key;
+}
 
 struct BoundMethod {
     std::shared_ptr<Instance> instance;
@@ -364,23 +385,46 @@ private:
         consume(TokenKind::RightBrace, "Expected '}' to close block.");
         return body;
     }
-    std::vector<std::string> parameters(bool allowTypeAnnotations = true) {
+    std::vector<std::string> parameters(bool allowTypeAnnotations = true,
+                                         std::vector<std::string>* outTypes = nullptr) {
         std::vector<std::string> result;
+        std::vector<std::string> types;
         consume(TokenKind::LeftParen, "Expected '(' before parameters.");
         if (!check(TokenKind::RightParen)) {
             do {
                 std::string first = consumeName("Expected a parameter name.");
-                if (isTypeName(first) && check(TokenKind::Identifier)) {
+                if (check(TokenKind::Identifier)) {
                     if (!allowTypeAnnotations)
-                        fail(previous(), "NixScript function parameters use inferred values; write only the parameter name.");
+                        fail(previous(), "Type annotations are not allowed in this parameter list.");
+                    types.push_back(first);
                     result.push_back(advance().text);
                 } else {
+                    types.push_back("any");
                     result.push_back(first);
                 }
             } while (match(TokenKind::Comma));
         }
         consume(TokenKind::RightParen, "Expected ')' after parameters.");
+        if (outTypes) *outTypes = std::move(types);
         return result;
+    }
+
+    std::vector<BaseInitializer> parseBaseInitializers() {
+        std::vector<BaseInitializer> initializers;
+        std::unordered_set<std::string> seen;
+        do {
+            BaseInitializer initializer;
+            initializer.baseName = consumeName("Expected a base class name in constructor initializer list.");
+            if (!seen.insert(initializer.baseName).second)
+                fail(previous(), "Base class '" + initializer.baseName + "' is initialized more than once.");
+            consume(TokenKind::LeftParen, "Expected '(' after base class name in initializer list.");
+            if (!check(TokenKind::RightParen)) {
+                do { initializer.arguments.push_back(expression()); } while (match(TokenKind::Comma));
+            }
+            consume(TokenKind::RightParen, "Expected ')' after base constructor arguments.");
+            initializers.push_back(std::move(initializer));
+        } while (match(TokenKind::Comma));
+        return initializers;
     }
     Stmt parseFunction() {
         const Token fnToken = previous();
@@ -390,7 +434,9 @@ private:
         if (classNames_.count(name))
             fail(fnToken, "A class named '" + name + "' is already declared.");
 
-        auto params = parameters(false);
+        std::vector<std::string> parameterTypes;
+        auto params = parameters(true, &parameterTypes);
+        const std::string signature = overloadSignatureKey(name, parameterTypes);
         std::unordered_map<std::string, bool> seenParameters;
         for (const auto& param : params) {
             if (seenParameters.count(param))
@@ -399,32 +445,27 @@ private:
         }
 
         const bool defined = check(TokenKind::LeftBrace);
-        auto declaredCount = functionParameterCounts_.find(name);
-        if (declaredCount != functionParameterCounts_.end() && declaredCount->second != params.size()) {
-            fail(fnToken, "Function '" + name + "' is declared with " +
-                          std::to_string(declaredCount->second) + " parameter(s), but this declaration has " +
-                          std::to_string(params.size()) + ".");
-        }
-        if (defined && functionDefinitionLines_.count(name)) {
-            fail(fnToken, "Function '" + name + "' has more than one definition.");
-        }
+        auto declaredCount = functionParameterCounts_.find(signature);
+        if (declaredCount != functionParameterCounts_.end() && declaredCount->second != params.size())
+            fail(fnToken, "Corrupt overload signature for function '" + name + "'.");
+        if (defined && functionDefinitionLines_.count(signature))
+            fail(fnToken, "Function overload '" + signature + "' has more than one definition.");
 
-        if (declaredCount == functionParameterCounts_.end()) {
-            functionNames_[name] = true;
-            functionParameterCounts_[name] = params.size();
-        }
+        functionNames_[name] = true;
+        functionParameterCounts_[signature] = params.size();
 
         Stmt function;
         function.kind = Stmt::Kind::Function;
         function.name = name;
         function.parameters = std::move(params);
+        function.parameterTypes = std::move(parameterTypes);
         function.line = fnToken.line;
         function.functionDefined = defined;
 
         if (defined) {
             consume(TokenKind::LeftBrace, "Expected '{' before function body.");
             function.body = statementsUntilBrace();
-            functionDefinitionLines_[name] = fnToken.line;
+            functionDefinitionLines_[signature] = fnToken.line;
         } else {
             consume(TokenKind::Semicolon, "Expected a function body or ';' after declaration.");
         }
@@ -432,7 +473,11 @@ private:
     }
 
     void parseMethodTail(ClassMember& member) {
-        member.parameters = parameters();
+        member.parameters = parameters(true, &member.parameterTypes);
+        if (member.isConstructor && match(TokenKind::Colon))
+            member.baseInitializers = parseBaseInitializers();
+        else if (!member.isConstructor && check(TokenKind::Colon))
+            fail(peek(), "Only constructors may have a base initializer list.");
         std::unordered_set<std::string> seenParameters;
         for (const auto& param : member.parameters) {
             if (!seenParameters.insert(param).second) {
@@ -457,16 +502,27 @@ private:
         if (functionNames_.count(klass->name))
             fail(classToken, "A function named '" + klass->name + "' is already declared.");
         classNames_[klass->name] = true;
-        if (match(TokenKind::Colon)) klass->baseName = consumeName("Expected a base class name after ':'.");
+        if (match(TokenKind::Colon)) {
+            do {
+                const std::string baseName = consumeName("Expected a base class name after ':'.");
+                if (std::find(klass->baseNames.begin(), klass->baseNames.end(), baseName) != klass->baseNames.end())
+                    fail(classToken, "Base class '" + baseName + "' is listed more than once.");
+                klass->baseNames.push_back(baseName);
+            } while (match(TokenKind::Comma));
+            klass->baseName = klass->baseNames.front();
+        }
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
         Access access = Access::Public;
         auto appendMember = [&](ClassMember&& member) {
             for (const auto& existing : klass->members) {
-                if (existing.name == member.name) {
-                    fail(classToken, "Member '" + member.name + "' is declared more than once in class '" +
-                                     klass->name + "'.");
-                }
+                if (existing.name != member.name) continue;
+                if (existing.kind == ClassMember::Kind::Method &&
+                    member.kind == ClassMember::Kind::Method &&
+                    existing.parameterTypes != member.parameterTypes) continue;
+                fail(classToken, "Member overload '" + overloadSignatureKey(member.name, member.parameterTypes) +
+                                 "' is declared more than once or conflicts with a field in class '" +
+                                 klass->name + "'.");
             }
             klass->members.push_back(std::move(member));
         };
@@ -580,21 +636,25 @@ private:
         consume(TokenKind::Scope, "Expected '::' in qualified method definition.");
         bool destructor = match(TokenKind::Tilde);
         const std::string methodName = (destructor ? "~" : "") + consumeName("Expected method name after '::'.");
-        auto params = parameters();
+        std::vector<std::string> parameterTypes;
+        auto params = parameters(true, &parameterTypes);
+        std::vector<BaseInitializer> baseInitializers;
+        if (methodName == className && match(TokenKind::Colon))
+            baseInitializers = parseBaseInitializers();
         consume(TokenKind::LeftBrace, "Expected '{' before method body.");
         auto body = statementsUntilBrace();
 
-        // The class must have been declared earlier. A definition may follow a prototype or define a method directly.
-        ClassMember* found = nullptr;
-        // Store definitions and resolve them after all class declarations are parsed.
-        outOfClass_.push_back({className, methodName, returnType, destructor, std::move(params), std::move(body), previous().line});
-        (void)found;
+        outOfClass_.push_back({className, methodName, returnType, destructor,
+                               std::move(params), std::move(parameterTypes),
+                               std::move(baseInitializers), std::move(body), previous().line});
     }
 
     struct OutDefinition {
         std::string className, methodName, returnType;
         bool destructor;
         std::vector<std::string> params;
+        std::vector<std::string> parameterTypes;
+        std::vector<BaseInitializer> baseInitializers;
         std::vector<Stmt> body;
         int line;
     };
@@ -610,18 +670,17 @@ private:
             auto& klass = klassIt->second;
             ClassMember* member = nullptr;
             for (auto& candidate : klass->members) {
-                if (candidate.name == definition.methodName) { member = &candidate; break; }
+                if (candidate.name == definition.methodName &&
+                    candidate.parameterTypes == definition.parameterTypes) {
+                    member = &candidate;
+                    break;
+                }
             }
             const bool matchedDeclaration = member != nullptr;
             if (matchedDeclaration && member->defined) {
                 fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
-                     "Method '" + definition.methodName + "' has more than one definition.");
-            }
-            if (matchedDeclaration && member->parameters.size() != definition.params.size()) {
-                fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
-                     "Method '" + definition.methodName + "' is declared with " +
-                     std::to_string(member->parameters.size()) + " parameter(s), but the definition has " +
-                     std::to_string(definition.params.size()) + " parameter(s).");
+                     "Method overload '" + overloadSignatureKey(definition.methodName, definition.parameterTypes) +
+                     "' has more than one definition.");
             }
             if (!member) {
                 ClassMember added;
@@ -633,10 +692,14 @@ private:
                 added.isConstructor = definition.methodName == klass->name;
                 added.isDestructor = definition.destructor;
                 added.defined = false;
+                added.parameters = definition.params;
+                added.parameterTypes = definition.parameterTypes;
                 klass->members.push_back(std::move(added));
                 member = &klass->members.back();
             }
             member->parameters = std::move(definition.params);
+            member->parameterTypes = std::move(definition.parameterTypes);
+            member->baseInitializers = std::move(definition.baseInitializers);
             member->body = std::move(definition.body);
             member->defined = true;
             if (!definition.returnType.empty()) member->typeName = definition.returnType;
