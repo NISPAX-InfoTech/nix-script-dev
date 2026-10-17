@@ -1064,7 +1064,7 @@ private:
                 auto thisIt = scope->find("this");
                 if (thisIt == scope->end()) continue;
                 if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
-                    ClassMember* member = findMember((*instance)->klass, name);
+                    ClassMember* member = findMemberForInstance(*instance, name);
                     if (member && member->kind == ClassMember::Kind::Field)
                         return getMember(*instance, name, line);
                     if (member && member->kind == ClassMember::Kind::Method) {
@@ -1098,7 +1098,7 @@ private:
                 auto thisIt = scope->find("this");
                 if (thisIt == scope->end()) continue;
                 if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
-                    ClassMember* member = findMember((*instance)->klass, name);
+                    ClassMember* member = findMemberForInstance(*instance, name);
                     if (member && member->kind == ClassMember::Kind::Field) {
                         Expr target; target.kind = Expr::Kind::Member; target.name = name; target.line = line;
                         target.left = std::make_unique<Expr>(); target.left->kind = Expr::Kind::Variable;
@@ -1305,8 +1305,20 @@ private:
     static std::string fieldStorageKey(const ClassMember& member) {
         return member.owner + "::" + member.name;
     }
+    ClassMember* findMemberForInstance(const std::shared_ptr<Instance>& instance,
+                                       const std::string& name) const {
+        if (!instance) return nullptr;
+        // Inside an inherited method, unqualified and this.member field lookup
+        // follows the declaring class's view of the object. Virtual calls still
+        // dispatch through the dynamic class in evaluateCall().
+        if (!currentClass_.empty() && derivesFrom(instance->klass->name, currentClass_)) {
+            auto context = classes_.find(currentClass_);
+            if (context != classes_.end()) return findMember(context->second, name);
+        }
+        return findMember(instance->klass, name);
+    }
     Value getMember(const std::shared_ptr<Instance>& instance, const std::string& name, int line) {
-        ClassMember* member = findMember(instance->klass, name);
+        ClassMember* member = findMemberForInstance(instance, name);
         if (!member) runtimeError(line, "Class '" + instance->klass->name + "' has no member '" + name + "'.");
         checkAccess(*member, line);
         if (member->kind == ClassMember::Kind::Method) {
@@ -1346,7 +1358,7 @@ private:
             Value baseValue = evaluate(*target.left);
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&baseValue);
             if (!instance || !*instance) runtimeError(line, "Member assignment requires an object.");
-            ClassMember* member = findMember((*instance)->klass, target.name);
+            ClassMember* member = findMemberForInstance(*instance, target.name);
             if (!member) runtimeError(line, "Unknown member '" + target.name + "'.");
             checkAccess(*member, line);
             if (member->kind != ClassMember::Kind::Field) runtimeError(line, "Cannot assign to a method.");
