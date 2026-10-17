@@ -1039,16 +1039,19 @@ public:
     void run(const std::vector<Stmt>& statements) {
         functions_.clear();
         functionDeclarations_.clear();
-        // Register definitions before execution so main can call functions defined after it.
+        // Register every overload before executing main so forward calls work.
         for (const auto& stmt : statements) {
             if (stmt.kind != Stmt::Kind::Function) continue;
-            if (!stmt.functionDefined) {
-                functionDeclarations_[stmt.name] = &stmt;
-                continue;
+            const std::string key = overloadSignatureKey(stmt.name, stmt.parameterTypes);
+            if (stmt.functionDefined) {
+                auto& overloads = functions_[stmt.name];
+                for (const Stmt* existing : overloads)
+                    if (overloadSignatureKey(existing->name, existing->parameterTypes) == key)
+                        runtimeError(stmt.line, "Function overload '" + key + "' has more than one definition.");
+                overloads.push_back(&stmt);
+            } else {
+                functionDeclarations_[stmt.name].push_back(&stmt);
             }
-            if (functions_.count(stmt.name))
-                runtimeError(stmt.line, "Function '" + stmt.name + "' is already declared.");
-            functions_[stmt.name] = &stmt;
         }
         try {
             for (const auto& stmt : statements) execute(stmt);
@@ -1062,14 +1065,124 @@ public:
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
-    std::unordered_map<std::string, const Stmt*> functions_;
-    std::unordered_map<std::string, const Stmt*> functionDeclarations_;
+    std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
+    std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
     std::string currentClass_;
 
     [[noreturn]] void runtimeError(int line, const std::string& message) const {
         throw std::runtime_error("Line " + std::to_string(line) + ": " + message);
     }
     static bool isNumber(const Value& value) { return std::holds_alternative<double>(value); }
+
+    int inheritanceDistance(const std::shared_ptr<ClassDef>& actual, const std::string& expected) const {
+        if (!actual) return -1;
+        std::vector<std::pair<std::shared_ptr<ClassDef>, int>> pending{{actual, 0}};
+        std::unordered_set<const ClassDef*> visited;
+        int best = -1;
+        while (!pending.empty()) {
+            auto current = pending.back();
+            pending.pop_back();
+            if (!current.first || !visited.insert(current.first.get()).second) continue;
+            if (current.first->name == expected && (best < 0 || current.second < best)) best = current.second;
+            if (!current.first->bases.empty()) {
+                for (const auto& base : current.first->bases)
+                    pending.emplace_back(base, current.second + 1);
+            } else if (current.first->base) {
+                pending.emplace_back(current.first->base, current.second + 1);
+            }
+        }
+        return best;
+    }
+
+    int parameterMatchScore(const std::string& expected, const Value& value) const {
+        if (expected.empty() || expected == "any" || expected == "var") return 0;
+        if (expected == "null") return std::holds_alternative<std::monostate>(value) ? 50 : -1;
+        if (isNumber(value)) {
+            const double n = std::get<double>(value);
+            if (expected == "number" || expected == "double") return 30;
+            if (expected == "float") return 25;
+            if (expected == "int" || expected == "long" || expected == "short")
+                return std::isfinite(n) && std::floor(n) == n ? 40 : -1;
+            return -1;
+        }
+        if (const auto* s = std::get_if<std::string>(&value)) {
+            if (expected == "string") return 40;
+            if (expected == "char") return s->size() == 1 ? 45 : -1;
+            return -1;
+        }
+        if (std::holds_alternative<bool>(value)) return expected == "bool" ? 40 : -1;
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
+            if (!*instance) return -1;
+            const int distance = inheritanceDistance((*instance)->klass, expected);
+            return distance < 0 ? -1 : 60 - distance;
+        }
+        return -1;
+    }
+
+    std::string describeArgumentTypes(const std::vector<Value>& args) const {
+        std::string result = "(";
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            if (i) result += ", ";
+            const auto& arg = args[i];
+            if (std::holds_alternative<std::monostate>(arg)) result += "null";
+            else if (std::holds_alternative<double>(arg)) result += "number";
+            else if (std::holds_alternative<std::string>(arg)) result += "string";
+            else if (std::holds_alternative<bool>(arg)) result += "bool";
+            else if (const auto* object = std::get_if<std::shared_ptr<Instance>>(&arg))
+                result += (*object) ? (*object)->klass->name : "null object";
+            else if (std::holds_alternative<std::shared_ptr<ClassDef>>(arg)) result += "class";
+            else result += "callable";
+        }
+        result += ')';
+        return result;
+    }
+
+    template <typename Candidate>
+    const Candidate* selectOverload(const std::vector<const Candidate*>& candidates,
+                                    const std::vector<Value>& args,
+                                    const std::string& name,
+                                    const std::string& kind,
+                                    int line,
+                                    const std::unordered_set<std::string>* ambiguousSignatures = nullptr) const {
+        int bestScore = -1;
+        std::vector<const Candidate*> best;
+        bool hadMatchingArity = false;
+        for (const Candidate* candidate : candidates) {
+            if (!candidate || candidate->parameterTypes.size() != args.size()) continue;
+            hadMatchingArity = true;
+            int score = 0;
+            bool matches = true;
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                const int part = parameterMatchScore(candidate->parameterTypes[i], args[i]);
+                if (part < 0) { matches = false; break; }
+                score += part;
+            }
+            if (!matches) continue;
+            if (score > bestScore) { bestScore = score; best.assign(1, candidate); }
+            else if (score == bestScore) best.push_back(candidate);
+        }
+        if (best.empty()) {
+            if (hadMatchingArity)
+                runtimeError(line, "No matching overload of " + kind + " '" + name +
+                                   "' accepts argument types " + describeArgumentTypes(args) + ".");
+            runtimeError(line, "No overload of " + kind + " '" + name + "' accepts " +
+                               std::to_string(args.size()) + " argument(s).");
+        }
+        if (best.size() > 1) {
+            const std::string firstKey = overloadSignatureKey(name, best.front()->parameterTypes);
+            const bool sameSignatureAmbiguous = ambiguousSignatures &&
+                                                ambiguousSignatures->count(firstKey) != 0;
+            runtimeError(line, std::string(sameSignatureAmbiguous ? "Ambiguous inherited overload of " :
+                                                                  "Ambiguous overload of ") +
+                               kind + " '" + name + "' for argument types " +
+                               describeArgumentTypes(args) + ".");
+        }
+        if (ambiguousSignatures &&
+            ambiguousSignatures->count(overloadSignatureKey(name, best.front()->parameterTypes)))
+            runtimeError(line, "Ambiguous inherited overload of " + kind + " '" + name +
+                               "' for argument types " + describeArgumentTypes(args) + ".");
+        return best.front();
+    }
     static std::string stringify(const Value& value) {
         if (std::holds_alternative<std::monostate>(value)) return "null";
         if (const auto* number = std::get_if<double>(&value)) {
