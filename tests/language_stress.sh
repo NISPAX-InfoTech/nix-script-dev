@@ -608,7 +608,7 @@ nix main() {
 }
 NS
 
-run_error constructor_overload_no_match "No overload of constructor 'Choice' accepts 1 argument(s)" <<'NS'
+run_error constructor_overload_no_match "No matching overload of constructor 'Choice'" <<'NS'
 class Choice {
     Choice(int value, int other) {
     }
