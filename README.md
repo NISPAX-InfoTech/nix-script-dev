@@ -2,7 +2,7 @@
 
 NixScript is an early experiment in a readable, multi-paradigm, general-purpose programming language. Its source files use the `.ns` extension.
 
-The current implementation is a small **C++17 interpreter prototype**, not a native compiler. It does not yet implement the full language design.
+The current implementation is a **C++17 interpreter prototype**, not a native compiler. The core C++-style OOP arc includes multiple inheritance, overload resolution by arity and parameter types, and explicit base-constructor initialization; full C++ compatibility is not a goal.
 
 ## Build
 
@@ -24,7 +24,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 ## Currently implemented
 
 - `nix main() { ... }` as the required executable entry point
-- Top-level function prototypes before `main` and definitions before or after `main`; unused prototypes are allowed, while calling a prototype without a definition fails clearly
+- Top-level function prototypes and overloads, with resolution by argument count and optional parameter-type annotations; definitions may appear before or after `main`, and unresolved declared overloads fail clearly
 - `var name = value;` and uninitialized `var name;`
 - `print(...);` without an automatic newline and `println(...);` with an automatic newline, both supporting multiple values and string interpolation
 - Basic arithmetic, comparisons, logical conditions, and `+` string concatenation
@@ -34,8 +34,8 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - `uin()` string input, direct input into an existing variable, and typed numeric/boolean input
 - Native string helpers: `isUpper()`, `isLower()`, `toUpper()`, `toLower()`, `isSpace()`
 - Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
-- C++-style class declarations, fields, constructors/destructors, methods, access labels, single inheritance, static members, and `ClassName::member`
-- `this`, typed method parameters, `return`, in-class and out-of-class method definitions
+- C++-style classes, fields, overloaded constructors/methods, destructors, public/private/protected access, multiple inheritance, static members, and `ClassName::member`
+- `this`, typed parameters for overload selection, `return`, in-class and out-of-class method definitions, and base-constructor initializer lists
 - `\n` and `\t` string escapes; `//` line comments and parser/runtime errors with line numbers
 
 ## Still planned

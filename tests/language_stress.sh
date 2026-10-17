@@ -369,6 +369,50 @@ nix main() {
 }
 NS
 
+run_ok overloaded_functions_by_arity_and_runtime_type $'text\ninteger\nfraction\ngeneric\n3\n6\n' <<'NS'
+fn label(value) {
+    return "generic";
+}
+fn label(string value) {
+    return "text";
+}
+fn label(int value) {
+    return "integer";
+}
+fn label(float value) {
+    return "fraction";
+}
+fn combine(first, second) {
+    return first + second;
+}
+fn combine(first, second, third) {
+    return first + second + third;
+}
+nix main() {
+    println(label("hello"));
+    println(label(5));
+    println(label(5.25));
+    println(label(true));
+    println(combine(1, 2));
+    println(combine(1, 2, 3));
+}
+NS
+
+run_ok overloaded_function_prototypes_and_late_definitions $'string:hi\nnumber:7\n' <<'NS'
+fn display(string value);
+fn display(int value);
+nix main() {
+    display("hi");
+    display(7);
+}
+fn display(string text) {
+    println("string:" + text);
+}
+fn display(int count) {
+    println("number:" + count);
+}
+NS
+
 echo "=== Functions and return values ==="
 
 run_ok calls_recursion_and_null_returns $'5\n15\n120\nfinished\nnull\n' <<'NS'
@@ -520,6 +564,156 @@ nix main() {
     var alias = first;
     println(first == second);
     println(first == alias);
+}
+NS
+
+run_ok overloaded_methods_by_type_and_arity $'string:hello\ninteger:8\npair:hi!\n' <<'NS'
+class Printer {
+    fn show(string value) {
+        return "string:" + value;
+    }
+    fn show(int value) {
+        return "integer:" + value;
+    }
+    fn show(first, second) {
+        return "pair:" + first + second;
+    }
+};
+nix main() {
+    var p = Printer();
+    println(p.show("hello"));
+    println(p.show(8));
+    println(p.show("hi", "!"));
+}
+NS
+
+run_ok overloaded_constructors $'default\ninteger:9\nstring:hey\n' <<'NS'
+class Choice {
+    var description;
+    Choice() {
+        this.description = "default";
+    }
+    Choice(int value) {
+        this.description = "integer:" + value;
+    }
+    Choice(string value) {
+        this.description = "string:" + value;
+    }
+};
+nix main() {
+    var empty = Choice();
+    var number = Choice(9);
+    var text = Choice("hey");
+    println(empty.description);
+    println(number.description);
+    println(text.description);
+}
+NS
+
+run_error constructor_overload_no_match "No overload of constructor 'Choice' accepts 1 argument(s)" <<'NS'
+class Choice {
+    Choice(int value, int other) {
+    }
+};
+nix main() {
+    var bad = Choice("wrong type");
+}
+NS
+
+run_ok multiple_inheritance_and_base_constructor_arguments $'left:4\nright:hi\nown:9\n' <<'NS'
+class Left {
+    var left;
+    Left(int value) {
+        this.left = value;
+    }
+    fn readLeft() {
+        return "left:" + left;
+    }
+};
+class Right {
+    var right;
+    Right(string value) {
+        this.right = value;
+    }
+    fn readRight() {
+        return "right:" + right;
+    }
+};
+class Combined : Left, Right {
+    var own;
+    Combined(int leftValue, string rightValue, int ownValue)
+        : Left(leftValue), Right(rightValue) {
+        this.own = ownValue;
+    }
+    fn readOwn() {
+        return "own:" + own;
+    }
+};
+nix main() {
+    var c = Combined(4, "hi", 9);
+    println(c.readLeft());
+    println(c.readRight());
+    println(c.readOwn());
+}
+NS
+
+run_ok shared_diamond_base_constructed_once $'root\nleft\nright\ndiamond\n' <<'NS'
+class Root {
+    Root() {
+        println("root");
+    }
+};
+class Left : Root {
+    Left() {
+        println("left");
+    }
+};
+class Right : Root {
+    Right() {
+        println("right");
+    }
+};
+class Diamond : Left, Right {
+    Diamond() {
+        println("diamond");
+    }
+};
+nix main() {
+    var d = Diamond();
+}
+NS
+
+run_error ambiguous_multiple_inheritance_method "Ambiguous inherited overload of method 'name'" <<'NS'
+class First {
+    fn name() {
+        return "first";
+    }
+};
+class Second {
+    fn name() {
+        return "second";
+    }
+};
+class Both : First, Second {
+};
+nix main() {
+    var b = Both();
+    println(b.name());
+}
+NS
+
+run_error ambiguous_multiple_inheritance_field "Ambiguous inherited member 'value'" <<'NS'
+class FirstField {
+    var value = 1;
+};
+class SecondField {
+    var value = 2;
+};
+class BothFields : FirstField, SecondField {
+};
+nix main() {
+    var b = BothFields();
+    println(b.value);
 }
 NS
 
@@ -1082,7 +1276,7 @@ nix main() {
 }
 NS
 
-run_error method_call_on_field "No overload of method 'value' accepts 0 argument(s)." <<'NS'
+run_error method_call_on_field "is a field, not a callable method" <<'NS'
 class Data {
 public:
     int value = 42;
@@ -1219,7 +1413,7 @@ nix main() {
 }
 NS
 
-run_error too_many_function_arguments "No overload of function 'one' accepts 2 argument(s)." <<'NS'
+run_error too_many_function_arguments "No overload of function 'one' accepts 2 argument(s)" <<'NS'
 fn one(value) {
     return value;
 }
@@ -1228,7 +1422,7 @@ nix main() {
 }
 NS
 
-run_error method_wrong_argument_count "No overload of method 'method' accepts 0 argument(s)." <<'NS'
+run_error method_wrong_argument_count "No overload of method 'method' accepts 0 argument(s)" <<'NS'
 class NeedsArgument {
 public:
     int method(value) {
@@ -1244,9 +1438,9 @@ NS
 run_error duplicate_constructor_declarations "declared more than once" <<'NS'
 class DoubleConstruct {
 public:
-    DoubleConstruct(value) {
+    DoubleConstruct() {
     }
-    DoubleConstruct(other) {
+    DoubleConstruct() {
     }
 };
 nix main() {
@@ -1277,17 +1471,22 @@ nix main() {
 }
 NS
 
-run_error mismatched_out_of_class_method_signature "the definition has 1 parameter(s)" <<'NS'
+run_ok out_of_class_overloaded_method_definitions $'integer:3\nstring:x\n' <<'NS'
 class Calculator {
 public:
-    int combine(left, right);
+    fn combine(int left, int right);
+    fn combine(string value);
 };
 nix main() {
     var calculator = Calculator();
     println(calculator.combine(1, 2));
+    println(calculator.combine("x"));
 }
-int Calculator::combine(only) {
-    return only;
+fn Calculator::combine(int first, int second) {
+    return "integer:" + (first + second);
+}
+fn Calculator::combine(string value) {
+    return "string:" + value;
 }
 NS
 
@@ -1308,12 +1507,36 @@ int Calculator::value() {
 }
 NS
 
-run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
-fn typed(int value) {
+run_error ambiguous_typed_function_overload "Ambiguous overload of function 'choose'" <<'NS'
+fn choose(int value) {
+    return "int";
+}
+fn choose(long value) {
+    return "long";
+}
+nix main() {
+    println(choose(7));
+}
+NS
+
+run_error no_function_overload_matches_type "No matching overload of function 'pick'" <<'NS'
+fn pick(int value) {
+    return value;
+}
+fn pick(bool value) {
     return value;
 }
 nix main() {
-    println("unreachable");
+    println(pick("not a number"));
+}
+NS
+
+run_error wrong_overload_arity "No overload of function 'pick' accepts 2 argument(s)" <<'NS'
+fn pick(value) {
+    return value;
+}
+nix main() {
+    println(pick(1, 2));
 }
 NS
 
@@ -1328,7 +1551,7 @@ nix main() {
 }
 NS
 
-run_error static_method_called_through_instance "No overload of method 'get' accepts 0 argument(s)." <<'NS'
+run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
 class StaticOnly {
 public:
     static int get() {
@@ -1431,7 +1654,7 @@ nix main() {
 }
 NS
 
-run_error wrong_function_arity "No overload of function 'add' accepts 1 argument(s)." <<'NS'
+run_error wrong_function_arity "No overload of function 'add' accepts 1 argument(s)" <<'NS'
 fn add(a, b) {
     return a + b;
 }
@@ -1516,7 +1739,7 @@ nix main() {
 }
 NS
 
-run_error constructor_arity "has no constructor accepting 0 argument(s)." <<'NS'
+run_error constructor_arity "No overload of constructor 'NeedsValue' accepts 0 argument(s)" <<'NS'
 class NeedsValue {
 public:
     NeedsValue(value) {
@@ -1714,7 +1937,7 @@ nix main() {
 }
 NS
 
-run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited method 'run'" <<'NS'
+run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited overload of method 'run' for argument types" <<'NS'
 class LeftRunner {
 public:
     fn run(value) { println("left"); }
@@ -1870,7 +2093,7 @@ nix main() {
 }
 NS
 
-run_error ambiguous_direct_field_from_two_bases "has no member 'value'" <<'NS'
+run_error ambiguous_direct_field_from_two_bases "Ambiguous inherited member 'value'" <<'NS'
 class LeftField {
 public:
     var value = 1;

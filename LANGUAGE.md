@@ -101,7 +101,7 @@ nix main() {
 }
 ```
 
-Top-level functions support definitions and C-style prototypes. You can define a function before `nix main()`, or declare its signature before `main` and define it after `main`. A prototype and its definition must agree on parameter count; repeated compatible prototypes are allowed, and parameter names may differ between prototype and definition. Unused prototypes do not require a definition. Calling a function that has a prototype but no definition produces a clear runtime error. Functions support positional arguments, local scope, recursion, and `return`; parameters use inferred values and do not require type annotations. A function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
+Top-level functions support definitions, prototypes, and overloads. A function may be defined before `nix main()` without a separate prototype; a definition after `main` can use a matching `fn Name(parameters);` prototype before `main`. The `fn` keyword is required on ordinary function declarations and definitions. Overloads may differ by argument count or typed parameters, for example `fn show(string value)` and `fn show(int value)`. Untyped parameters are generic fallbacks. Dispatch chooses the most specific compatible signature and reports clear no-match or ambiguity errors rather than selecting arbitrarily. Prototypes and definitions must agree on their full parameter-type signature, though parameter names may differ. Unused prototypes do not require a definition; calling an unresolved declared overload is an error. Functions support local scope, recursion, and `return`; a function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
 
 ## Classes and objects
 
@@ -117,11 +117,13 @@ Planned syntax includes:
 - `protected:` makes members accessible from the class and its derived classes.
 - `fn Method(...);` declares a class method; `fn ClassName::Method(...)` defines it outside the class.
 - `abstract class Name` declares a class that cannot be instantiated directly.
-- `abstract fn method(...);` declares a required method with no body. Concrete derived classes must implement every inherited abstract method; abstract derived classes may defer the implementation.
-- Single inheritance, method overriding, and static members.
+- `abstract fn method(...);` declares a required method with no body. Concrete derived classes must implement every inherited abstract overload; abstract derived classes may defer the implementation.
+- Methods and constructors can be overloaded by argument count and optional parameter types.
+- Multiple inheritance uses `class Name : BaseA, BaseB { ... };`. Constructors can pass arguments to bases using an initializer list, such as `Child(int value) : Left(value), Right("tag") { ... }`.
+- Method overriding, polymorphic dispatch, and static members.
 - `ClassName::member` scope resolution and `this` to refer to the current object.
 
-The implemented OOP subset includes encapsulation through access checks, constructors and destructors, single inheritance, derived-method lookup (including dispatch through a base-typed variable), and static fields/methods. For example:
+The implemented OOP subset includes encapsulation through access checks, overloaded constructors and methods, constructors/destructors, single and multiple inheritance, method overriding, dynamic dispatch (including calls through a base-typed variable), abstract-method enforcement, and static fields/methods. For example:
 
 ```ns
 class Player {
@@ -158,9 +160,9 @@ nix main() {
 }
 ```
 
-Implemented class features include fields, typed or inferred field declarations, constructor and destructor overloads, method overloads, public-by-default visibility, `secured:`/`private:`, `protected:`, explicit `public:`, multiple inheritance, method overriding, dynamic method dispatch, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Overloads are selected by argument count because parameters are currently untyped. Out-of-class method definitions are matched to prototypes by method name and arity; mismatched signatures are rejected rather than silently creating a missing overload. Inherited overloads are retained unless a closer declaration has the same arity; same-signature declarations from separate bases are diagnosed as ambiguous. Inherited field storage is keyed by declaring class so same-named fields in separate bases do not overwrite one another. Shared ancestors are initialized and destroyed once. Constructors and destructors are invoked by the interpreter; destructors run when local scope cleanup releases the final reachable reference in this prototype.
+Implemented class features include fields, typed or inferred field declarations, overloaded constructors and methods, constructors/destructors, public-by-default visibility, `secured:`/`private:`, `protected:`, explicit `public:`, single and multiple inheritance, method overriding, dynamic method lookup, abstract classes/methods, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Base constructor initializer lists can pass values to each direct base. Shared ancestors in a diamond are initialized and destroyed once; conflicting initializer choices for a shared ancestor are diagnosed. If unrelated bases contribute the same member signature/name, the access is ambiguous until the derived class redeclares or overrides it. Constructors and destructors run during object construction and scope cleanup.
 
-Important limits: this is an interpreter subset, not complete C++ compatibility. Abstract classes and abstract methods are supported, including enforcing inherited abstract method signatures across multiple base paths. There is no separate interface/trait system or operator overloading yet. Base constructors are implicitly invoked with zero arguments; constructor initializer lists and explicit base-constructor arguments are not supported. The interpreter does not yet implement references, C++ object layout, or every C++ object-lifetime rule. Encapsulation, overload dispatch, abstract-contract enforcement, multiple inheritance, and diamond-lifetime behavior are covered by regression tests. Use `this.member` where clarity matters; unqualified access to current-class fields is also supported inside methods.
+Important limits: this is an interpreter subset, not complete C++ compatibility. Values still use dynamic runtime storage, so `int` and `float` are overload-selection constraints rather than distinct runtime numeric representations. There is no separate interface/trait system, operator overloading, references, or C++ ABI/layout compatibility yet. Encapsulation, abstract-method enforcement, overload selection, constructor chaining, multiple inheritance and polymorphic dispatch have regression coverage. Use `this.member` where clarity matters; unqualified access to current-class fields is also supported inside methods.
 
 ## Native built-in functions
 

@@ -38,7 +38,6 @@ def make_cases() -> list[tuple[str, str]]:
         ("missing return expression", "fn f() { return 1 + ; } nix main() {}"),
         ("unterminated string", 'nix main() { println("unclosed); }'),
         ("invalid interpolation", 'nix main() { var value = 1; println("{$value"); }'),
-        ("typed top-level parameter", "fn f(int value) { return value; } nix main() {}"),
     ])
 
     # Deterministically mutate operators/delimiters around otherwise valid tokens.
