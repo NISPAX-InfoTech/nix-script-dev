@@ -1694,11 +1694,7 @@ nix main() {
 NS
 
 
-run_ok inherited_overload_set_and_implicit_dispatch 
-if (( failed > 0 )); then
-    exit 1
-fi
-one:7\ntwo:7:8\nimplicit:9\n' <<'NS'
+run_ok inherited_overload_set_and_implicit_dispatch $'one:7\ntwo:7:8\none:9\n' <<'NS'
 class BaseDisplay {
 public:
     fn show(value) { println("one:", value); }
@@ -1758,12 +1754,7 @@ nix main() {
 }
 NS
 
-
-run_ok same_named_fields_in_multiple_bases_keep_distinct_storage 
-if (( failed > 0 )); then
-    exit 1
-fi
-3\n4\n30\n40\n' <<'NS'
+run_ok same_named_fields_in_multiple_bases_keep_distinct_storage $'3\n4\n30\n40\n' <<'NS'
 class LeftValue {
 public:
     var value = 3;
@@ -1788,11 +1779,7 @@ nix main() {
 }
 NS
 
-run_ok diamond_inheritance_destructs_each_shared_ancestor_once 
-if (( failed > 0 )); then
-    exit 1
-fi
-both\nright\nleft\nroot\n' <<'NS'
+run_ok diamond_inheritance_destructs_each_shared_ancestor_once $'both\nright\nleft\nroot\n' <<'NS'
 class Root {
 public:
     ~Root() { println("root"); }
@@ -1814,12 +1801,7 @@ nix main() {
 }
 NS
 
-
-run_ok out_of_class_method_overload_definitions 
-if (( failed > 0 )); then
-    exit 1
-fi
-one:7\ntwo:7:8\n' <<'NS'
+run_ok out_of_class_method_overload_definitions $'one:7\ntwo:7:8\n' <<'NS'
 class Display {
 public:
     fn show(value);
