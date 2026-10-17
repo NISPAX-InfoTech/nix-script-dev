@@ -34,8 +34,6 @@ def make_arithmetic(rng: random.Random, depth: int) -> str:
     left = make_arithmetic(rng, depth - 1)
     right = make_arithmetic(rng, depth - 1)
     op = rng.choice(OPS)
-    if op == "/" and eval_ast(right) == 0:
-        right = "1"
     expression = f"{left} {op} {right}"
     return f"({expression})" if rng.random() < 0.7 else expression
 
