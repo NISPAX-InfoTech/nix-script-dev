@@ -1069,6 +1069,19 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
+    ~Interpreter() { breakArrayReferenceCycles(); }
+
+    std::shared_ptr<ArrayValue> makeArray() const {
+        auto array = std::make_shared<ArrayValue>();
+        arrays_.push_back(array);
+        return array;
+    }
+
+    void breakArrayReferenceCycles() {
+        for (const auto& weak : arrays_)
+            if (auto array = weak.lock()) array->elements.clear();
+        arrays_.clear();
+    }
 
     void run(const std::vector<Stmt>& statements) {
         functions_.clear();
@@ -1098,6 +1111,7 @@ public:
 
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
+    mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
@@ -1379,7 +1393,7 @@ private:
             case Expr::Kind::Variable: return lookup(expr.name, expr.line);
             case Expr::Kind::List: runtimeError(expr.line, "A list of values can only be used by print().");
             case Expr::Kind::ArrayLiteral: {
-                auto array = std::make_shared<ArrayValue>();
+                auto array = makeArray();
                 for (const auto& item : expr.items) array->elements.push_back(evaluate(*item));
                 return array;
             }
@@ -1655,7 +1669,7 @@ private:
         if (type == "int" || type == "float" || type == "double" || type == "number" || type == "long" || type == "short") return 0.0;
         if (type == "string" || type == "char") return std::string{};
         if (type == "bool") return false;
-        if (type == "array" || type == "list") return std::make_shared<ArrayValue>();
+        if (type == "array" || type == "list") return makeArray();
         return std::monostate{};
     }
     void initializeOwnFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
@@ -1852,21 +1866,33 @@ private:
         return instance;
     }
     
+    bool valueGraphContainsInstance(
+        const Value& value,
+        const std::shared_ptr<Instance>& target,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value))
+            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays);
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value))
+            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays);
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return false;
+            for (const auto& element : (*array)->elements)
+                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays)) return true;
+        }
+        return false;
+    }
+
     bool instanceGraphContains(
         const std::shared_ptr<Instance>& root,
         const std::shared_ptr<Instance>& target,
-        std::unordered_set<const Instance*>& visited) const {
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
         if (!root || !target) return false;
         if (root == target) return true;
-        if (!visited.insert(root.get()).second) return false;
-
-        for (const auto& field : root->fields) {
-            if (const auto* child = std::get_if<std::shared_ptr<Instance>>(&field.second)) {
-                if (instanceGraphContains(*child, target, visited)) return true;
-            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&field.second)) {
-                if (*method && instanceGraphContains((*method)->instance, target, visited)) return true;
-            }
-        }
+        if (!visitedInstances.insert(root.get()).second) return false;
+        for (const auto& field : root->fields)
+            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays)) return true;
         return false;
     }
 
@@ -1874,15 +1900,59 @@ private:
         for (std::size_t i = 0; i < scopes_.size(); ++i) {
             if (i == poppedIndex) continue;
             for (const auto& pair : scopes_[i]) {
-                std::unordered_set<const Instance*> visited;
-                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second)) {
-                    if (instanceGraphContains(*candidate, instance, visited)) return true;
-                } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
-                    if (*method && instanceGraphContains((*method)->instance, instance, visited)) return true;
-                }
+                std::unordered_set<const Instance*> visitedInstances;
+                std::unordered_set<const ArrayValue*> visitedArrays;
+                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays)) return true;
             }
         }
         return false;
+    }
+
+    void collectInstancesFromValue(
+        const Value& value,
+        std::vector<std::shared_ptr<Instance>>& instances,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
+            if (*instance && visitedInstances.insert(instance->get()).second) instances.push_back(*instance);
+            return;
+        }
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value)) {
+            if (*method && (*method)->instance &&
+                visitedInstances.insert((*method)->instance.get()).second)
+                instances.push_back((*method)->instance);
+            return;
+        }
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return;
+            for (const auto& element : (*array)->elements)
+                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays);
+        }
+    }
+
+    void destroyContainedInstances(
+        const Value& value,
+        const std::shared_ptr<Instance>& owner,
+        std::size_t poppedIndex,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
+            if (!*instance || *instance == owner || !visitedInstances.insert(instance->get()).second) return;
+            if (!referencedOutsideScope(*instance, poppedIndex)) destroyInstance(*instance, poppedIndex);
+            return;
+        }
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value)) {
+            if (!*method || !(*method)->instance || (*method)->instance == owner ||
+                !visitedInstances.insert((*method)->instance.get()).second) return;
+            if (!referencedOutsideScope((*method)->instance, poppedIndex))
+                destroyInstance((*method)->instance, poppedIndex);
+            return;
+        }
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return;
+            for (const auto& element : (*array)->elements)
+                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays);
+        }
     }
 
     void destroyClassPart(const std::shared_ptr<Instance>& instance,
@@ -1913,10 +1983,9 @@ private:
             if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
             const auto value = instance->fields.find(fieldStorageKey(*member));
             if (value == instance->fields.end()) continue;
-            const auto* child = std::get_if<std::shared_ptr<Instance>>(&value->second);
-            if (!child || !*child || *child == instance) continue;
-            if (!referencedOutsideScope(*child, poppedIndex))
-                destroyInstance(*child, poppedIndex);
+            std::unordered_set<const Instance*> visitedInstances;
+            std::unordered_set<const ArrayValue*> visitedArrays;
+            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays);
         }
 
     }
@@ -1944,25 +2013,30 @@ private:
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
-        std::shared_ptr<Instance> preservedInstance;
+        std::vector<std::shared_ptr<Instance>> preservedInstances;
         if (preservedValue) {
-            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(preservedValue)) {
-                preservedInstance = *instance;
-            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(preservedValue)) {
-                if (*method) preservedInstance = (*method)->instance;
-            }
+            std::unordered_set<const Instance*> seenInstances;
+            std::unordered_set<const ArrayValue*> seenArrays;
+            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays);
         }
 
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
+        std::unordered_set<const Instance*> seenInstances;
+        std::unordered_set<const ArrayValue*> seenArrays;
         for (const auto& pair : scopes_[index]) {
             if (pair.first == "this") continue;
-            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&pair.second))
-                if (*instance && std::find(instances.begin(), instances.end(), *instance) == instances.end()) instances.push_back(*instance);
+            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays);
         }
         scopes_.pop_back();
-        if (runDestructors) for (const auto& instance : instances)
-            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance, index);
+        if (runDestructors) {
+            for (const auto& instance : instances) {
+                if (!instance ||
+                    std::find(preservedInstances.begin(), preservedInstances.end(), instance) != preservedInstances.end())
+                    continue;
+                if (!referencedOutsideScope(instance, index)) destroyInstance(instance, index);
+            }
+        }
     }
     void executeBlock(const std::vector<Stmt>& body) {
         scopes_.emplace_back();
