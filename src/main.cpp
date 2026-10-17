@@ -1626,6 +1626,52 @@ private:
         return number;
     }
     Value evaluateCall(const Expr& expr) {
+        if (expr.left && (expr.left->kind == Expr::Kind::Member ||
+                          expr.left->kind == Expr::Kind::StaticMember)) {
+            Value receiver = evaluate(*expr.left->left);
+            std::vector<Value> args;
+            for (const auto& item : expr.items) args.push_back(evaluate(*item));
+            std::shared_ptr<ClassDef> klass;
+            std::shared_ptr<Instance> instance;
+            if (expr.left->kind == Expr::Kind::Member) {
+                auto* object = std::get_if<std::shared_ptr<Instance>>(&receiver);
+                if (!object || !*object) runtimeError(expr.line, "Method call requires an object.");
+                instance = *object;
+                klass = instance->klass;
+            } else {
+                auto* type = std::get_if<std::shared_ptr<ClassDef>>(&receiver);
+                if (!type || !*type) runtimeError(expr.line, "'::' method call requires a class name.");
+                klass = *type;
+            }
+            auto candidates = findMembers(klass, expr.left->name);
+            std::vector<ClassMember*> matching;
+            for (auto* candidate : candidates) {
+                if (candidate->kind != ClassMember::Kind::Method ||
+                    candidate->parameters.size() != args.size()) continue;
+                if (expr.left->kind == Expr::Kind::Member && candidate->isStatic) continue;
+                if (expr.left->kind == Expr::Kind::StaticMember && !candidate->isStatic) continue;
+                matching.push_back(candidate);
+            }
+            if (matching.empty())
+                runtimeError(expr.line, "No overload of method '" + expr.left->name + "' accepts " +
+                                        std::to_string(args.size()) + " argument(s).");
+            if (matching.size() > 1) {
+                std::unordered_set<std::string> owners;
+                for (auto* candidate : matching) owners.insert(candidate->owner);
+                if (owners.size() > 1)
+                    runtimeError(expr.line, "Ambiguous inherited method '" + expr.left->name + "'.");
+                runtimeError(expr.line, "Ambiguous overload of method '" + expr.left->name + "'.");
+            }
+            ClassMember* selected = matching.front();
+            checkAccess(*selected, expr.line);
+            if (selected->isConstructor || selected->isDestructor)
+                runtimeError(expr.line, "Constructors and destructors cannot be called like ordinary methods.");
+            auto bound = std::make_shared<BoundMethod>();
+            bound->instance = instance;
+            bound->klass = klass;
+            bound->member = selected;
+            return callMethod(bound, args, expr.line);
+        }
         if (expr.left && expr.left->kind == Expr::Kind::Variable) {
             const std::string name = expr.left->name;
             auto classIt = classes_.find(name);
