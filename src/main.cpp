@@ -245,6 +245,8 @@ struct Instance {
     std::shared_ptr<ClassDef> klass;
     std::unordered_map<std::string, Value> fields;
     bool destroyed = false;
+    std::unordered_set<const ClassDef*> initializedClasses;
+    std::unordered_set<const ClassDef*> constructedClasses;
 };
 
 struct BoundMethod {
@@ -1352,6 +1354,7 @@ private:
         return std::monostate{};
     }
     void initializeFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
+        if (!klass || !instance->initializedClasses.insert(klass.get()).second) return;
         for (const auto& parent : klass->bases) initializeFields(instance, parent);
         for (auto& member : klass->members) {
             if (member.kind != ClassMember::Kind::Field) continue;
@@ -1425,7 +1428,7 @@ private:
                                 const std::shared_ptr<ClassDef>& klass,
                                 const std::string& accessingClass,
                                 int line) {
-        if (!klass) return;
+        if (!klass || !instance->constructedClasses.insert(klass.get()).second) return;
         for (const auto& parent : klass->bases)
             constructBaseHierarchy(instance, parent, klass->name, line);
 
