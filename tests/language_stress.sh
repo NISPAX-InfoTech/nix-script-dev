@@ -2267,7 +2267,18 @@ NS
 
 echo "=== Core collections and callable values ==="
 
-run_ok mutable_arrays_and_safe_indexing $'[1, 8, 3, 4, 5]\\n77\\n3\\n' <<'NS'
+run_ok mutable_arrays_and_safe_indexing  <<'NS'
+var values = [1, 2, 3];
+var alias = values;
+alias[1] = 8;
+values.push(4);
+values.append(5);
+println(values);
+alias[0] = 77;
+println(values[0]);
+println(values.length);
+NS
+[1, 8, 3, 4, 5]\\n77\\n5\\n' <<'NS'
 var values = [1, 2, 3];
 var alias = values;
 alias[1] = 8;
@@ -2286,7 +2297,15 @@ println(values[1][1] + 2);
 println(values);
 NS
 
-run_ok array_pop_and_builtin_length $'3\\n5\\n4\\n3\\n3\\n' <<'NS'
+run_ok array_pop_and_builtin_length  <<'NS'
+var values = [1, 2, 3];
+println(len(values));
+println(values.push(4));
+println(values.pop());
+println(pop(values));
+println(len("abc"));
+NS
+3\\n4\\n4\\n3\\n3\\n' <<'NS'
 var values = [1, 2, 3];
 println(len(values));
 println(values.push(4));
