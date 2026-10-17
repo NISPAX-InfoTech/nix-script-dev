@@ -1340,7 +1340,7 @@ private:
         static const std::vector<std::string> names = {
             "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
             "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-            "len", "push", "append", "pop"
+            "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
         };
         return std::find(names.begin(), names.end(), name) != names.end();
     }
@@ -2411,6 +2411,33 @@ private:
                 }
                 runtimeError(expr.line, "Array has no method '" + expr.left->name + "'.");
             }
+            if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&receiver)) {
+                if (!*map) runtimeError(expr.line, "Invalid map value.");
+                const std::string& method = expr.left->name;
+                if (method == "length") runtimeError(expr.line, "Map.length is a property, not a method.");
+                if (method == "keys" || method == "values" || method == "clear") {
+                    if (!args.empty()) runtimeError(expr.line, "Map." + method + "() expects no arguments.");
+                    if (method == "keys") return mapKeys(*map);
+                    if (method == "values") return mapValues(*map);
+                    (*map)->entries.clear();
+                    return std::monostate{};
+                }
+                if (method == "has" || method == "hasKey" || method == "get" || method == "remove") {
+                    if (args.size() != 1)
+                        runtimeError(expr.line, "Map." + method + "() expects 1 argument.");
+                    const std::string key = checkedMapKey(args[0], expr.line);
+                    if (method == "has" || method == "hasKey") return mapHasKey(*map, key);
+                    if (method == "get") return mapGetKey(*map, key);
+                    return mapRemoveKey(*map, key);
+                }
+                if (method == "set") {
+                    if (args.size() != 2) runtimeError(expr.line, "Map.set() expects 2 arguments.");
+                    const std::string key = checkedMapKey(args[0], expr.line);
+                    mapSetKey(*map, key, args[1], expr.line);
+                    return std::monostate{};
+                }
+                runtimeError(expr.line, "Map has no method '" + method + "'.");
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&receiver);
             if (!instance || !*instance)
                 runtimeError(expr.line, "Method call requires an object.");
@@ -2468,7 +2495,7 @@ private:
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
                 "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-                "len", "push", "append", "pop"
+                "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2537,7 +2564,9 @@ private:
                 return static_cast<double>(textValue->size());
             if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]))
                 return *array ? static_cast<double>((*array)->elements.size()) : 0.0;
-            runtimeError(line, "len() expects a string or array.");
+            if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]))
+                return *map ? static_cast<double>((*map)->entries.size()) : 0.0;
+            runtimeError(line, "len() expects a string, array, or map.");
         }
         if (name == "push" || name == "append") {
             need(2);
@@ -2555,6 +2584,19 @@ private:
             Value result = std::move((*array)->elements.back());
             (*array)->elements.pop_back();
             return result;
+        }
+        if (name == "keys" || name == "values") {
+            need(1);
+            const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]);
+            if (!map || !*map) runtimeError(line, name + "() expects a map.");
+            return name == "keys" ? Value(mapKeys(*map)) : Value(mapValues(*map));
+        }
+        if (name == "hasKey" || name == "removeKey") {
+            need(2);
+            const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]);
+            if (!map || !*map) runtimeError(line, name + "() expects a map as its first argument.");
+            const std::string key = checkedMapKey(args[1], line);
+            return name == "hasKey" ? Value(mapHasKey(*map, key)) : Value(mapRemoveKey(*map, key));
         }
         if (name == "sqrt") { need(1); if (number(0) < 0) runtimeError(line, "sqrt() requires a non-negative number."); return std::sqrt(number(0)); }
         if (name == "sq") { need(1); const double n = number(0); return n * n; }
