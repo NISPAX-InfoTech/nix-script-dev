@@ -1907,15 +1907,21 @@ private:
         const Value& value,
         const std::shared_ptr<Instance>& target,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value))
-            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays);
+            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays, visitedMaps);
         if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value))
-            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays);
+            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays, visitedMaps);
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return false;
             for (const auto& element : (*array)->elements)
-                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays)) return true;
+                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays, visitedMaps)) return true;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return false;
+            for (const auto& entry : (*map)->entries)
+                if (valueGraphContainsInstance(entry.second, target, visitedInstances, visitedArrays, visitedMaps)) return true;
         }
         return false;
     }
@@ -1924,12 +1930,13 @@ private:
         const std::shared_ptr<Instance>& root,
         const std::shared_ptr<Instance>& target,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (!root || !target) return false;
         if (root == target) return true;
         if (!visitedInstances.insert(root.get()).second) return false;
         for (const auto& field : root->fields)
-            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays)) return true;
+            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays, visitedMaps)) return true;
         return false;
     }
 
@@ -1939,7 +1946,8 @@ private:
             for (const auto& pair : scopes_[i]) {
                 std::unordered_set<const Instance*> visitedInstances;
                 std::unordered_set<const ArrayValue*> visitedArrays;
-                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays)) return true;
+                std::unordered_set<const MapValue*> visitedMaps;
+                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays, visitedMaps)) return true;
             }
         }
         return false;
@@ -1949,7 +1957,8 @@ private:
         const Value& value,
         std::vector<std::shared_ptr<Instance>>& instances,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) const {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
             if (*instance && visitedInstances.insert(instance->get()).second) instances.push_back(*instance);
             return;
@@ -1963,7 +1972,13 @@ private:
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return;
             for (const auto& element : (*array)->elements)
-                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays);
+                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays, visitedMaps);
+            return;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return;
+            for (const auto& entry : (*map)->entries)
+                collectInstancesFromValue(entry.second, instances, visitedInstances, visitedArrays, visitedMaps);
         }
     }
 
@@ -1972,7 +1987,8 @@ private:
         const std::shared_ptr<Instance>& owner,
         std::size_t poppedIndex,
         std::unordered_set<const Instance*>& visitedInstances,
-        std::unordered_set<const ArrayValue*>& visitedArrays) {
+        std::unordered_set<const ArrayValue*>& visitedArrays,
+        std::unordered_set<const MapValue*>& visitedMaps) {
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
             if (!*instance || *instance == owner || !visitedInstances.insert(instance->get()).second) return;
             if (!referencedOutsideScope(*instance, poppedIndex)) destroyInstance(*instance, poppedIndex);
@@ -1988,7 +2004,13 @@ private:
         if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
             if (!*array || !visitedArrays.insert(array->get()).second) return;
             for (const auto& element : (*array)->elements)
-                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays);
+                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
+            return;
+        }
+        if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&value)) {
+            if (!*map || !visitedMaps.insert(map->get()).second) return;
+            for (const auto& entry : (*map)->entries)
+                destroyContainedInstances(entry.second, owner, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
         }
     }
 
@@ -2022,7 +2044,8 @@ private:
             if (value == instance->fields.end()) continue;
             std::unordered_set<const Instance*> visitedInstances;
             std::unordered_set<const ArrayValue*> visitedArrays;
-            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays);
+            std::unordered_set<const MapValue*> visitedMaps;
+            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays, visitedMaps);
         }
 
     }
@@ -2054,16 +2077,18 @@ private:
         if (preservedValue) {
             std::unordered_set<const Instance*> seenInstances;
             std::unordered_set<const ArrayValue*> seenArrays;
-            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays);
+            std::unordered_set<const MapValue*> seenMaps;
+            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays, seenMaps);
         }
 
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
         std::unordered_set<const Instance*> seenInstances;
         std::unordered_set<const ArrayValue*> seenArrays;
+        std::unordered_set<const MapValue*> seenMaps;
         for (const auto& pair : scopes_[index]) {
             if (pair.first == "this") continue;
-            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays);
+            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays, seenMaps);
         }
         scopes_.pop_back();
         if (runDestructors) {
