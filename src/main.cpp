@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -2033,7 +2034,7 @@ private:
                 if (declarations != functionDeclarations_.end()) {
                     for (const Stmt* function : declarations->second) {
                         const std::string key = overloadSignatureKey(function->name, function->parameterTypes);
-                        if (!seen.count(key)) candidates.push_back(function);
+                        if (seen.insert(key).second) candidates.push_back(function);
                     }
                 }
                 const Stmt* selected = selectOverload(candidates, args, name, "function", expr.line);
