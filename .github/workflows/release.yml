@@ -150,10 +150,17 @@ jobs:
 
       - name: Publish release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.NIXSCRIPT_RELEASE_TOKEN }}
           TAG: ${{ steps.release_tag.outputs.tag }}
+          RELEASE_REPOSITORY: NISPAX-InfoTech/nix-script
+        shell: bash
         run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing NIXSCRIPT_RELEASE_TOKEN secret. Configure a token with Contents: Read and write access to ${RELEASE_REPOSITORY}." >&2
+            exit 1
+          fi
           gh release create "$TAG" release-assets/nixscript-linux-x64.tar.gz release-assets/nixscript-windows-x64.zip release-assets/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" \
+            --repo "$RELEASE_REPOSITORY" \
+            --target main \
             --title "NixScript $TAG" \
             --generate-notes
