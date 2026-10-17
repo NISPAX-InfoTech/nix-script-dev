@@ -45,7 +45,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Fixed-size typed arrays, array type enforcement, and fixed-size declaration syntax
 - Export/visibility rules for modules and package dependency management
 
-Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns` to see declarations before `main` and implementations after it. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
+Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns`. For mutable arrays and callbacks, run `./build/nix examples/collections.ns` and `./build/nix examples/callbacks.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
 The interpreter is still an evolving prototype. Typed fixed-size arrays, module export/visibility rules, package dependency management, and package integrity signatures remain future work. Arrays are dynamic lists today; they use non-negative integer indexes and report out-of-range access. Function values refer to top-level overload groups or bound methods (not closures/lambdas yet). String case conversion currently operates on ASCII characters.
 
