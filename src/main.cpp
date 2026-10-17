@@ -634,6 +634,18 @@ private:
                     break;
                 }
             }
+            if (!member) {
+                for (const auto& candidate : klass->members) {
+                    if (candidate.name == definition.methodName &&
+                        candidate.isDestructor == definition.destructor) {
+                        fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
+                             "Method '" + definition.methodName + "' is declared with " +
+                             std::to_string(candidate.parameters.size()) +
+                             " parameter(s), but the definition has " +
+                             std::to_string(definition.params.size()) + " parameter(s).");
+                    }
+                }
+            }
             const bool matchedDeclaration = member != nullptr;
             if (matchedDeclaration && member->defined) {
                 fail(Token{TokenKind::Identifier, definition.methodName, definition.line},
