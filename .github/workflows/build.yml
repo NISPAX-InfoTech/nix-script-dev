@@ -243,20 +243,26 @@ jobs:
           fi
           grep -q "reserved" reserved-main.log
 
-          cat > mismatched-function.ns <<'EOF'
-          fn combine(left, right);
+          cat > overloaded-functions.ns <<'EOF'
+          fn combine(string left, string right);
+          fn combine(int first, int second, int third);
           nix main() {
-              println(combine(1, 2));
+              println(combine("A", "B"));
+              println(combine(1, 2, 3));
           }
-          fn combine(one, two, three) {
-              return one + two + three;
+          fn combine(string first, string second) {
+              return first + second;
+          }
+          fn combine(int first, int second, int third) {
+              return first + second + third;
           }
           EOF
-          if ./build/nix mismatched-function.ns >mismatched-function.log 2>&1; then
-            echo "A mismatched function declaration unexpectedly succeeded" >&2
+          actual="$(./build/nix overloaded-functions.ns)"
+          expected="$(printf 'AB\n6')"
+          [[ "$actual" == "$expected" ]] || {
+            echo "Function overload dispatch failed: $actual" >&2
             exit 1
-          fi
-          grep -q "declared with 2 parameter(s).*declaration has 3" mismatched-function.log
+          }
 
           cat > duplicate-function.ns <<'EOF'
           fn duplicate(value) {
