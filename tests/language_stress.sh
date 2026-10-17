@@ -1598,6 +1598,117 @@ nix main() {
 }
 NS
 
+
+run_ok function_overloading_by_arity 
+if (( failed > 0 )); then
+    exit 1
+fi
+one:7\ntwo:7:8\n' <<'NS'
+fn show(value) {
+    println("one:", value);
+}
+fn show(first, second) {
+    println("two:", first, ":", second);
+}
+nix main() {
+    show(7);
+    show(7, 8);
+}
+NS
+
+run_error missing_function_overload "No overload of function 'show' accepts 3 argument(s)" <<'NS'
+fn show(value) {
+    println(value);
+}
+fn show(first, second) {
+    println(first, second);
+}
+nix main() {
+    show(1, 2, 3);
+}
+NS
+
+run_ok constructor_overloading_by_arity 
+if (( failed > 0 )); then
+    exit 1
+fi
+7\n7:8\n' <<'NS'
+class Pair {
+public:
+    var first;
+    var second;
+    Pair(value) {
+        this.first = value;
+        this.second = 0;
+    }
+    Pair(left, right) {
+        this.first = left;
+        this.second = right;
+    }
+};
+nix main() {
+    var one = Pair(7);
+    var two = Pair(7, 8);
+    println(one.first);
+    println(two.first, ":", two.second);
+}
+NS
+
+run_ok method_overloading_by_arity 
+if (( failed > 0 )); then
+    exit 1
+fi
+single:7\ndouble:7:8\n' <<'NS'
+class Display {
+public:
+    fn show(value) {
+        println("single:", value);
+    }
+    fn show(first, second) {
+        println("double:", first, ":", second);
+    }
+};
+nix main() {
+    var display = Display();
+    display.show(7);
+    display.show(7, 8);
+}
+NS
+
+run_ok multiple_inheritance_fields_and_methods 
+if (( failed > 0 )); then
+    exit 1
+fi
+3\n4\n' <<'NS'
+class Left {
+public:
+    var left = 3;
+    fn leftValue() { return left; }
+};
+class Right {
+public:
+    var right = 4;
+    fn rightValue() { return right; }
+};
+class Both : Left, Right {
+public:
+    fn total() { return leftValue() + rightValue(); }
+};
+nix main() {
+    var both = Both();
+    println(both.leftValue());
+    println(both.rightValue());
+}
+NS
+
+run_error duplicate_base_class "Base class 'Left' is listed more than once" <<'NS'
+class Left {};
+class Both : Left, Left {};
+nix main() {
+    println("unreachable");
+}
+NS
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
