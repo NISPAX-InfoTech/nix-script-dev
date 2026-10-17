@@ -1302,6 +1302,9 @@ private:
         if (member.access == Access::Protected && !currentClass_.empty() && derivesFrom(currentClass_, member.owner)) return;
         runtimeError(line, "Member '" + member.name + "' is not accessible here.");
     }
+    static std::string fieldStorageKey(const ClassMember& member) {
+        return member.owner + "::" + member.name;
+    }
     Value getMember(const std::shared_ptr<Instance>& instance, const std::string& name, int line) {
         ClassMember* member = findMember(instance->klass, name);
         if (!member) runtimeError(line, "Class '" + instance->klass->name + "' has no member '" + name + "'.");
@@ -1318,7 +1321,8 @@ private:
             if (field == owner->second->staticValues.end()) return std::monostate{};
             return field->second;
         }
-        auto field = instance->fields.find(name);
+        const auto key = fieldStorageKey(*member);
+        auto field = instance->fields.find(key);
         if (field == instance->fields.end()) return std::monostate{};
         return field->second;
     }
@@ -1350,7 +1354,7 @@ private:
                 auto owner = classes_.find(member->owner);
                 if (owner == classes_.end()) runtimeError(line, "Unknown class for static member.");
                 owner->second->staticValues[target.name] = std::move(value);
-            } else (*instance)->fields[target.name] = std::move(value);
+            } else (*instance)->fields[fieldStorageKey(*member)] = std::move(value);
             return;
         }
         if (target.kind == Expr::Kind::StaticMember) {
@@ -1394,7 +1398,7 @@ private:
                 currentClass_ = oldClass;
                 popScope(false);
             }
-            instance->fields[member.name] = std::move(value);
+            instance->fields[fieldStorageKey(member)] = std::move(value);
         }
     }
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
@@ -1579,7 +1583,7 @@ private:
 
         for (auto member = klass->members.rbegin(); member != klass->members.rend(); ++member) {
             if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
-            const auto value = instance->fields.find(member->name);
+            const auto value = instance->fields.find(fieldStorageKey(*member));
             if (value == instance->fields.end()) continue;
             const auto* child = std::get_if<std::shared_ptr<Instance>>(&value->second);
             if (!child || !*child || *child == instance) continue;
@@ -1758,6 +1762,33 @@ private:
                 runtimeError(expr.line, "No overload of function '" + name + "' accepts " +
                                         std::to_string(args.size()) + " argument(s).");
             if (currentClass_.empty()) runtimeError(expr.line, "Unknown function '" + name + "'.");
+            // Resolve implicit calls against the complete overload set. Looking
+            // up a single bound method first loses overloads inherited from bases.
+            for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                auto thisIt = scope->find("this");
+                if (thisIt == scope->end()) continue;
+                auto* self = std::get_if<std::shared_ptr<Instance>>(&thisIt->second);
+                if (!self || !*self) continue;
+                auto candidates = findMembers((*self)->klass, name);
+                std::vector<ClassMember*> matching;
+                for (auto* candidate : candidates) {
+                    if (candidate->kind == ClassMember::Kind::Method && !candidate->isStatic &&
+                        candidate->parameters.size() == args.size())
+                        matching.push_back(candidate);
+                }
+                if (matching.empty()) continue;
+                if (matching.size() > 1)
+                    runtimeError(expr.line, "Ambiguous inherited method '" + name + "' for " +
+                                            std::to_string(args.size()) + " argument(s).");
+                checkAccess(*matching.front(), expr.line);
+                if (matching.front()->isConstructor || matching.front()->isDestructor)
+                    runtimeError(expr.line, "Constructors and destructors cannot be called like ordinary methods.");
+                auto bound = std::make_shared<BoundMethod>();
+                bound->instance = *self;
+                bound->klass = (*self)->klass;
+                bound->member = matching.front();
+                return callMethod(bound, args, expr.line);
+            }
             Value possibleMethod = lookup(name, expr.line);
             if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
                 return callMethod(*bound, args, expr.line);
@@ -1841,7 +1872,7 @@ private:
         // declaration for a name+arity pair wins; an abstract redeclaration
         // deliberately keeps the contract abstract.
         if (!klass->isAbstract) {
-            std::unordered_map<std::string, bool> required;
+            std::unordered_set<std::string> required;
             std::unordered_set<const ClassDef*> visited;
             std::vector<std::shared_ptr<ClassDef>> pending{klass};
             while (!pending.empty()) {
@@ -1849,22 +1880,18 @@ private:
                 pending.pop_back();
                 if (!current || !visited.insert(current.get()).second) continue;
                 for (const auto& member : current->members) {
-                    if (member.kind != ClassMember::Kind::Method || member.isConstructor ||
-                        member.isDestructor) continue;
-                    const std::string signature = member.name + "#" +
-                                                  std::to_string(member.parameters.size());
-                    if (member.isAbstract) required[signature] = true;
-                    else if (!required.count(signature)) required[signature] = false;
+                    if (member.kind != ClassMember::Kind::Method || !member.isAbstract ||
+                        member.isConstructor || member.isDestructor) continue;
+                    required.insert(member.name + "#" + std::to_string(member.parameters.size()));
                 }
                 for (const auto& base : current->bases) pending.push_back(base);
             }
 
             for (const auto& contract : required) {
-                if (!contract.second) continue;
-                const auto split = contract.first.rfind('#');
-                const std::string methodName = contract.first.substr(0, split);
+                const auto split = contract.rfind('#');
+                const std::string methodName = contract.substr(0, split);
                 const std::size_t arity = static_cast<std::size_t>(
-                    std::stoul(contract.first.substr(split + 1)));
+                    std::stoul(contract.substr(split + 1)));
                 std::unordered_set<const ClassDef*> seen;
                 std::vector<std::shared_ptr<ClassDef>> level{klass};
                 bool satisfied = false;
