@@ -78,7 +78,7 @@ var age = uin("Enter your age: ", int);
 - `print(...)` writes all supplied values exactly as given, without adding a newline.
 - `println(...)` writes all supplied values and then adds one newline.
 - Both accept zero or more comma-separated values and do not silently insert spaces.
-- Double-quoted strings support interpolation with `{$variable}` and escapes such as `\n` (newline) and `\t` (tab).
+- Double-quoted strings support interpolation with either `{$variable}` or `${variable}`, and escapes such as `\n` (newline) and `\t` (tab).
 
 ```ns
 var name = "Alex";
@@ -112,12 +112,16 @@ Planned syntax includes:
 - `Name object;` and `Name object(args);` — object declarations and construction.
 - A constructor named after the class, e.g. `Player(name)`.
 - A destructor named `~Player()`.
-- `public`, `private`, and `protected` access specifiers.
-- Inheritance, member functions, and static members.
-- `ClassName::member` scope resolution and out-of-class member definitions.
-- `this` to refer to the current object.
+- Public members by default; optional `public:` is accepted for clarity.
+- `secured:` makes following members private. Legacy `private:` is also accepted.
+- `protected:` makes members accessible from the class and its derived classes.
+- `fn Method(...);` declares a class method; `fn ClassName::Method(...)` defines it outside the class.
+- `abstract class Name` declares a class that cannot be instantiated directly.
+- `abstract fn method(...);` declares a required method with no body. Concrete derived classes must implement every inherited abstract method; abstract derived classes may defer the implementation.
+- Single inheritance, method overriding, and static members.
+- `ClassName::member` scope resolution and `this` to refer to the current object.
 
-The prototype implements the core of this syntax. For example:
+The implemented OOP subset includes encapsulation through access checks, constructors and destructors, single inheritance, derived-method lookup (including dispatch through a base-typed variable), and static fields/methods. For example:
 
 ```ns
 class Player {
@@ -134,14 +138,14 @@ public:
         println("Player destroyed");
     }
 
-    int damage(int amount);
+    fn damage(amount);
 
-    static int count() {
+    static fn count() {
         return Player::created;
     }
 };
 
-int Player::damage(int amount) {
+fn Player::damage(amount) {
     health = health - amount;
     return health;
 }
@@ -154,9 +158,9 @@ nix main() {
 }
 ```
 
-Implemented class features include fields, typed or inferred field declarations, constructors, destructors, methods with parameters and `return`, `public`/`private`/`protected`, single inheritance, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Constructors and destructors are invoked by the interpreter; destructor timing follows local scope cleanup in this prototype.
+Implemented class features include fields, typed or inferred field declarations, constructor and destructor overloads, method overloads, public-by-default visibility, `secured:`/`private:`, `protected:`, explicit `public:`, multiple inheritance, method overriding, dynamic method dispatch, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Overloads are selected by argument count because parameters are currently untyped. Out-of-class method definitions are matched to prototypes by method name and arity; mismatched signatures are rejected rather than silently creating a missing overload. Inherited overloads are retained unless a closer declaration has the same arity; same-signature declarations from separate bases are diagnosed as ambiguous. Inherited field storage is keyed by declaring class so same-named fields in separate bases do not overwrite one another. Shared ancestors are initialized and destroyed once. Constructors and destructors are invoked by the interpreter; destructors run when local scope cleanup releases the final reachable reference in this prototype.
 
-This is an interpreter implementation, not full C++ compatibility. Multiple inheritance, overloaded methods/operators, references, C++ initializer lists for base constructors, and complete C++ object-lifetime rules are not implemented. Use `this.member` where clarity matters; unqualified access to the current class's fields is also supported inside methods.
+Important limits: this is an interpreter subset, not complete C++ compatibility. Abstract classes and abstract methods are supported, including enforcing inherited abstract method signatures across multiple base paths. There is no separate interface/trait system or operator overloading yet. Base constructors are implicitly invoked with zero arguments; constructor initializer lists and explicit base-constructor arguments are not supported. The interpreter does not yet implement references, C++ object layout, or every C++ object-lifetime rule. Encapsulation, overload dispatch, abstract-contract enforcement, multiple inheritance, and diamond-lifetime behavior are covered by regression tests. Use `this.member` where clarity matters; unqualified access to current-class fields is also supported inside methods.
 
 ## Native built-in functions
 

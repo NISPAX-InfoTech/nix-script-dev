@@ -1,0 +1,76 @@
+name: Cross-platform CLI and syntax tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build-and-stress:
+    name: Windows (MSVC) build and language stress
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Configure MSVC build
+        run: cmake -S . -B build -A x64
+
+      - name: Build interpreter
+        run: cmake --build build --config Release --parallel
+
+      - name: Smoke test core syntax
+        shell: pwsh
+        run: |
+          @'
+          fn add(a, b) { return a + b; }
+          class Base {
+          public:
+              int value = 40;
+              int get() { return value; }
+          };
+          class Child : Base {
+          public:
+              int getMore() { return this.get() + 2; }
+          };
+          nix main() {
+              var child = Child();
+              println(add(child.get(), 2));
+              println(child.getMore());
+          }
+          '@ | Set-Content -Encoding utf8 smoke.ns
+          $actual = & .\build\Release\nix.exe smoke.ns
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test process failed with exit code $LASTEXITCODE" }
+          $expected = @("42", "42")
+          if (($actual -join "`n") -ne ($expected -join "`n")) {
+            Write-Error "Unexpected output: $($actual -join ', ')"
+            exit 1
+          }
+
+      - name: Run full language regression suite
+        shell: bash
+        run: bash tests/language_stress.sh ./build/Release/nix.exe
+
+      - name: Stress generated arithmetic expressions
+        run: python tests/arithmetic_stress.py build/Release/nix.exe
+
+      - name: Stress generated boolean expressions
+        run: python tests/boolean_stress.py build/Release/nix.exe
+
+      - name: Stress malformed-source parsing
+        run: python tests/parser_stress.py build/Release/nix.exe
+
+      - name: Run 1,200-case hardcore regression suite
+        run: python tests/hardcore_stress.py build/Release/nix.exe

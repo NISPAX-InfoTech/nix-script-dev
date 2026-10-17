@@ -14,7 +14,9 @@ run_file_ok() {
     local name="$1" source_file="$2" expected="$3" input="${4:-}"
     local actual="$TMP/$name.actual" wanted="$TMP/$name.expected" log="$TMP/$name.log"
 
-    if ! printf '%s' "$input" | "$BIN" "$source_file" >"$actual" 2>"$log"; then
+    # Windows builds emit CRLF through the C runtime; normalize captured output so
+    # expected-output comparisons are platform-independent.
+    if ! printf '%s' "$input" | "$BIN" "$source_file" 2>"$log" | tr -d '\r' >"$actual"; then
         echo "FAIL: $name (program returned an error)" >&2
         cat "$log" >&2
         failed=$((failed + 1))
@@ -868,6 +870,97 @@ nix main() {
 }
 NS
 
+run_ok explicit_fn_class_method_prototype_and_definition $'null × _×Hey, x = 6 now!' <<'NS'
+class Test {
+    var x;
+    Test() {
+        print("${x} × _×");
+    }
+    fn Put();
+};
+
+fn Test::Put() {
+    x = 6;
+    print("Hey, x = ", x, " now!");
+}
+
+nix main() {
+    Test t;
+    t.Put();
+}
+NS
+
+run_ok polymorphic_dispatch_through_base_typed_variable $'dog\n' <<'NS'
+class Animal {
+public:
+    fn speak() {
+        println("animal");
+    }
+};
+class Dog : Animal {
+public:
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_ok abstract_class_concrete_implementation $'dog\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class Dog : Animal {
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_error cannot_instantiate_abstract_class "Cannot instantiate abstract class 'Animal'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+nix main() {
+    var pet = Animal();
+}
+NS
+
+run_error concrete_class_missing_abstract_method "must implement abstract method 'speak'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class SilentDog : Animal {
+};
+nix main() {
+    var pet = SilentDog();
+}
+NS
+
+run_ok abstract_class_can_extend_abstract_class $'bird\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+abstract class Bird : Animal {
+};
+class Sparrow : Bird {
+    fn speak() {
+        println("bird");
+    }
+};
+nix main() {
+    var bird = Sparrow();
+    bird.speak();
+}
+NS
+
 run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
 class Item {
 public:
@@ -989,7 +1082,7 @@ nix main() {
 }
 NS
 
-run_error method_call_on_field "This expression is not callable" <<'NS'
+run_error method_call_on_field "No overload of method 'value' accepts 0 argument(s)." <<'NS'
 class Data {
 public:
     int value = 42;
@@ -1126,7 +1219,7 @@ nix main() {
 }
 NS
 
-run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+run_error too_many_function_arguments "No overload of function 'one' accepts 2 argument(s)." <<'NS'
 fn one(value) {
     return value;
 }
@@ -1135,7 +1228,7 @@ nix main() {
 }
 NS
 
-run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+run_error method_wrong_argument_count "No overload of method 'method' accepts 0 argument(s)." <<'NS'
 class NeedsArgument {
 public:
     int method(value) {
@@ -1151,9 +1244,9 @@ NS
 run_error duplicate_constructor_declarations "declared more than once" <<'NS'
 class DoubleConstruct {
 public:
-    DoubleConstruct() {
-    }
     DoubleConstruct(value) {
+    }
+    DoubleConstruct(other) {
     }
 };
 nix main() {
@@ -1235,7 +1328,7 @@ nix main() {
 }
 NS
 
-run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+run_error static_method_called_through_instance "No overload of method 'get' accepts 0 argument(s)." <<'NS'
 class StaticOnly {
 public:
     static int get() {
@@ -1258,13 +1351,66 @@ nix main() {
 }
 NS
 
-run_error implicit_private_access "not accessible here" <<'NS'
-class HiddenByDefault {
+run_ok implicit_public_access $'4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
     int secret = 4;
 };
 nix main() {
-    var object = HiddenByDefault();
+    var object = HiddenByChoice();
     println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field $'42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported $'7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
 }
 NS
 
@@ -1285,7 +1431,7 @@ nix main() {
 }
 NS
 
-run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+run_error wrong_function_arity "No overload of function 'add' accepts 1 argument(s)." <<'NS'
 fn add(a, b) {
     return a + b;
 }
@@ -1370,7 +1516,7 @@ nix main() {
 }
 NS
 
-run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+run_error constructor_arity "has no constructor accepting 0 argument(s)." <<'NS'
 class NeedsValue {
 public:
     NeedsValue(value) {
@@ -1454,7 +1600,449 @@ nix main() {
 }
 NS
 
-printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
-if (( failed > 0 )); then
+
+run_ok function_overloading_by_arity $'one:7\ntwo:7:8\n' <<'NS'
+fn show(value) {
+    println("one:", value);
+}
+fn show(first, second) {
+    println("two:", first, ":", second);
+}
+nix main() {
+    show(7);
+    show(7, 8);
+}
+NS
+
+run_error missing_function_overload "No overload of function 'show' accepts 3 argument(s)" <<'NS'
+fn show(value) {
+    println(value);
+}
+fn show(first, second) {
+    println(first, second);
+}
+nix main() {
+    show(1, 2, 3);
+}
+NS
+
+run_ok constructor_overloading_by_arity $'7\n7:8\n' <<'NS'
+class Pair {
+public:
+    var first;
+    var second;
+    Pair(value) {
+        this.first = value;
+        this.second = 0;
+    }
+    Pair(left, right) {
+        this.first = left;
+        this.second = right;
+    }
+};
+nix main() {
+    var one = Pair(7);
+    var two = Pair(7, 8);
+    println(one.first);
+    println(two.first, ":", two.second);
+}
+NS
+
+run_ok method_overloading_by_arity $'single:7\ndouble:7:8\n' <<'NS'
+class Display {
+public:
+    fn show(value) {
+        println("single:", value);
+    }
+    fn show(first, second) {
+        println("double:", first, ":", second);
+    }
+};
+nix main() {
+    var display = Display();
+    display.show(7);
+    display.show(7, 8);
+}
+NS
+
+run_ok multiple_inheritance_fields_and_methods $'3\n4\n' <<'NS'
+class Left {
+public:
+    var left = 3;
+    fn leftValue() { return left; }
+};
+class Right {
+public:
+    var right = 4;
+    fn rightValue() { return right; }
+};
+class Both : Left, Right {
+public:
+    fn total() { return leftValue() + rightValue(); }
+};
+nix main() {
+    var both = Both();
+    println(both.leftValue());
+    println(both.rightValue());
+}
+NS
+
+run_error duplicate_base_class "Base class 'Left' is listed more than once" <<'NS'
+class Left {};
+class Both : Left, Left {};
+nix main() {
+    println("unreachable");
+}
+NS
+
+
+run_ok inherited_overload_set_and_implicit_dispatch $'one:7\ntwo:7:8\none:9\n' <<'NS'
+class BaseDisplay {
+public:
+    fn show(value) { println("one:", value); }
+};
+class FancyDisplay : BaseDisplay {
+public:
+    fn show(left, right) { println("two:", left, ":", right); }
+    fn run() { show(9); }
+};
+nix main() {
+    var display = FancyDisplay();
+    display.show(7);
+    display.show(7, 8);
+    display.run();
+}
+NS
+
+run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited method 'run'" <<'NS'
+class LeftRunner {
+public:
+    fn run(value) { println("left"); }
+};
+class RightRunner {
+public:
+    fn run(value) { println("right"); }
+};
+class BothRunners : LeftRunner, RightRunner {};
+nix main() {
+    var runner = BothRunners();
+    runner.run(1);
+}
+NS
+
+run_error abstract_contract_from_second_base "must implement abstract method 'right' with 1 parameter(s)" <<'NS'
+abstract class LeftContract {
+    abstract fn left(value);
+};
+abstract class RightContract {
+    abstract fn right(value);
+};
+class Incomplete : LeftContract, RightContract {
+    fn left(value) { return value; }
+};
+nix main() {
+    var item = Incomplete();
+}
+NS
+
+run_error base_class_requires_explicit_zero_argument_constructor "has no zero-argument constructor for implicit base initialization" <<'NS'
+class NeedsArgument {
+public:
+    NeedsArgument(value) {}
+};
+class Child : NeedsArgument {};
+nix main() {
+    var item = Child();
+}
+NS
+
+run_ok same_named_fields_in_multiple_bases_keep_distinct_storage $'3\n4\n30\n40\n' <<'NS'
+class LeftValue {
+public:
+    var value = 3;
+    fn readLeft() { return this.value; }
+    fn writeLeft(next) { this.value = next; }
+};
+class RightValue {
+public:
+    var value = 4;
+    fn readRight() { return this.value; }
+    fn writeRight(next) { this.value = next; }
+};
+class BothValues : LeftValue, RightValue {};
+nix main() {
+    var both = BothValues();
+    println(both.readLeft());
+    println(both.readRight());
+    both.writeLeft(30);
+    both.writeRight(40);
+    println(both.readLeft());
+    println(both.readRight());
+}
+NS
+
+run_ok diamond_inheritance_destructs_each_shared_ancestor_once $'both\nright\nleft\nroot\n' <<'NS'
+class Root {
+public:
+    ~Root() { println("root"); }
+};
+class Left : Root {
+public:
+    ~Left() { println("left"); }
+};
+class Right : Root {
+public:
+    ~Right() { println("right"); }
+};
+class Both : Left, Right {
+public:
+    ~Both() { println("both"); }
+};
+nix main() {
+    var item = Both();
+}
+NS
+
+run_ok out_of_class_method_overload_definitions $'one:7\ntwo:7:8\n' <<'NS'
+class Display {
+public:
+    fn show(value);
+    fn show(left, right);
+};
+fn Display::show(value) {
+    println("one:", value);
+}
+fn Display::show(left, right) {
+    println("two:", left, ":", right);
+}
+nix main() {
+    var display = Display();
+    display.show(7);
+    display.show(7, 8);
+}
+NS
+
+
+
+echo "=== OOP QC edge cases ==="
+
+run_ok overload_sets_merge_across_two_bases $'left:1\nright:1:2\n' <<'NS'
+class LeftOps {
+public:
+    fn apply(value) { println("left:", value); }
+};
+class RightOps {
+public:
+    fn apply(first, second) { println("right:", first, ":", second); }
+};
+class CombinedOps : LeftOps, RightOps {};
+nix main() {
+    var ops = CombinedOps();
+    ops.apply(1);
+    ops.apply(1, 2);
+}
+NS
+
+run_ok derived_same_arity_method_overrides_base $'derived:5\n' <<'NS'
+class BaseAction {
+public:
+    fn run(value) { println("base:", value); }
+};
+class DerivedAction : BaseAction {
+public:
+    fn run(value) { println("derived:", value); }
+};
+nix main() {
+    var action = DerivedAction();
+    action.run(5);
+}
+NS
+
+run_ok inherited_static_method_uses_declaring_class_storage $'7\n' <<'NS'
+class StaticBase {
+public:
+    static var count = 7;
+    static fn read() { return StaticBase::count; }
+};
+class StaticChild : StaticBase {};
+nix main() {
+    println(StaticChild::read());
+}
+NS
+
+run_error ambiguous_direct_field_from_two_bases "has no member 'value'" <<'NS'
+class LeftField {
+public:
+    var value = 1;
+};
+class RightField {
+public:
+    var value = 2;
+};
+class BothFields : LeftField, RightField {};
+nix main() {
+    var item = BothFields();
+    println(item.value);
+}
+NS
+
+run_ok one_override_satisfies_shared_abstract_contract $'ready\n' <<'NS'
+abstract class RootContract {
+    abstract fn ready();
+};
+abstract class LeftContract : RootContract {};
+abstract class RightContract : RootContract {};
+class ReadyObject : LeftContract, RightContract {
+    fn ready() { println("ready"); }
+};
+nix main() {
+    var item = ReadyObject();
+    item.ready();
+}
+NS
+
+run_ok diamond_base_constructors_run_once_in_order $'root\nleft\nright\nboth\n' <<'NS'
+class CtorRoot {
+public:
+    CtorRoot() { println("root"); }
+};
+class CtorLeft : CtorRoot {
+public:
+    CtorLeft() { println("left"); }
+};
+class CtorRight : CtorRoot {
+public:
+    CtorRight() { println("right"); }
+};
+class CtorBoth : CtorLeft, CtorRight {
+public:
+    CtorBoth() { println("both"); }
+};
+nix main() {
+    var item = CtorBoth();
+}
+NS
+
+
+
+echo "=== Deep OOP QC: construction order, access, and lifetime ==="
+
+run_ok base_and_derived_field_initialization_interleave_with_constructors $'base field\nbase constructor\nderived field\nderived constructor\n' <<'NS'
+fn mark(message) {
+    println(message);
+    return 1;
+}
+class BaseOrder {
+public:
+    int baseValue = mark("base field");
+    BaseOrder() {
+        println("base constructor");
+    }
+};
+class DerivedOrder : BaseOrder {
+public:
+    int derivedValue = mark("derived field");
+    DerivedOrder() {
+        println("derived constructor");
+    }
+};
+nix main() {
+    var object = DerivedOrder();
+}
+NS
+
+run_error derived_method_cannot_access_private_base_field "not accessible here" <<'NS'
+class PrivateBaseField {
+private:
+    int secret = 7;
+};
+class PrivateDerivedField : PrivateBaseField {
+public:
+    int leak() {
+        return this.secret;
+    }
+};
+nix main() {
+    var object = PrivateDerivedField();
+    println(object.leak());
+}
+NS
+
+run_error derived_method_cannot_access_private_base_method "not accessible here" <<'NS'
+class PrivateBaseMethod {
+private:
+    int secret() {
+        return 7;
+    }
+};
+class PrivateDerivedMethod : PrivateBaseMethod {
+public:
+    int leak() {
+        return this.secret();
+    }
+};
+nix main() {
+    var object = PrivateDerivedMethod();
+    println(object.leak());
+}
+NS
+
+run_ok private_base_member_remains_accessible_to_base_method $'7\n' <<'NS'
+class PrivateBaseSafe {
+private:
+    int secret = 7;
+    int readSecret() {
+        return secret;
+    }
+public:
+    int read() {
+        return readSecret();
+    }
+};
+class DerivedSafe : PrivateBaseSafe {
+public:
+    int value() {
+        return this.read();
+    }
+};
+nix main() {
+    var object = DerivedSafe();
+    println(object.value());
+}
+NS
+
+run_ok destructor_chain_destroys_shared_diamond_ancestor_once $'diamond destroyed\nright destroyed\nleft destroyed\nroot destroyed\n' <<'NS'
+class RootLife {
+public:
+    ~RootLife() {
+        println("root destroyed");
+    }
+};
+class LeftLife : RootLife {
+public:
+    ~LeftLife() {
+        println("left destroyed");
+    }
+};
+class RightLife : RootLife {
+public:
+    ~RightLife() {
+        println("right destroyed");
+    }
+};
+class DiamondLife : LeftLife, RightLife {
+public:
+    ~DiamondLife() {
+        println("diamond destroyed");
+    }
+};
+nix main() {
+    var object = DiamondLife();
+}
+NS
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1
 fi
+echo "PASS: $passed language regressions."

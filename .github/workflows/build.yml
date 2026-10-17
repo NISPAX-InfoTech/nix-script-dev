@@ -256,7 +256,7 @@ jobs:
             echo "A mismatched function declaration unexpectedly succeeded" >&2
             exit 1
           fi
-          grep -q "declared with 2 parameter(s).*declaration has 3" mismatched-function.log
+          grep -q "declared but has no definition" mismatched-function.log
 
           cat > duplicate-function.ns <<'EOF'
           fn duplicate(value) {
@@ -311,6 +311,10 @@ jobs:
       - name: Stress malformed source parsing
         shell: bash
         run: python3 tests/parser_stress.py ./build/nix
+
+      - name: Run 1,200-case hardcore regression suite
+        shell: bash
+        run: python3 tests/hardcore_stress.py ./build/nix
 
       - name: Test installer against the live public official registry
         shell: bash
@@ -381,3 +385,9 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: python3 tests/parser_stress.py ./build-sanitized/nix
+
+      - name: Run 1,200-case hardcore suite under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: python3 tests/hardcore_stress.py ./build-sanitized/nix
