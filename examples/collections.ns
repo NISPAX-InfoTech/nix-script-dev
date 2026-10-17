@@ -1,0 +1,20 @@
+fn triple(int value) {
+    return value * 3;
+}
+
+fn apply(function callback, int value) {
+    return callback(value);
+}
+
+nix main() {
+    var scores = [10, 20, 30];
+    scores[1] = 25;
+    scores.push(40);
+    scores.append(50);
+
+    println(scores);          // [10, 25, 30, 40, 50]
+    println(scores.length);   // 5
+    println(len(scores));     // 5
+    println(scores.pop());    // 50
+    println(apply(triple, scores[0])); // 30
+}

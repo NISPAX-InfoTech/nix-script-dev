@@ -1,0 +1,25 @@
+fn doubleValue(int value) {
+    return value * 2;
+}
+
+fn apply(function callback, int value) {
+    return callback(value);
+}
+
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello, " + name + "!";
+    }
+};
+
+nix main() {
+    var operation = doubleValue;
+    println(operation(6));                 // 12
+    println(apply(operation, 7));           // 14
+    println(apply(abs, -9));                // 9
+
+    var greeter = Greeter();
+    var greet = greeter.greet;
+    println(greet("NixScript"));            // Hello, NixScript!
+}

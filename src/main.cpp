@@ -23,7 +23,7 @@ namespace nix {
 
 enum class TokenKind {
     Identifier, Number, String,
-    LeftParen, RightParen, LeftBrace, RightBrace,
+    LeftParen, RightParen, LeftBrace, RightBrace, LeftBracket, RightBracket,
     Semicolon, Comma, Colon, Dot, Scope,
     Equal, EqualEqual, Bang, BangEqual, Less, LessEqual, Greater, GreaterEqual,
     Plus, PlusPlus, Minus, MinusMinus, Star, Slash, Tilde,
@@ -52,6 +52,8 @@ public:
                 case ')': tokens.push_back({TokenKind::RightParen, ")", tokenLine}); break;
                 case '{': tokens.push_back({TokenKind::LeftBrace, "{", tokenLine}); break;
                 case '}': tokens.push_back({TokenKind::RightBrace, "}", tokenLine}); break;
+                case '[': tokens.push_back({TokenKind::LeftBracket, "[", tokenLine}); break;
+                case ']': tokens.push_back({TokenKind::RightBracket, "]", tokenLine}); break;
                 case ';': tokens.push_back({TokenKind::Semicolon, ";", tokenLine}); break;
                 case ',': tokens.push_back({TokenKind::Comma, ",", tokenLine}); break;
                 case ':':
@@ -176,12 +178,18 @@ struct Stmt;
 
 // Keep an uninitialized binding distinct from the language's valid null value.
 struct UninitializedValue {};
+struct ArrayValue;
+struct FunctionValue;
 using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
-                           std::shared_ptr<BoundMethod>>;
+                           std::shared_ptr<BoundMethod>, std::shared_ptr<ArrayValue>,
+                           std::shared_ptr<FunctionValue>>;
+
+struct ArrayValue { std::vector<Value> elements; };
+struct FunctionValue { std::string name; };
 
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, List };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, Index, List };
     Kind kind = Kind::Literal;
     Value value{};
     std::string name;
@@ -369,7 +377,8 @@ private:
     bool isTypeName(const std::string& name) const {
         return name == "var" || name == "void" || name == "int" || name == "float" ||
                name == "double" || name == "number" || name == "string" || name == "bool" ||
-               name == "char" || name == "long" || name == "short";
+               name == "char" || name == "long" || name == "short" || name == "array" ||
+               name == "list" || name == "function" || name == "callable";
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
@@ -788,18 +797,22 @@ private:
         return stmt;
     }
 
-    std::unique_ptr<Expr> cloneSimpleTarget(const Expr& source) {
+    std::unique_ptr<Expr> cloneExpression(const Expr& source) {
         auto copy = std::make_unique<Expr>();
-        copy->kind = source.kind;
-        copy->name = source.name;
-        copy->line = source.line;
-        copy->op = source.op;
-        if (source.kind == Expr::Kind::Variable) return copy;
-        if ((source.kind == Expr::Kind::Member || source.kind == Expr::Kind::StaticMember) && source.left) {
-            copy->left = cloneSimpleTarget(*source.left);
-            return copy;
-        }
-        fail(Token{TokenKind::End, "", source.line}, "++/-- currently requires a variable or member target.");
+        copy->kind = source.kind; copy->value = source.value; copy->name = source.name;
+        copy->line = source.line; copy->op = source.op;
+        if (source.left) copy->left = cloneExpression(*source.left);
+        if (source.right) copy->right = cloneExpression(*source.right);
+        for (const auto& item : source.items) copy->items.push_back(cloneExpression(*item));
+        return copy;
+    }
+
+    std::unique_ptr<Expr> cloneSimpleTarget(const Expr& source) {
+        if (source.kind == Expr::Kind::Variable || source.kind == Expr::Kind::Member ||
+            source.kind == Expr::Kind::StaticMember || source.kind == Expr::Kind::Index)
+            return cloneExpression(source);
+        fail(Token{TokenKind::End, "", source.line},
+             "++/-- currently requires a variable, member, or array-element target.");
     }
 
     Stmt ifStatementAfterKeyword(int line) {
@@ -999,6 +1012,15 @@ private:
                 }
                 consume(TokenKind::RightParen, "Expected ')' after arguments.");
                 expr = std::move(call);
+            } else if (match(TokenKind::LeftBracket)) {
+                const int line = previous().line;
+                auto index = std::make_unique<Expr>();
+                index->kind = Expr::Kind::Index;
+                index->left = std::move(expr);
+                index->right = expression();
+                index->line = line;
+                consume(TokenKind::RightBracket, "Expected ']' after array index.");
+                expr = std::move(index);
             } else break;
         }
         return expr;
@@ -1024,6 +1046,16 @@ private:
         if (match(TokenKind::LeftParen)) {
             auto expr = expression(); consume(TokenKind::RightParen, "Expected ')' after expression."); return expr;
         }
+        if (match(TokenKind::LeftBracket)) {
+            auto expr = std::make_unique<Expr>();
+            expr->kind = Expr::Kind::ArrayLiteral;
+            expr->line = token.line;
+            if (!check(TokenKind::RightBracket)) {
+                do { expr->items.push_back(expression()); } while (match(TokenKind::Comma));
+            }
+            consume(TokenKind::RightBracket, "Expected ']' after array elements.");
+            return expr;
+        }
         if (match(TokenKind::Identifier)) {
             auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Variable;
             expr->name = token.text; expr->line = token.line; return expr;
@@ -1037,6 +1069,19 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
+    ~Interpreter() { breakArrayReferenceCycles(); }
+
+    std::shared_ptr<ArrayValue> makeArray() const {
+        auto array = std::make_shared<ArrayValue>();
+        arrays_.push_back(array);
+        return array;
+    }
+
+    void breakArrayReferenceCycles() {
+        for (const auto& weak : arrays_)
+            if (auto array = weak.lock()) array->elements.clear();
+        arrays_.clear();
+    }
 
     void run(const std::vector<Stmt>& statements) {
         functions_.clear();
@@ -1066,6 +1111,7 @@ public:
 
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes_;
+    mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
     std::unordered_map<std::string, std::shared_ptr<ClassDef>> classes_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
@@ -1118,6 +1164,11 @@ private:
             const int distance = inheritanceDistance((*instance)->klass, expected);
             return distance < 0 ? -1 : 60 - distance;
         }
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
+            return expected == "array" || expected == "list" ? (*array ? 45 : -1) : -1;
+        if (std::holds_alternative<std::shared_ptr<FunctionValue>>(value) ||
+            std::holds_alternative<std::shared_ptr<BoundMethod>>(value))
+            return expected == "function" || expected == "callable" ? 45 : -1;
         return -1;
     }
 
@@ -1133,7 +1184,10 @@ private:
             else if (const auto* object = std::get_if<std::shared_ptr<Instance>>(&arg))
                 result += (*object) ? (*object)->klass->name : "null object";
             else if (std::holds_alternative<std::shared_ptr<ClassDef>>(arg)) result += "class";
-            else result += "callable";
+            else if (std::holds_alternative<std::shared_ptr<ArrayValue>>(arg)) result += "array";
+            else if (std::holds_alternative<std::shared_ptr<FunctionValue>>(arg) ||
+                     std::holds_alternative<std::shared_ptr<BoundMethod>>(arg)) result += "function";
+            else result += "value";
         }
         result += ')';
         return result;
@@ -1185,7 +1239,9 @@ private:
                                "' for argument types " + describeArgumentTypes(args) + ".");
         return best.front();
     }
-    static std::string stringify(const Value& value) {
+    static std::string stringifyValue(const Value& value,
+                                      std::unordered_set<const ArrayValue*>& arraysOnStack,
+                                      std::size_t depth) {
         if (std::holds_alternative<std::monostate>(value)) return "null";
         if (const auto* number = std::get_if<double>(&value)) {
             std::ostringstream out;
@@ -1198,15 +1254,44 @@ private:
         if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value))
             return (*instance)->klass->name + " object";
         if (const auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&value)) return (*klass)->name;
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array) return "[]";
+            if (depth > 32 || arraysOnStack.count(array->get())) return "[...]";
+            arraysOnStack.insert(array->get());
+            std::string result = "[";
+            for (std::size_t i = 0; i < (*array)->elements.size(); ++i) {
+                if (i) result += ", ";
+                result += stringifyValue((*array)->elements[i], arraysOnStack, depth + 1);
+            }
+            arraysOnStack.erase(array->get());
+            return result + "]";
+        }
+        if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&value))
+            return *function ? "<function " + (*function)->name + ">" : "<function>";
         return "<method>";
+    }
+    static std::string stringify(const Value& value) {
+        std::unordered_set<const ArrayValue*> arraysOnStack;
+        return stringifyValue(value, arraysOnStack, 0);
     }
     static bool truthy(const Value& value) {
         if (std::holds_alternative<std::monostate>(value)) return false;
         if (const auto* b = std::get_if<bool>(&value)) return *b;
         if (const auto* n = std::get_if<double>(&value)) return *n != 0.0 && !std::isnan(*n);
         if (const auto* s = std::get_if<std::string>(&value)) return !s->empty();
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value))
+            return *array && !(*array)->elements.empty();
         return true;
     }
+    bool isBuiltinFunctionValue(const std::string& name) const {
+        static const std::vector<std::string> names = {
+            "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
+            "isUpper", "isLower", "isSpace", "toUpper", "toLower",
+            "len", "push", "append", "pop"
+        };
+        return std::find(names.begin(), names.end(), name) != names.end();
+    }
+
     Value lookup(const std::string& name, int line) {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
@@ -1234,6 +1319,11 @@ private:
                     }
                 }
             }
+        }
+        if (functions_.count(name) || functionDeclarations_.count(name) || isBuiltinFunctionValue(name)) {
+            auto function = std::make_shared<FunctionValue>();
+            function->name = name;
+            return function;
         }
         runtimeError(line, "Unknown variable '" + name + "'.");
     }
@@ -1302,6 +1392,18 @@ private:
                 return expr.value;
             case Expr::Kind::Variable: return lookup(expr.name, expr.line);
             case Expr::Kind::List: runtimeError(expr.line, "A list of values can only be used by print().");
+            case Expr::Kind::ArrayLiteral: {
+                auto array = makeArray();
+                for (const auto& item : expr.items) array->elements.push_back(evaluate(*item));
+                return array;
+            }
+            case Expr::Kind::Index: {
+                Value arrayValue = evaluate(*expr.left);
+                auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
+                if (!array || !*array) runtimeError(expr.line, "Indexing requires an array value.");
+                const std::size_t index = checkedArrayIndex(evaluate(*expr.right), *array, expr.line);
+                return (*array)->elements[index];
+            }
             case Expr::Kind::Unary: {
                 Value value = evaluate(*expr.right);
                 if (expr.op == TokenKind::Minus) {
@@ -1312,6 +1414,11 @@ private:
             }
             case Expr::Kind::Member: {
                 Value objectValue = evaluate(*expr.left);
+                if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&objectValue)) {
+                    if (!*array) runtimeError(expr.line, "Invalid array value.");
+                    if (expr.name == "length") return static_cast<double>((*array)->elements.size());
+                    runtimeError(expr.line, "Array has no member '" + expr.name + "'.");
+                }
                 auto* object = std::get_if<std::shared_ptr<Instance>>(&objectValue);
                 if (!object || !*object) runtimeError(expr.line, "Member access requires an object.");
                 return getMember(*object, expr.name, expr.line);
@@ -1507,6 +1614,14 @@ private:
     }
     void setTarget(const Expr& target, Value value, int line) {
         if (target.kind == Expr::Kind::Variable) { assignName(target.name, std::move(value), line); return; }
+        if (target.kind == Expr::Kind::Index) {
+            Value arrayValue = evaluate(*target.left);
+            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&arrayValue);
+            if (!array || !*array) runtimeError(line, "Indexed assignment requires an array value.");
+            const std::size_t index = checkedArrayIndex(evaluate(*target.right), *array, line);
+            (*array)->elements[index] = std::move(value);
+            return;
+        }
         if (target.kind == Expr::Kind::Member) {
             Value baseValue = evaluate(*target.left);
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&baseValue);
@@ -1537,10 +1652,24 @@ private:
         }
         runtimeError(line, "Invalid assignment target.");
     }
+    std::size_t checkedArrayIndex(const Value& indexValue,
+                                  const std::shared_ptr<ArrayValue>& array,
+                                  int line) const {
+        if (!isNumber(indexValue))
+            runtimeError(line, "Array index must be a non-negative whole number.");
+        const double number = std::get<double>(indexValue);
+        if (!std::isfinite(number) || number < 0 || std::floor(number) != number)
+            runtimeError(line, "Array index must be a non-negative whole number.");
+        if (!array || number >= static_cast<double>(array->elements.size()))
+            runtimeError(line, "Array index is out of range.");
+        return static_cast<std::size_t>(number);
+    }
+
     Value defaultValue(const std::string& type) const {
         if (type == "int" || type == "float" || type == "double" || type == "number" || type == "long" || type == "short") return 0.0;
         if (type == "string" || type == "char") return std::string{};
         if (type == "bool") return false;
+        if (type == "array" || type == "list") return makeArray();
         return std::monostate{};
     }
     void initializeOwnFields(const std::shared_ptr<Instance>& instance, const std::shared_ptr<ClassDef>& klass) {
@@ -1737,21 +1866,33 @@ private:
         return instance;
     }
     
+    bool valueGraphContainsInstance(
+        const Value& value,
+        const std::shared_ptr<Instance>& target,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value))
+            return instanceGraphContains(*instance, target, visitedInstances, visitedArrays);
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value))
+            return *method && instanceGraphContains((*method)->instance, target, visitedInstances, visitedArrays);
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return false;
+            for (const auto& element : (*array)->elements)
+                if (valueGraphContainsInstance(element, target, visitedInstances, visitedArrays)) return true;
+        }
+        return false;
+    }
+
     bool instanceGraphContains(
         const std::shared_ptr<Instance>& root,
         const std::shared_ptr<Instance>& target,
-        std::unordered_set<const Instance*>& visited) const {
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
         if (!root || !target) return false;
         if (root == target) return true;
-        if (!visited.insert(root.get()).second) return false;
-
-        for (const auto& field : root->fields) {
-            if (const auto* child = std::get_if<std::shared_ptr<Instance>>(&field.second)) {
-                if (instanceGraphContains(*child, target, visited)) return true;
-            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&field.second)) {
-                if (*method && instanceGraphContains((*method)->instance, target, visited)) return true;
-            }
-        }
+        if (!visitedInstances.insert(root.get()).second) return false;
+        for (const auto& field : root->fields)
+            if (valueGraphContainsInstance(field.second, target, visitedInstances, visitedArrays)) return true;
         return false;
     }
 
@@ -1759,15 +1900,59 @@ private:
         for (std::size_t i = 0; i < scopes_.size(); ++i) {
             if (i == poppedIndex) continue;
             for (const auto& pair : scopes_[i]) {
-                std::unordered_set<const Instance*> visited;
-                if (const auto* candidate = std::get_if<std::shared_ptr<Instance>>(&pair.second)) {
-                    if (instanceGraphContains(*candidate, instance, visited)) return true;
-                } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&pair.second)) {
-                    if (*method && instanceGraphContains((*method)->instance, instance, visited)) return true;
-                }
+                std::unordered_set<const Instance*> visitedInstances;
+                std::unordered_set<const ArrayValue*> visitedArrays;
+                if (valueGraphContainsInstance(pair.second, instance, visitedInstances, visitedArrays)) return true;
             }
         }
         return false;
+    }
+
+    void collectInstancesFromValue(
+        const Value& value,
+        std::vector<std::shared_ptr<Instance>>& instances,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) const {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
+            if (*instance && visitedInstances.insert(instance->get()).second) instances.push_back(*instance);
+            return;
+        }
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value)) {
+            if (*method && (*method)->instance &&
+                visitedInstances.insert((*method)->instance.get()).second)
+                instances.push_back((*method)->instance);
+            return;
+        }
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return;
+            for (const auto& element : (*array)->elements)
+                collectInstancesFromValue(element, instances, visitedInstances, visitedArrays);
+        }
+    }
+
+    void destroyContainedInstances(
+        const Value& value,
+        const std::shared_ptr<Instance>& owner,
+        std::size_t poppedIndex,
+        std::unordered_set<const Instance*>& visitedInstances,
+        std::unordered_set<const ArrayValue*>& visitedArrays) {
+        if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&value)) {
+            if (!*instance || *instance == owner || !visitedInstances.insert(instance->get()).second) return;
+            if (!referencedOutsideScope(*instance, poppedIndex)) destroyInstance(*instance, poppedIndex);
+            return;
+        }
+        if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(&value)) {
+            if (!*method || !(*method)->instance || (*method)->instance == owner ||
+                !visitedInstances.insert((*method)->instance.get()).second) return;
+            if (!referencedOutsideScope((*method)->instance, poppedIndex))
+                destroyInstance((*method)->instance, poppedIndex);
+            return;
+        }
+        if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&value)) {
+            if (!*array || !visitedArrays.insert(array->get()).second) return;
+            for (const auto& element : (*array)->elements)
+                destroyContainedInstances(element, owner, poppedIndex, visitedInstances, visitedArrays);
+        }
     }
 
     void destroyClassPart(const std::shared_ptr<Instance>& instance,
@@ -1798,10 +1983,9 @@ private:
             if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
             const auto value = instance->fields.find(fieldStorageKey(*member));
             if (value == instance->fields.end()) continue;
-            const auto* child = std::get_if<std::shared_ptr<Instance>>(&value->second);
-            if (!child || !*child || *child == instance) continue;
-            if (!referencedOutsideScope(*child, poppedIndex))
-                destroyInstance(*child, poppedIndex);
+            std::unordered_set<const Instance*> visitedInstances;
+            std::unordered_set<const ArrayValue*> visitedArrays;
+            destroyContainedInstances(value->second, instance, poppedIndex, visitedInstances, visitedArrays);
         }
 
     }
@@ -1829,25 +2013,30 @@ private:
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
-        std::shared_ptr<Instance> preservedInstance;
+        std::vector<std::shared_ptr<Instance>> preservedInstances;
         if (preservedValue) {
-            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(preservedValue)) {
-                preservedInstance = *instance;
-            } else if (const auto* method = std::get_if<std::shared_ptr<BoundMethod>>(preservedValue)) {
-                if (*method) preservedInstance = (*method)->instance;
-            }
+            std::unordered_set<const Instance*> seenInstances;
+            std::unordered_set<const ArrayValue*> seenArrays;
+            collectInstancesFromValue(*preservedValue, preservedInstances, seenInstances, seenArrays);
         }
 
         const std::size_t index = scopes_.size() - 1;
         std::vector<std::shared_ptr<Instance>> instances;
+        std::unordered_set<const Instance*> seenInstances;
+        std::unordered_set<const ArrayValue*> seenArrays;
         for (const auto& pair : scopes_[index]) {
             if (pair.first == "this") continue;
-            if (const auto* instance = std::get_if<std::shared_ptr<Instance>>(&pair.second))
-                if (*instance && std::find(instances.begin(), instances.end(), *instance) == instances.end()) instances.push_back(*instance);
+            collectInstancesFromValue(pair.second, instances, seenInstances, seenArrays);
         }
         scopes_.pop_back();
-        if (runDestructors) for (const auto& instance : instances)
-            if (instance != preservedInstance && !referencedOutsideScope(instance, index)) destroyInstance(instance, index);
+        if (runDestructors) {
+            for (const auto& instance : instances) {
+                if (!instance ||
+                    std::find(preservedInstances.begin(), preservedInstances.end(), instance) != preservedInstances.end())
+                    continue;
+                if (!referencedOutsideScope(instance, index)) destroyInstance(instance, index);
+            }
+        }
     }
     void executeBlock(const std::vector<Stmt>& body) {
         scopes_.emplace_back();
@@ -1996,14 +2185,74 @@ private:
         return callMethod(bound, args, line);
     }
 
+    Value invokeFunctionGroup(const std::string& name, const std::vector<Value>& args, int line) {
+        auto definitions = functions_.find(name);
+        auto declarations = functionDeclarations_.find(name);
+        if (definitions == functions_.end() && declarations == functionDeclarations_.end())
+            runtimeError(line, "Unknown function '" + name + "'.");
+        std::vector<const Stmt*> candidates;
+        std::unordered_set<std::string> seen;
+        if (definitions != functions_.end()) {
+            for (const Stmt* function : definitions->second) {
+                seen.insert(overloadSignatureKey(function->name, function->parameterTypes));
+                candidates.push_back(function);
+            }
+        }
+        if (declarations != functionDeclarations_.end()) {
+            for (const Stmt* function : declarations->second) {
+                if (seen.insert(overloadSignatureKey(function->name, function->parameterTypes)).second)
+                    candidates.push_back(function);
+            }
+        }
+        const Stmt* selected = selectOverload(candidates, args, name, "function", line);
+        if (!selected->functionDefined)
+            runtimeError(line, "Function overload '" + overloadSignatureKey(name, selected->parameterTypes) +
+                               "' is declared but has no definition.");
+        return callFunction(*selected, args, line);
+    }
+
+    Value invokeCallable(const Value& callee, const std::vector<Value>& args, int line) {
+        if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&callee)) {
+            if (!*function) runtimeError(line, "Invalid function value.");
+            if (isBuiltinFunctionValue((*function)->name))
+                return builtin((*function)->name, args, line);
+            return invokeFunctionGroup((*function)->name, args, line);
+        }
+        if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&callee)) {
+            if (!*bound) runtimeError(line, "Invalid method.");
+            if ((*bound)->member->isConstructor || (*bound)->member->isDestructor)
+                runtimeError(line, "Constructors and destructors cannot be called like ordinary methods.");
+            return callMethod(*bound, args, line);
+        }
+        runtimeError(line, "This expression is not callable.");
+    }
+
     Value evaluateCall(const Expr& expr) {
         if (expr.left && expr.left->kind == Expr::Kind::Member) {
             Value receiver = evaluate(*expr.left->left);
+            std::vector<Value> args;
+            for (const auto& item : expr.items) args.push_back(evaluate(*item));
+            if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&receiver)) {
+                if (!*array) runtimeError(expr.line, "Invalid array value.");
+                if (expr.left->name == "push" || expr.left->name == "append") {
+                    if (args.size() != 1)
+                        runtimeError(expr.line, "Array." + expr.left->name + "() expects 1 argument.");
+                    (*array)->elements.push_back(args[0]);
+                    if (expr.left->name == "push") return static_cast<double>((*array)->elements.size());
+                    return std::monostate{};
+                }
+                if (expr.left->name == "pop") {
+                    if (!args.empty()) runtimeError(expr.line, "Array.pop() expects no arguments.");
+                    if ((*array)->elements.empty()) runtimeError(expr.line, "Cannot pop from an empty array.");
+                    Value value = std::move((*array)->elements.back());
+                    (*array)->elements.pop_back();
+                    return value;
+                }
+                runtimeError(expr.line, "Array has no method '" + expr.left->name + "'.");
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&receiver);
             if (!instance || !*instance)
                 runtimeError(expr.line, "Method call requires an object.");
-            std::vector<Value> args;
-            for (const auto& item : expr.items) args.push_back(evaluate(*item));
             return invokeMethod(*instance, expr.left->name, args, expr.line, false);
         }
         if (expr.left && expr.left->kind == Expr::Kind::StaticMember) {
@@ -2016,6 +2265,12 @@ private:
         }
         if (expr.left && expr.left->kind == Expr::Kind::Variable) {
             const std::string name = expr.left->name;
+            if (exists(name)) {
+                Value callee = lookup(name, expr.line);
+                std::vector<Value> args;
+                for (const auto& item : expr.items) args.push_back(evaluate(*item));
+                return invokeCallable(callee, args, expr.line);
+            }
             auto classIt = classes_.find(name);
             if (classIt != classes_.end()) {
                 std::vector<Value> args;
@@ -2051,7 +2306,8 @@ private:
             }
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
-                "isUpper", "isLower", "isSpace", "toUpper", "toLower"
+                "isUpper", "isLower", "isSpace", "toUpper", "toLower",
+                "len", "push", "append", "pop"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2098,13 +2354,7 @@ private:
         Value callee = evaluate(*expr.left);
         std::vector<Value> args;
         for (const auto& item : expr.items) args.push_back(evaluate(*item));
-        if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&callee)) {
-            if (!*bound) runtimeError(expr.line, "Invalid method.");
-            if ((*bound)->member->isConstructor || (*bound)->member->isDestructor)
-                runtimeError(expr.line, "Constructors and destructors cannot be called like ordinary methods.");
-            return callMethod(*bound, args, expr.line);
-        }
-        runtimeError(expr.line, "This expression is not callable.");
+        return invokeCallable(callee, args, expr.line);
     }
 
     Value builtin(const std::string& name, const std::vector<Value>& args, int line) {
@@ -2120,6 +2370,31 @@ private:
                 runtimeError(line, name + "() expects a string argument.");
             return std::get<std::string>(args[index]);
         };
+        if (name == "len") {
+            need(1);
+            if (const auto* textValue = std::get_if<std::string>(&args[0]))
+                return static_cast<double>(textValue->size());
+            if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]))
+                return *array ? static_cast<double>((*array)->elements.size()) : 0.0;
+            runtimeError(line, "len() expects a string or array.");
+        }
+        if (name == "push" || name == "append") {
+            need(2);
+            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
+            if (!array || !*array) runtimeError(line, name + "() expects an array as its first argument.");
+            (*array)->elements.push_back(args[1]);
+            if (name == "push") return static_cast<double>((*array)->elements.size());
+            return std::monostate{};
+        }
+        if (name == "pop") {
+            need(1);
+            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
+            if (!array || !*array) runtimeError(line, "pop() expects an array.");
+            if ((*array)->elements.empty()) runtimeError(line, "Cannot pop from an empty array.");
+            Value result = std::move((*array)->elements.back());
+            (*array)->elements.pop_back();
+            return result;
+        }
         if (name == "sqrt") { need(1); if (number(0) < 0) runtimeError(line, "sqrt() requires a non-negative number."); return std::sqrt(number(0)); }
         if (name == "sq") { need(1); const double n = number(0); return n * n; }
         if (name == "pow") { need(2); return std::pow(number(0), number(1)); }

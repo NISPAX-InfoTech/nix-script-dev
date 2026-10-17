@@ -2264,6 +2264,186 @@ nix main() {
 }
 NS
 
+
+echo "=== Core collections and callable values ==="
+
+run_ok mutable_arrays_and_safe_indexing $'[1, 8, 3, 4, 5]\n77\n5\n' <<'NS'
+nix main() {
+    var values = [1, 2, 3];
+    var alias = values;
+    alias[1] = 8;
+    values.push(4);
+    values.append(5);
+    println(values);
+    alias[0] = 77;
+    println(values[0]);
+    println(values.length);
+}
+NS
+
+run_ok nested_array_literals_and_iteration $'2\n5\n[1, [2, 3], null]\n' <<'NS'
+nix main() {
+    var values = [1, [2, 3], null];
+    println(values[1][0]);
+    println(values[1][1] + 2);
+    println(values);
+}
+NS
+
+run_ok array_pop_and_builtin_length $'3\n4\n4\n3\n3\n' <<'NS'
+nix main() {
+    var values = [1, 2, 3];
+    println(len(values));
+    println(values.push(4));
+    println(values.pop());
+    println(pop(values));
+    println(len("abc"));
+}
+NS
+
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
+}
+NS
+
+run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[1]);
+}
+NS
+
+run_error array_fractional_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[0.5]);
+}
+NS
+
+run_error array_negative_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[-1]);
+}
+NS
+
+run_error index_non_array_value "Indexing requires an array value" <<'NS'
+nix main() {
+    var value = "hello";
+    println(value[0]);
+}
+NS
+
+run_error array_pop_empty "Cannot pop from an empty array" <<'NS'
+nix main() {
+    var values = [];
+    values.pop();
+}
+NS
+
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
+fn increment(int value) {
+    return value + 1;
+}
+fn doubleIt(int value) {
+    return value * 2;
+}
+fn apply(function callback, int value) {
+    return callback(value);
+}
+fn applyAgain(function callback, int value) {
+    return apply(callback, value);
+}
+nix main() {
+    var callback = increment;
+    println(callback(3));
+    println(apply(doubleIt, 5));
+    println(apply(callback, 9));
+    println(applyAgain(doubleIt, 6));
+    println(apply(abs, -3));
+}
+NS
+
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello " + name;
+    }
+};
+fn apply(function callback, string value) {
+    return callback(value);
+}
+nix main() {
+    var greeter = Greeter();
+    var callback = greeter.greet;
+    println(apply(callback, "Alex"));
+}
+NS
+
+run_ok callable_value_in_array $'6\n' <<'NS'
+fn increment(int value) { return value + 1; }
+fn doubleIt(int value) { return value * 2; }
+nix main() {
+    var callbacks = [increment, doubleIt];
+    println(callbacks[1](3));
+}
+NS
+
+run_error non_callable_variable "This expression is not callable" <<'NS'
+nix main() {
+    var value = 12;
+    value();
+}
+NS
+
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].length);
+}
+NS
+
 if [ "$failed" -ne 0 ]; then
     echo "FAILED: $failed language regression(s); $passed passed." >&2
     exit 1

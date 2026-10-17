@@ -101,7 +101,17 @@ nix main() {
 }
 ```
 
-Top-level functions support definitions, prototypes, and overloads. A function may be defined before `nix main()` without a separate prototype; a definition after `main` can use a matching `fn Name(parameters);` prototype before `main`. The `fn` keyword is required on ordinary function declarations and definitions. Overloads may differ by argument count or typed parameters, for example `fn show(string value)` and `fn show(int value)`. Untyped parameters are generic fallbacks. Dispatch chooses the most specific compatible signature and reports clear no-match or ambiguity errors rather than selecting arbitrarily. Prototypes and definitions must agree on their full parameter-type signature, though parameter names may differ. Unused prototypes do not require a definition; calling an unresolved declared overload is an error. Functions support local scope, recursion, and `return`; a function that reaches its end without returning produces `null`. Function values and callback passing are not implemented yet, and `return` outside a function or class method raises an error.
+Top-level functions support definitions, prototypes, and overloads. A function may be defined before `nix main()` without a separate prototype; a definition after `main` can use a matching `fn Name(parameters);` prototype before `main`. The `fn` keyword is required on ordinary function declarations and definitions. Overloads may differ by argument count or typed parameters, for example `fn show(string value)` and `fn show(int value)`. Untyped parameters are generic fallbacks. Dispatch chooses the most specific compatible signature and reports clear no-match or ambiguity errors rather than selecting arbitrarily. Prototypes and definitions must agree on their full parameter-type signature, though parameter names may differ. Unused prototypes do not require a definition; calling an unresolved declared overload is an error. Functions support local scope, recursion, and `return`; a function that reaches its end without returning produces `null`. Function names can be stored in variables, returned, placed in arrays, and passed as callbacks. A call selects the best compatible overload when the value refers to an overloaded function group. Bound instance methods can also be passed as callbacks. Anonymous functions/lambdas and closures are not implemented yet; `return` outside a function or class method raises an error.
+
+```ns
+fn doubleIt(int value) { return value * 2; }
+fn apply(function callback, int value) { return callback(value); }
+
+nix main() {
+    var operation = doubleIt;
+    println(apply(operation, 6)); // 12
+}
+```
 
 ## Classes and objects
 
@@ -228,16 +238,22 @@ for (var i = 0; i < 10; i = i + 1) {
 }
 ```
 
-## Arrays
+## Arrays and lists
 
-Fixed-size arrays are wanted for predictable storage.
+Array literals create mutable dynamic lists. Arrays can contain mixed values or nested arrays, and assigning an array to another variable shares the same mutable array.
 
 ```ns
-var numbers: int[10];
-
-numbers[0] = 42;
-numbers[1] = 99;
+var numbers = [10, 20, 30];
+numbers[1] = 42;
+numbers.push(40);   // returns the new length
+numbers.append(50); // returns null
+println(numbers[1]);
+println(numbers.length);
+println(len(numbers));
+println(numbers.pop());
 ```
+
+Indexes must be non-negative whole numbers and must be in range; invalid indexes produce a line-numbered runtime error. `push`/`append` add one element, while `pop` removes and returns the final element. The equivalent built-ins are `push(array, value)`, `append(array, value)`, and `pop(array)`. Strings also support `len(string)`. Fixed-size typed declarations such as `int values[10]` are not implemented yet.
 
 ## Multi-paradigm direction
 
