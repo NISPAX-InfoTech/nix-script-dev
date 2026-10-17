@@ -1080,7 +1080,7 @@ nix main() {
 }
 NS
 
-run_error method_call_on_field "This expression is not callable" <<'NS'
+run_error method_call_on_field "No overload of method 'value' accepts 0 argument(s)." <<'NS'
 class Data {
 public:
     int value = 42;
@@ -1217,7 +1217,7 @@ nix main() {
 }
 NS
 
-run_error too_many_function_arguments "expects 1 argument(s), received 2" <<'NS'
+run_error too_many_function_arguments "No overload of function 'one' accepts 2 argument(s)." <<'NS'
 fn one(value) {
     return value;
 }
@@ -1226,7 +1226,7 @@ nix main() {
 }
 NS
 
-run_error method_wrong_argument_count "expects 1 argument(s), received 0" <<'NS'
+run_error method_wrong_argument_count "No overload of method 'method' accepts 0 argument(s)." <<'NS'
 class NeedsArgument {
 public:
     int method(value) {
@@ -1239,12 +1239,12 @@ nix main() {
 }
 NS
 
-run_error duplicate_constructor_declarations "declared more than once" <<'NS'
+run_error duplicate_constructor_declarations "already declared" <<'NS'
 class DoubleConstruct {
 public:
-    DoubleConstruct() {
-    }
     DoubleConstruct(value) {
+    }
+    DoubleConstruct(other) {
     }
 };
 nix main() {
@@ -1599,11 +1599,7 @@ nix main() {
 NS
 
 
-run_ok function_overloading_by_arity 
-if (( failed > 0 )); then
-    exit 1
-fi
-one:7\ntwo:7:8\n' <<'NS'
+run_ok function_overloading_by_arity $'one:7\ntwo:7:8\n' <<'NS'
 fn show(value) {
     println("one:", value);
 }
@@ -1628,11 +1624,7 @@ nix main() {
 }
 NS
 
-run_ok constructor_overloading_by_arity 
-if (( failed > 0 )); then
-    exit 1
-fi
-7\n7:8\n' <<'NS'
+run_ok constructor_overloading_by_arity $'7\n7:8\n' <<'NS'
 class Pair {
 public:
     var first;
@@ -1654,11 +1646,7 @@ nix main() {
 }
 NS
 
-run_ok method_overloading_by_arity 
-if (( failed > 0 )); then
-    exit 1
-fi
-single:7\ndouble:7:8\n' <<'NS'
+run_ok method_overloading_by_arity $'single:7\ndouble:7:8\n' <<'NS'
 class Display {
 public:
     fn show(value) {
