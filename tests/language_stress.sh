@@ -2267,19 +2267,8 @@ NS
 
 echo "=== Core collections and callable values ==="
 
-run_ok mutable_arrays_and_safe_indexing  <<'NS'nix main() {
-    
-    var values = [1, 2, 3];
-    var alias = values;
-    alias[1] = 8;
-    values.push(4);
-    values.append(5);
-    println(values);
-    alias[0] = 77;
-    println(values[0]);
-    println(values.length);
-    NS
-    [1, 8, 3, 4, 5]\\n77\\n5\\n' <<'NS'
+run_ok mutable_arrays_and_safe_indexing $'[1, 8, 3, 4, 5]\n77\n5\n' <<'NS'
+nix main() {
     var values = [1, 2, 3];
     var alias = values;
     alias[1] = 8;
@@ -2292,8 +2281,8 @@ run_ok mutable_arrays_and_safe_indexing  <<'NS'nix main() {
 }
 NS
 
-run_ok nested_array_literals_and_iteration $'2\\n5\\n[1, [2, 3], null]\\n' <<'NS'nix main() {
-    
+run_ok nested_array_literals_and_iteration $'2\n5\n[1, [2, 3], null]\n' <<'NS'
+nix main() {
     var values = [1, [2, 3], null];
     println(values[1][0]);
     println(values[1][1] + 2);
@@ -2301,16 +2290,8 @@ run_ok nested_array_literals_and_iteration $'2\\n5\\n[1, [2, 3], null]\\n' <<'NS
 }
 NS
 
-run_ok array_pop_and_builtin_length  <<'NS'nix main() {
-    
-    var values = [1, 2, 3];
-    println(len(values));
-    println(values.push(4));
-    println(values.pop());
-    println(pop(values));
-    println(len("abc"));
-    NS
-    3\\n4\\n4\\n3\\n3\\n' <<'NS'
+run_ok array_pop_and_builtin_length $'3\n4\n4\n3\n3\n' <<'NS'
+nix main() {
     var values = [1, 2, 3];
     println(len(values));
     println(values.push(4));
@@ -2320,11 +2301,19 @@ run_ok array_pop_and_builtin_length  <<'NS'nix main() {
 }
 NS
 
-run_ok array_index_increment $'12\\n' <<'NS'nix main() {
-    
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
     var values = [11];
     values[0]++;
     println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
 }
 NS
 
@@ -2363,7 +2352,7 @@ nix main() {
 }
 NS
 
-run_ok first_class_functions_and_callbacks $'4\\n10\\n10\\n12\\n3\\n' <<'NS'
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
 fn increment(int value) {
     return value + 1;
 }
@@ -2386,7 +2375,7 @@ nix main() {
 }
 NS
 
-run_ok bound_method_callbacks $'Hello Alex\\n' <<'NS'
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
 class Greeter {
 public:
     fn greet(string name) {
@@ -2403,7 +2392,7 @@ nix main() {
 }
 NS
 
-run_ok callable_value_in_array $'6\\n' <<'NS'
+run_ok callable_value_in_array $'6\n' <<'NS'
 fn increment(int value) { return value + 1; }
 fn doubleIt(int value) { return value * 2; }
 nix main() {
