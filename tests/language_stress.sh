@@ -1693,6 +1693,127 @@ nix main() {
 }
 NS
 
+
+run_ok inherited_overload_set_and_implicit_dispatch 
+if (( failed > 0 )); then
+    exit 1
+fi
+one:7\ntwo:7:8\nimplicit:9\n' <<'NS'
+class BaseDisplay {
+public:
+    fn show(value) { println("one:", value); }
+};
+class FancyDisplay : BaseDisplay {
+public:
+    fn show(left, right) { println("two:", left, ":", right); }
+    fn run() { show(9); }
+};
+nix main() {
+    var display = FancyDisplay();
+    display.show(7);
+    display.show(7, 8);
+    display.run();
+}
+NS
+
+run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited method 'run'" <<'NS'
+class LeftRunner {
+public:
+    fn run(value) { println("left"); }
+};
+class RightRunner {
+public:
+    fn run(value) { println("right"); }
+};
+class BothRunners : LeftRunner, RightRunner {};
+nix main() {
+    var runner = BothRunners();
+    runner.run(1);
+}
+NS
+
+run_error abstract_contract_from_second_base "must implement abstract method 'right' with 1 parameter(s)" <<'NS'
+abstract class LeftContract {
+    abstract fn left(value);
+};
+abstract class RightContract {
+    abstract fn right(value);
+};
+class Incomplete : LeftContract, RightContract {
+    fn left(value) { return value; }
+};
+nix main() {
+    var item = Incomplete();
+}
+NS
+
+run_error base_class_requires_explicit_zero_argument_constructor "has no zero-argument constructor for implicit base initialization" <<'NS'
+class NeedsArgument {
+public:
+    NeedsArgument(value) {}
+};
+class Child : NeedsArgument {};
+nix main() {
+    var item = Child();
+}
+NS
+
+
+run_ok same_named_fields_in_multiple_bases_keep_distinct_storage 
+if (( failed > 0 )); then
+    exit 1
+fi
+3\n4\n30\n40\n' <<'NS'
+class LeftValue {
+public:
+    var value = 3;
+    fn readLeft() { return this.value; }
+    fn writeLeft(next) { this.value = next; }
+};
+class RightValue {
+public:
+    var value = 4;
+    fn readRight() { return this.value; }
+    fn writeRight(next) { this.value = next; }
+};
+class BothValues : LeftValue, RightValue {};
+nix main() {
+    var both = BothValues();
+    println(both.readLeft());
+    println(both.readRight());
+    both.writeLeft(30);
+    both.writeRight(40);
+    println(both.readLeft());
+    println(both.readRight());
+}
+NS
+
+run_ok diamond_inheritance_destructs_each_shared_ancestor_once 
+if (( failed > 0 )); then
+    exit 1
+fi
+both\nright\nleft\nroot\n' <<'NS'
+class Root {
+public:
+    ~Root() { println("root"); }
+};
+class Left : Root {
+public:
+    ~Left() { println("left"); }
+};
+class Right : Root {
+public:
+    ~Right() { println("right"); }
+};
+class Both : Left, Right {
+public:
+    ~Both() { println("both"); }
+};
+nix main() {
+    var item = Both();
+}
+NS
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
