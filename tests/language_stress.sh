@@ -2011,7 +2011,43 @@ nix main() {
 }
 NS
 
-run_ok destructor_chain_destroys_shared_diamond_ancestor_once $'diamond destroyed\nleft destroyed\nright destroyed\nroot destroyed\n' <<'NS'
+run_ok destructor_chain_destroys_shared_diamond_ancestor_once  <<'NS'
+class RootLife {
+public:
+    ~RootLife() {
+        println("root destroyed");
+    }
+};
+class LeftLife : RootLife {
+public:
+    ~LeftLife() {
+        println("left destroyed");
+    }
+};
+class RightLife : RootLife {
+public:
+    ~RightLife() {
+        println("right destroyed");
+    }
+};
+class DiamondLife : LeftLife, RightLife {
+public:
+    ~DiamondLife() {
+        println("diamond destroyed");
+    }
+};
+nix main() {
+    var object = DiamondLife();
+}
+NS
+
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+diamond destroyed\nright destroyed\nleft destroyed\nroot destroyed\n' <<'NS'
 class RootLife {
 public:
     ~RootLife() {
