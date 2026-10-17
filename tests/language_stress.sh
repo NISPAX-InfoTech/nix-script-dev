@@ -907,6 +907,58 @@ nix main() {
 }
 NS
 
+run_ok abstract_class_concrete_implementation $'dog\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class Dog : Animal {
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_error cannot_instantiate_abstract_class "Cannot instantiate abstract class 'Animal'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+nix main() {
+    var pet = Animal();
+}
+NS
+
+run_error concrete_class_missing_abstract_method "must implement abstract method 'speak'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class SilentDog : Animal {
+};
+nix main() {
+    var pet = SilentDog();
+}
+NS
+
+run_ok abstract_class_can_extend_abstract_class $'bird\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+abstract class Bird : Animal {
+};
+class Sparrow : Bird {
+    fn speak() {
+        println("bird");
+    }
+};
+nix main() {
+    var bird = Sparrow();
+    bird.speak();
+}
+NS
+
 run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
 class Item {
 public:
