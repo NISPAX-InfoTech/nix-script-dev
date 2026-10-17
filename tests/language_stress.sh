@@ -2459,7 +2459,7 @@ nix main() {
 }
 NS
 
-run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n3\n9\ntrue\nfalse\n{"a": 1, "b": 9, "c": 3}\n' <<'NS'
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n9\n3\ntrue\nfalse\n{"b": 9, "c": 3}\n' <<'NS'
 nix main() {
     var data = {a: 1, b: 2};
     println(len(data));
@@ -2467,6 +2467,7 @@ nix main() {
     println(values(data));
     data.set("c", 3);
     data["b"] = 9;
+    println(data["b"]);
     println(data.get("c"));
     println(data.remove("a"));
     println(data.has("missing"));
@@ -2483,7 +2484,7 @@ nix main() {
 }
 NS
 
-run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[3, 4]\n' <<'NS'
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[42, 4]\n' <<'NS'
 nix main() {
     var data = {items: [3, 4], metadata: {version: 1}};
     data.items[0] = 42;
