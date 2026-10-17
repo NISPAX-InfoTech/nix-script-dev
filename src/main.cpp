@@ -1705,6 +1705,57 @@ private:
         }
         runtimeError(line, "Invalid assignment target.");
     }
+    std::string checkedMapKey(const Value& keyValue, int line) const {
+        const auto* key = std::get_if<std::string>(&keyValue);
+        if (!key) runtimeError(line, "Map keys must be strings.");
+        return *key;
+    }
+
+    bool mapHasKey(const std::shared_ptr<MapValue>& map, const std::string& key) const {
+        if (!map) return false;
+        return std::any_of(map->entries.begin(), map->entries.end(),
+                           [&](const auto& entry) { return entry.first == key; });
+    }
+
+    Value mapGetKey(const std::shared_ptr<MapValue>& map, const std::string& key) const {
+        if (!map) return std::monostate{};
+        for (const auto& entry : map->entries)
+            if (entry.first == key) return entry.second;
+        return std::monostate{};
+    }
+
+    void mapSetKey(const std::shared_ptr<MapValue>& map, const std::string& key, Value value, int line) {
+        if (!map) runtimeError(line, "Invalid map value.");
+        for (auto& entry : map->entries) {
+            if (entry.first == key) {
+                entry.second = std::move(value);
+                return;
+            }
+        }
+        map->entries.emplace_back(key, std::move(value));
+    }
+
+    bool mapRemoveKey(const std::shared_ptr<MapValue>& map, const std::string& key) {
+        if (!map) return false;
+        const auto oldSize = map->entries.size();
+        map->entries.erase(std::remove_if(map->entries.begin(), map->entries.end(),
+                                          [&](const auto& entry) { return entry.first == key; }),
+                           map->entries.end());
+        return map->entries.size() != oldSize;
+    }
+
+    std::shared_ptr<ArrayValue> mapKeys(const std::shared_ptr<MapValue>& map) const {
+        auto result = makeArray();
+        if (map) for (const auto& entry : map->entries) result->elements.emplace_back(entry.first);
+        return result;
+    }
+
+    std::shared_ptr<ArrayValue> mapValues(const std::shared_ptr<MapValue>& map) const {
+        auto result = makeArray();
+        if (map) for (const auto& entry : map->entries) result->elements.push_back(entry.second);
+        return result;
+    }
+
     std::size_t checkedArrayIndex(const Value& indexValue,
                                   const std::shared_ptr<ArrayValue>& array,
                                   int line) const {
