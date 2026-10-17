@@ -116,6 +116,8 @@ Planned syntax includes:
 - `secured:` makes following members private. Legacy `private:` is also accepted.
 - `protected:` makes members accessible from the class and its derived classes.
 - `fn Method(...);` declares a class method; `fn ClassName::Method(...)` defines it outside the class.
+- `abstract class Name` declares a class that cannot be instantiated directly.
+- `abstract fn method(...);` declares a required method with no body. Concrete derived classes must implement every inherited abstract method; abstract derived classes may defer the implementation.
 - Single inheritance, method overriding, and static members.
 - `ClassName::member` scope resolution and `this` to refer to the current object.
 
@@ -158,7 +160,7 @@ nix main() {
 
 Implemented class features include fields, typed or inferred field declarations, constructors, destructors, methods with parameters and `return`, public-by-default visibility, `secured:`/`private:`, `protected:`, explicit `public:`, single inheritance, method overriding, dynamic method lookup, static fields/methods, `this`, `ClassName::member`, and out-of-class method definitions. Constructors and destructors are invoked by the interpreter; destructor timing follows local scope cleanup in this prototype.
 
-Important limits: this is an interpreter subset, not complete C++-style OOP. There is no `abstract` class or pure-virtual method syntax, and no interface/trait system yet. Multiple inheritance, method/operator overloading, references, and C++ initializer lists for base constructors are also not implemented. Encapsulation and polymorphic dispatch are covered by regression tests, but abstract contracts still need a deliberate language design. Use `this.member` where clarity matters; unqualified access to current-class fields is also supported inside methods.
+Important limits: this is an interpreter subset, not complete C++-style OOP. Abstract classes and abstract methods are supported, including rejecting direct instantiation and checking that concrete derived classes implement inherited abstract methods. There is no separate interface/trait system yet. Multiple inheritance, method/operator overloading, references, and C++ initializer lists for base constructors are also not implemented. Encapsulation, abstract-method enforcement, and polymorphic dispatch are covered by regression tests. Use `this.member` where clarity matters; unqualified access to current-class fields is also supported inside methods.
 
 ## Native built-in functions
 
