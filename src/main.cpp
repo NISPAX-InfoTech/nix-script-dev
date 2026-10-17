@@ -627,7 +627,12 @@ private:
             auto& klass = klassIt->second;
             ClassMember* member = nullptr;
             for (auto& candidate : klass->members) {
-                if (candidate.name == definition.methodName) { member = &candidate; break; }
+                if (candidate.name == definition.methodName &&
+                    candidate.parameters.size() == definition.params.size() &&
+                    candidate.isDestructor == definition.destructor) {
+                    member = &candidate;
+                    break;
+                }
             }
             const bool matchedDeclaration = member != nullptr;
             if (matchedDeclaration && member->defined) {
