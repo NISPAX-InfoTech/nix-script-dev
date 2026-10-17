@@ -256,7 +256,7 @@ jobs:
             echo "A mismatched function declaration unexpectedly succeeded" >&2
             exit 1
           fi
-          grep -q "has 3 parameter(s)" mismatched-function.log
+          grep -q "declared but has no definition" mismatched-function.log
 
           cat > duplicate-function.ns <<'EOF'
           fn duplicate(value) {
