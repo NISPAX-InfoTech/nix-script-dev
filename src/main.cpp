@@ -1592,15 +1592,28 @@ private:
                 destroyInstance(*child, poppedIndex);
         }
 
-        for (auto parent = klass->bases.rbegin(); parent != klass->bases.rend(); ++parent)
-            destroyClassPart(instance, *parent, poppedIndex);
+    }
+
+    void collectClassPartsForDestruction(const std::shared_ptr<ClassDef>& klass,
+                                         std::unordered_set<const ClassDef*>& visited,
+                                         std::vector<std::shared_ptr<ClassDef>>& ordered) {
+        if (!klass || !visited.insert(klass.get()).second) return;
+        // Postorder with bases in declaration order, reversed by the caller:
+        // derived classes are destroyed before bases and shared ancestors once.
+        for (const auto& parent : klass->bases)
+            collectClassPartsForDestruction(parent, visited, ordered);
+        ordered.push_back(klass);
     }
 
     void destroyInstance(const std::shared_ptr<Instance>& instance,
                          std::size_t poppedIndex = static_cast<std::size_t>(-1)) {
         if (!instance || instance->destroyed) return;
         instance->destroyed = true;
-        destroyClassPart(instance, instance->klass, poppedIndex);
+        std::unordered_set<const ClassDef*> visited;
+        std::vector<std::shared_ptr<ClassDef>> ordered;
+        collectClassPartsForDestruction(instance->klass, visited, ordered);
+        for (auto part = ordered.rbegin(); part != ordered.rend(); ++part)
+            destroyClassPart(instance, *part, poppedIndex);
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
