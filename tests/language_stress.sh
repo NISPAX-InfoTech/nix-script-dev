@@ -367,6 +367,50 @@ nix main() {
 }
 NS
 
+run_ok overloaded_functions_by_arity_and_runtime_type $'text\ninteger\nfraction\ngeneric\n3\n6\n' <<'NS'
+fn label(value) {
+    return "generic";
+}
+fn label(string value) {
+    return "text";
+}
+fn label(int value) {
+    return "integer";
+}
+fn label(float value) {
+    return "fraction";
+}
+fn combine(first, second) {
+    return first + second;
+}
+fn combine(first, second, third) {
+    return first + second + third;
+}
+nix main() {
+    println(label("hello"));
+    println(label(5));
+    println(label(5.25));
+    println(label(true));
+    println(combine(1, 2));
+    println(combine(1, 2, 3));
+}
+NS
+
+run_ok overloaded_function_prototypes_and_late_definitions $'string:hi\nnumber:7\n' <<'NS'
+fn display(string value);
+fn display(int value);
+nix main() {
+    display("hi");
+    display(7);
+}
+fn display(string text) {
+    println("string:" + text);
+}
+fn display(int count) {
+    println("number:" + count);
+}
+NS
+
 echo "=== Functions and return values ==="
 
 run_ok calls_recursion_and_null_returns $'5\n15\n120\nfinished\nnull\n' <<'NS'
@@ -518,6 +562,156 @@ nix main() {
     var alias = first;
     println(first == second);
     println(first == alias);
+}
+NS
+
+run_ok overloaded_methods_by_type_and_arity $'string:hello\ninteger:8\npair:hi!\n' <<'NS'
+class Printer {
+    fn show(string value) {
+        return "string:" + value;
+    }
+    fn show(int value) {
+        return "integer:" + value;
+    }
+    fn show(first, second) {
+        return "pair:" + first + second;
+    }
+};
+nix main() {
+    var p = Printer();
+    println(p.show("hello"));
+    println(p.show(8));
+    println(p.show("hi", "!"));
+}
+NS
+
+run_ok overloaded_constructors $'default\ninteger:9\nstring:hey\n' <<'NS'
+class Choice {
+    var description;
+    Choice() {
+        this.description = "default";
+    }
+    Choice(int value) {
+        this.description = "integer:" + value;
+    }
+    Choice(string value) {
+        this.description = "string:" + value;
+    }
+};
+nix main() {
+    var empty = Choice();
+    var number = Choice(9);
+    var text = Choice("hey");
+    println(empty.description);
+    println(number.description);
+    println(text.description);
+}
+NS
+
+run_error constructor_overload_no_match "No overload of constructor 'Choice' accepts 1 argument(s)" <<'NS'
+class Choice {
+    Choice(int value, int other) {
+    }
+};
+nix main() {
+    var bad = Choice("wrong type");
+}
+NS
+
+run_ok multiple_inheritance_and_base_constructor_arguments $'left:4\nright:hi\nown:9\n' <<'NS'
+class Left {
+    var left;
+    Left(int value) {
+        this.left = value;
+    }
+    fn readLeft() {
+        return "left:" + left;
+    }
+};
+class Right {
+    var right;
+    Right(string value) {
+        this.right = value;
+    }
+    fn readRight() {
+        return "right:" + right;
+    }
+};
+class Combined : Left, Right {
+    var own;
+    Combined(int leftValue, string rightValue, int ownValue)
+        : Left(leftValue), Right(rightValue) {
+        this.own = ownValue;
+    }
+    fn readOwn() {
+        return "own:" + own;
+    }
+};
+nix main() {
+    var c = Combined(4, "hi", 9);
+    println(c.readLeft());
+    println(c.readRight());
+    println(c.readOwn());
+}
+NS
+
+run_ok shared_diamond_base_constructed_once $'root\nleft\nright\ndiamond\n' <<'NS'
+class Root {
+    Root() {
+        println("root");
+    }
+};
+class Left : Root {
+    Left() {
+        println("left");
+    }
+};
+class Right : Root {
+    Right() {
+        println("right");
+    }
+};
+class Diamond : Left, Right {
+    Diamond() {
+        println("diamond");
+    }
+};
+nix main() {
+    var d = Diamond();
+}
+NS
+
+run_error ambiguous_multiple_inheritance_method "Ambiguous inherited overload of method 'name'" <<'NS'
+class First {
+    fn name() {
+        return "first";
+    }
+};
+class Second {
+    fn name() {
+        return "second";
+    }
+};
+class Both : First, Second {
+};
+nix main() {
+    var b = Both();
+    println(b.name());
+}
+NS
+
+run_error ambiguous_multiple_inheritance_field "Ambiguous inherited member 'value'" <<'NS'
+class FirstField {
+    var value = 1;
+};
+class SecondField {
+    var value = 2;
+};
+class BothFields : FirstField, SecondField {
+};
+nix main() {
+    var b = BothFields();
+    println(b.value);
 }
 NS
 
@@ -1306,12 +1500,36 @@ int Calculator::value() {
 }
 NS
 
-run_error typed_function_parameters_are_rejected "function parameters use inferred values" <<'NS'
-fn typed(int value) {
+run_error ambiguous_typed_function_overload "Ambiguous overload of function 'choose'" <<'NS'
+fn choose(int value) {
+    return "int";
+}
+fn choose(long value) {
+    return "long";
+}
+nix main() {
+    println(choose(7));
+}
+NS
+
+run_error no_function_overload_matches_type "No matching overload of function 'pick'" <<'NS'
+fn pick(int value) {
+    return value;
+}
+fn pick(bool value) {
     return value;
 }
 nix main() {
-    println("unreachable");
+    println(pick("not a number"));
+}
+NS
+
+run_error wrong_overload_arity "No overload of function 'pick' accepts 2 argument(s)" <<'NS'
+fn pick(value) {
+    return value;
+}
+nix main() {
+    println(pick(1, 2));
 }
 NS
 
