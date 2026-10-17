@@ -380,7 +380,7 @@ private:
     bool isTypeName(const std::string& name) const {
         return name == "var" || name == "void" || name == "int" || name == "float" ||
                name == "double" || name == "number" || name == "string" || name == "bool" ||
-               name == "char" || name == "long" || name == "short" || name == "array" ||
+               name == "char" || name == "long" || name == "short" ||
                name == "list" || name == "array" || name == "map" || name == "dict" ||
                name == "function" || name == "callable";
     }
