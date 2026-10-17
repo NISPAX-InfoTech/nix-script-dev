@@ -1458,19 +1458,20 @@ private:
             constructBaseHierarchy(instance, parent, klass->name, line);
 
         ClassMember* ctor = nullptr;
+        bool declaresConstructor = false;
         for (auto& member : klass->members) {
-            if (member.isConstructor && member.name == klass->name) {
+            if (!member.isConstructor || member.name != klass->name) continue;
+            declaresConstructor = true;
+            if (member.parameters.empty()) {
+                if (ctor)
+                    runtimeError(line, "Ambiguous zero-argument constructor for base class '" + klass->name + "'.");
                 ctor = &member;
-                break;
             }
         }
         if (!ctor) {
-            for (const auto& member : klass->members) {
-                if (member.isConstructor && member.name == klass->name) {
-                    runtimeError(line, "Base class '" + klass->name +
-                                       "' has no zero-argument constructor for implicit base initialization.");
-                }
-            }
+            if (declaresConstructor)
+                runtimeError(line, "Base class '" + klass->name +
+                                   "' has no zero-argument constructor for implicit base initialization.");
             return;
         }
 
@@ -1591,7 +1592,8 @@ private:
                 destroyInstance(*child, poppedIndex);
         }
 
-        for (const auto& parent : klass->bases) destroyClassPart(instance, parent, poppedIndex);
+        for (auto parent = klass->bases.rbegin(); parent != klass->bases.rend(); ++parent)
+            destroyClassPart(instance, *parent, poppedIndex);
     }
 
     void destroyInstance(const std::shared_ptr<Instance>& instance,
