@@ -1748,7 +1748,133 @@ private:
         if (type == "int" || type == "long" || type == "short") number = std::trunc(number);
         return number;
     }
+    bool classDerivesFrom(const std::shared_ptr<ClassDef>& candidate, const std::string& baseName) const {
+        if (!candidate) return false;
+        std::vector<std::shared_ptr<ClassDef>> pending{candidate};
+        std::unordered_set<const ClassDef*> visited;
+        while (!pending.empty()) {
+            auto current = pending.back();
+            pending.pop_back();
+            if (!current || !visited.insert(current.get()).second) continue;
+            if (current->name == baseName) return true;
+            if (!current->bases.empty()) {
+                for (const auto& base : current->bases) pending.push_back(base);
+            } else if (current->base) {
+                pending.push_back(current->base);
+            }
+        }
+        return false;
+    }
+
+    void collectMethods(const std::shared_ptr<ClassDef>& klass,
+                        const std::string& name,
+                        std::unordered_set<const ClassDef*>& visited,
+                        std::vector<const ClassMember*>& found) const {
+        if (!klass || !visited.insert(klass.get()).second) return;
+        for (const auto& member : klass->members)
+            if (member.name == name && member.kind == ClassMember::Kind::Method)
+                found.push_back(&member);
+        if (!klass->bases.empty()) {
+            for (const auto& base : klass->bases) collectMethods(base, name, visited, found);
+        } else if (klass->base) {
+            collectMethods(klass->base, name, visited, found);
+        }
+    }
+
+    std::vector<const ClassMember*> methodOverloads(const std::shared_ptr<ClassDef>& klass,
+                                                     const std::string& name,
+                                                     std::unordered_set<std::string>& ambiguous,
+                                                     int line) const {
+        std::vector<const ClassMember*> raw;
+        std::unordered_set<const ClassDef*> visited;
+        collectMethods(klass, name, visited, raw);
+        std::vector<const ClassMember*> chosen;
+        std::unordered_map<std::string, std::size_t> indexBySignature;
+        for (const ClassMember* candidate : raw) {
+            const std::string signature = overloadSignatureKey(candidate->name, candidate->parameterTypes);
+            auto existing = indexBySignature.find(signature);
+            if (existing == indexBySignature.end()) {
+                indexBySignature[signature] = chosen.size();
+                chosen.push_back(candidate);
+                continue;
+            }
+            const std::size_t index = existing->second;
+            const ClassMember* prior = chosen[index];
+            if (prior == candidate) continue; // Shared ancestor in a diamond.
+            if (classDerivesFrom(classes_.count(candidate->owner) ? classes_.at(candidate->owner) : nullptr,
+                                 prior->owner)) {
+                chosen[index] = candidate;
+                ambiguous.erase(signature);
+            } else if (classDerivesFrom(classes_.count(prior->owner) ? classes_.at(prior->owner) : nullptr,
+                                        candidate->owner)) {
+                // The already selected overload comes from the more-derived class.
+            } else {
+                ambiguous.insert(signature);
+            }
+        }
+        (void)line;
+        return chosen;
+    }
+
+    Value invokeMethod(const std::shared_ptr<Instance>& instance,
+                       const std::string& name,
+                       const std::vector<Value>& args,
+                       int line,
+                       bool staticCall) {
+        if (!instance || !instance->klass) runtimeError(line, "Method call requires a valid object.");
+        std::unordered_set<std::string> ambiguous;
+        auto candidates = methodOverloads(instance->klass, name, ambiguous, line);
+        if (candidates.empty())
+            runtimeError(line, "Class '" + instance->klass->name + "' has no method '" + name + "'.");
+        const ClassMember* selected = selectOverload(candidates, args, name, "method", line, &ambiguous);
+        checkAccess(*selected, line);
+        if (staticCall && !selected->isStatic)
+            runtimeError(line, "Method '" + name + "' is not static; call it through an object.");
+        if (!staticCall && selected->isStatic)
+            runtimeError(line, "Static methods must be called through ClassName::method().");
+        auto bound = std::make_shared<BoundMethod>();
+        bound->instance = staticCall ? nullptr : instance;
+        bound->klass = instance->klass;
+        bound->member = const_cast<ClassMember*>(selected);
+        return callMethod(bound, args, line);
+    }
+
+    Value invokeStaticMethod(const std::shared_ptr<ClassDef>& klass,
+                             const std::string& name,
+                             const std::vector<Value>& args,
+                             int line) {
+        if (!klass) runtimeError(line, "'::' requires a class name.");
+        std::unordered_set<std::string> ambiguous;
+        auto candidates = methodOverloads(klass, name, ambiguous, line);
+        if (candidates.empty()) runtimeError(line, "Class '" + klass->name + "' has no method '" + name + "'.");
+        const ClassMember* selected = selectOverload(candidates, args, name, "method", line, &ambiguous);
+        checkAccess(*selected, line);
+        if (!selected->isStatic)
+            runtimeError(line, "Method '" + name + "' is not static; call it through an object.");
+        auto bound = std::make_shared<BoundMethod>();
+        bound->klass = klass;
+        bound->member = const_cast<ClassMember*>(selected);
+        return callMethod(bound, args, line);
+    }
+
     Value evaluateCall(const Expr& expr) {
+        if (expr.left && expr.left->kind == Expr::Kind::Member) {
+            Value receiver = evaluate(*expr.left->left);
+            auto* instance = std::get_if<std::shared_ptr<Instance>>(&receiver);
+            if (!instance || !*instance)
+                runtimeError(expr.line, "Method call requires an object.");
+            std::vector<Value> args;
+            for (const auto& item : expr.items) args.push_back(evaluate(*item));
+            return invokeMethod(*instance, expr.left->name, args, expr.line, false);
+        }
+        if (expr.left && expr.left->kind == Expr::Kind::StaticMember) {
+            Value receiver = evaluate(*expr.left->left);
+            auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&receiver);
+            if (!klass || !*klass) runtimeError(expr.line, "'::' requires a class name.");
+            std::vector<Value> args;
+            for (const auto& item : expr.items) args.push_back(evaluate(*item));
+            return invokeStaticMethod(*klass, expr.left->name, args, expr.line);
+        }
         if (expr.left && expr.left->kind == Expr::Kind::Variable) {
             const std::string name = expr.left->name;
             auto classIt = classes_.find(name);
@@ -1792,16 +1918,42 @@ private:
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
             if (std::find(builtins.begin(), builtins.end(), name) != builtins.end())
                 return builtin(name, args, expr.line);
-            auto function = functions_.find(name);
-            if (function != functions_.end())
-                return callFunction(*function->second, args, expr.line);
-            if (functionDeclarations_.count(name))
-                runtimeError(expr.line, "Function '" + name + "' is declared but has no definition.");
-            if (currentClass_.empty()) runtimeError(expr.line, "Unknown function '" + name + "'.");
-            Value possibleMethod = lookup(name, expr.line);
-            if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&possibleMethod))
-                return callMethod(*bound, args, expr.line);
-            runtimeError(expr.line, "'" + name + "' is not callable.");
+
+            auto definitions = functions_.find(name);
+            auto declarations = functionDeclarations_.find(name);
+            if (definitions != functions_.end() || declarations != functionDeclarations_.end()) {
+                std::vector<const Stmt*> candidates;
+                std::unordered_set<std::string> seen;
+                if (definitions != functions_.end()) {
+                    for (const Stmt* function : definitions->second) {
+                        const std::string key = overloadSignatureKey(function->name, function->parameterTypes);
+                        seen.insert(key);
+                        candidates.push_back(function);
+                    }
+                }
+                if (declarations != functionDeclarations_.end()) {
+                    for (const Stmt* function : declarations->second) {
+                        const std::string key = overloadSignatureKey(function->name, function->parameterTypes);
+                        if (!seen.count(key)) candidates.push_back(function);
+                    }
+                }
+                const Stmt* selected = selectOverload(candidates, args, name, "function", expr.line);
+                if (!selected->functionDefined)
+                    runtimeError(expr.line, "Function overload '" +
+                                           overloadSignatureKey(name, selected->parameterTypes) +
+                                           "' is declared but has no definition.");
+                return callFunction(*selected, args, expr.line);
+            }
+
+            if (!currentClass_.empty()) {
+                for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                    auto thisIt = scope->find("this");
+                    if (thisIt == scope->end()) continue;
+                    const auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second);
+                    if (instance && *instance) return invokeMethod(*instance, name, args, expr.line, false);
+                }
+            }
+            runtimeError(expr.line, "Unknown function '" + name + "'.");
         }
 
         Value callee = evaluate(*expr.left);
@@ -1815,6 +1967,7 @@ private:
         }
         runtimeError(expr.line, "This expression is not callable.");
     }
+
     Value builtin(const std::string& name, const std::vector<Value>& args, int line) {
         auto need = [&](std::size_t n) {
             if (args.size() != n) runtimeError(line, name + "() expects " + std::to_string(n) + " argument(s).");
