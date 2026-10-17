@@ -231,6 +231,10 @@ struct ClassMember {
 struct ClassDef {
     std::string name;
     bool isAbstract = false;
+    std::vector<std::string> baseNames;
+    std::vector<std::shared_ptr<ClassDef>> bases;
+    // Compatibility alias for the first base while the interpreter migrates to
+    // the full base list.
     std::string baseName;
     std::shared_ptr<ClassDef> base;
     std::vector<ClassMember> members;
@@ -457,7 +461,17 @@ private:
         if (functionNames_.count(klass->name))
             fail(classToken, "A function named '" + klass->name + "' is already declared.");
         classNames_[klass->name] = true;
-        if (match(TokenKind::Colon)) klass->baseName = consumeName("Expected a base class name after ':'.");
+        if (match(TokenKind::Colon)) {
+            do {
+                const std::string baseName = consumeName("Expected a base class name after ':'.");
+                if (baseName == klass->name)
+                    fail(classToken, "A class cannot inherit from itself.");
+                if (std::find(klass->baseNames.begin(), klass->baseNames.end(), baseName) != klass->baseNames.end())
+                    fail(classToken, "Base class '" + baseName + "' is listed more than once.");
+                klass->baseNames.push_back(baseName);
+            } while (match(TokenKind::Comma));
+            if (!klass->baseNames.empty()) klass->baseName = klass->baseNames.front();
+        }
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
         Access access = Access::Public;
