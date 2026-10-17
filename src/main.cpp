@@ -1269,6 +1269,15 @@ private:
             return *array && !(*array)->elements.empty();
         return true;
     }
+    bool isBuiltinFunctionValue(const std::string& name) const {
+        static const std::vector<std::string> names = {
+            "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
+            "isUpper", "isLower", "isSpace", "toUpper", "toLower",
+            "len", "push", "append", "pop"
+        };
+        return std::find(names.begin(), names.end(), name) != names.end();
+    }
+
     Value lookup(const std::string& name, int line) {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
@@ -1296,6 +1305,11 @@ private:
                     }
                 }
             }
+        }
+        if (functions_.count(name) || functionDeclarations_.count(name) || isBuiltinFunctionValue(name)) {
+            auto function = std::make_shared<FunctionValue>();
+            function->name = name;
+            return function;
         }
         runtimeError(line, "Unknown variable '" + name + "'.");
     }
@@ -2097,14 +2111,74 @@ private:
         return callMethod(bound, args, line);
     }
 
+    Value invokeFunctionGroup(const std::string& name, const std::vector<Value>& args, int line) {
+        auto definitions = functions_.find(name);
+        auto declarations = functionDeclarations_.find(name);
+        if (definitions == functions_.end() && declarations == functionDeclarations_.end())
+            runtimeError(line, "Unknown function '" + name + "'.");
+        std::vector<const Stmt*> candidates;
+        std::unordered_set<std::string> seen;
+        if (definitions != functions_.end()) {
+            for (const Stmt* function : definitions->second) {
+                seen.insert(overloadSignatureKey(function->name, function->parameterTypes));
+                candidates.push_back(function);
+            }
+        }
+        if (declarations != functionDeclarations_.end()) {
+            for (const Stmt* function : declarations->second) {
+                if (seen.insert(overloadSignatureKey(function->name, function->parameterTypes)).second)
+                    candidates.push_back(function);
+            }
+        }
+        const Stmt* selected = selectOverload(candidates, args, name, "function", line);
+        if (!selected->functionDefined)
+            runtimeError(line, "Function overload '" + overloadSignatureKey(name, selected->parameterTypes) +
+                               "' is declared but has no definition.");
+        return callFunction(*selected, args, line);
+    }
+
+    Value invokeCallable(const Value& callee, const std::vector<Value>& args, int line) {
+        if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&callee)) {
+            if (!*function) runtimeError(line, "Invalid function value.");
+            if (isBuiltinFunctionValue((*function)->name))
+                return builtin((*function)->name, args, line);
+            return invokeFunctionGroup((*function)->name, args, line);
+        }
+        if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&callee)) {
+            if (!*bound) runtimeError(line, "Invalid method.");
+            if ((*bound)->member->isConstructor || (*bound)->member->isDestructor)
+                runtimeError(line, "Constructors and destructors cannot be called like ordinary methods.");
+            return callMethod(*bound, args, line);
+        }
+        runtimeError(line, "This expression is not callable.");
+    }
+
     Value evaluateCall(const Expr& expr) {
         if (expr.left && expr.left->kind == Expr::Kind::Member) {
             Value receiver = evaluate(*expr.left->left);
+            std::vector<Value> args;
+            for (const auto& item : expr.items) args.push_back(evaluate(*item));
+            if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&receiver)) {
+                if (!*array) runtimeError(expr.line, "Invalid array value.");
+                if (expr.left->name == "push" || expr.left->name == "append") {
+                    if (args.size() != 1)
+                        runtimeError(expr.line, "Array." + expr.left->name + "() expects 1 argument.");
+                    (*array)->elements.push_back(args[0]);
+                    if (expr.left->name == "push") return static_cast<double>((*array)->elements.size());
+                    return std::monostate{};
+                }
+                if (expr.left->name == "pop") {
+                    if (!args.empty()) runtimeError(expr.line, "Array.pop() expects no arguments.");
+                    if ((*array)->elements.empty()) runtimeError(expr.line, "Cannot pop from an empty array.");
+                    Value value = std::move((*array)->elements.back());
+                    (*array)->elements.pop_back();
+                    return value;
+                }
+                runtimeError(expr.line, "Array has no method '" + expr.left->name + "'.");
+            }
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&receiver);
             if (!instance || !*instance)
                 runtimeError(expr.line, "Method call requires an object.");
-            std::vector<Value> args;
-            for (const auto& item : expr.items) args.push_back(evaluate(*item));
             return invokeMethod(*instance, expr.left->name, args, expr.line, false);
         }
         if (expr.left && expr.left->kind == Expr::Kind::StaticMember) {
@@ -2117,6 +2191,12 @@ private:
         }
         if (expr.left && expr.left->kind == Expr::Kind::Variable) {
             const std::string name = expr.left->name;
+            if (exists(name)) {
+                Value callee = lookup(name, expr.line);
+                std::vector<Value> args;
+                for (const auto& item : expr.items) args.push_back(evaluate(*item));
+                return invokeCallable(callee, args, expr.line);
+            }
             auto classIt = classes_.find(name);
             if (classIt != classes_.end()) {
                 std::vector<Value> args;
@@ -2152,7 +2232,8 @@ private:
             }
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
-                "isUpper", "isLower", "isSpace", "toUpper", "toLower"
+                "isUpper", "isLower", "isSpace", "toUpper", "toLower",
+                "len", "push", "append", "pop"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2199,13 +2280,7 @@ private:
         Value callee = evaluate(*expr.left);
         std::vector<Value> args;
         for (const auto& item : expr.items) args.push_back(evaluate(*item));
-        if (const auto* bound = std::get_if<std::shared_ptr<BoundMethod>>(&callee)) {
-            if (!*bound) runtimeError(expr.line, "Invalid method.");
-            if ((*bound)->member->isConstructor || (*bound)->member->isDestructor)
-                runtimeError(expr.line, "Constructors and destructors cannot be called like ordinary methods.");
-            return callMethod(*bound, args, expr.line);
-        }
-        runtimeError(expr.line, "This expression is not callable.");
+        return invokeCallable(callee, args, expr.line);
     }
 
     Value builtin(const std::string& name, const std::vector<Value>& args, int line) {
@@ -2221,6 +2296,31 @@ private:
                 runtimeError(line, name + "() expects a string argument.");
             return std::get<std::string>(args[index]);
         };
+        if (name == "len") {
+            need(1);
+            if (const auto* textValue = std::get_if<std::string>(&args[0]))
+                return static_cast<double>(textValue->size());
+            if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]))
+                return *array ? static_cast<double>((*array)->elements.size()) : 0.0;
+            runtimeError(line, "len() expects a string or array.");
+        }
+        if (name == "push" || name == "append") {
+            need(2);
+            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
+            if (!array || !*array) runtimeError(line, name + "() expects an array as its first argument.");
+            (*array)->elements.push_back(args[1]);
+            if (name == "push") return static_cast<double>((*array)->elements.size());
+            return std::monostate{};
+        }
+        if (name == "pop") {
+            need(1);
+            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
+            if (!array || !*array) runtimeError(line, "pop() expects an array.");
+            if ((*array)->elements.empty()) runtimeError(line, "Cannot pop from an empty array.");
+            Value result = std::move((*array)->elements.back());
+            (*array)->elements.pop_back();
+            return result;
+        }
         if (name == "sqrt") { need(1); if (number(0) < 0) runtimeError(line, "sqrt() requires a non-negative number."); return std::sqrt(number(0)); }
         if (name == "sq") { need(1); const double n = number(0); return n * n; }
         if (name == "pow") { need(2); return std::pow(number(0), number(1)); }
