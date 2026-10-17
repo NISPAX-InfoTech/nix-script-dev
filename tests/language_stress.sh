@@ -1239,7 +1239,7 @@ nix main() {
 }
 NS
 
-run_error duplicate_constructor_declarations "already declared" <<'NS'
+run_error duplicate_constructor_declarations "declared more than once" <<'NS'
 class DoubleConstruct {
 public:
     DoubleConstruct(value) {
@@ -1663,11 +1663,7 @@ nix main() {
 }
 NS
 
-run_ok multiple_inheritance_fields_and_methods 
-if (( failed > 0 )); then
-    exit 1
-fi
-3\n4\n' <<'NS'
+run_ok multiple_inheritance_fields_and_methods $'3\n4\n' <<'NS'
 class Left {
 public:
     var left = 3;
