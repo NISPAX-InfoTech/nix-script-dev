@@ -4,6 +4,10 @@ NixScript is an early experiment in a readable, multi-paradigm, general-purpose 
 
 The current implementation is a **C++17 interpreter prototype**, not a native compiler. The core C++-style OOP arc includes multiple inheritance, overload resolution by arity and parameter types, and explicit base-constructor initialization; full C++ compatibility is not a goal.
 
+## Release status
+
+NixScript is currently an **early preview**, not a stable 1.0 release. The CLI release workflow packages tested Linux and Windows builds when a semantic-version tag (for example, `v0.1.0`) is pushed. See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the release gate, supported artifacts, and remaining stability decisions. Do not assume planned features are implemented; the limitations below and in [LANGUAGE.md](LANGUAGE.md) are authoritative.
+
 ## Build
 
 Requires CMake 3.16+ and a C++17 compiler.
