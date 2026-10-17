@@ -2583,3 +2583,33 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 echo "PASS: $passed language regressions."
+
+run_ok file_handling_read_write_append_exists_and_delete $'hello world\\ntrue\\ntrue\\nfalse\\n' <<NS
+nix main() {
+    var path = "${TMP}/nix-file-test.txt";
+    writeFile(path, "hello");
+    appendFile(path, " world\\n");
+    println(readFile(path));
+    println(fileExists(path));
+    println(deleteFile(path));
+    println(fileExists(path));
+}
+NS
+
+run_ok file_handling_lists_directory_entries $'a.txt\\nz.txt\\n' <<NS
+nix main() {
+    var path = "${TMP}/nix-file-list";
+    createDirectory(path);
+    writeFile(path + "/z.txt", "z");
+    writeFile(path + "/a.txt", "a");
+    var entries = listFiles(path);
+    println(entries[0]);
+    println(entries[1]);
+}
+NS
+
+run_error file_handling_requires_string_path "readFile() expects a string argument" <<'NS'
+nix main() {
+    readFile(42);
+}
+NS
