@@ -1693,6 +1693,71 @@ nix main() {
 }
 NS
 
+
+run_ok inherited_overload_set_and_implicit_dispatch 
+if (( failed > 0 )); then
+    exit 1
+fi
+one:7\ntwo:7:8\nimplicit:9\n' <<'NS'
+class BaseDisplay {
+public:
+    fn show(value) { println("one:", value); }
+};
+class FancyDisplay : BaseDisplay {
+public:
+    fn show(left, right) { println("two:", left, ":", right); }
+    fn run() { show(9); }
+};
+nix main() {
+    var display = FancyDisplay();
+    display.show(7);
+    display.show(7, 8);
+    display.run();
+}
+NS
+
+run_error ambiguous_same_arity_methods_from_multiple_bases "Ambiguous inherited method 'run'" <<'NS'
+class LeftRunner {
+public:
+    fn run(value) { println("left"); }
+};
+class RightRunner {
+public:
+    fn run(value) { println("right"); }
+};
+class BothRunners : LeftRunner, RightRunner {};
+nix main() {
+    var runner = BothRunners();
+    runner.run(1);
+}
+NS
+
+run_error abstract_contract_from_second_base "must implement abstract method 'right' with 1 parameter(s)" <<'NS'
+abstract class LeftContract {
+    abstract fn left(value);
+};
+abstract class RightContract {
+    abstract fn right(value);
+};
+class Incomplete : LeftContract, RightContract {
+    fn left(value) { return value; }
+};
+nix main() {
+    var item = Incomplete();
+}
+NS
+
+run_error base_class_requires_explicit_zero_argument_constructor "has no zero-argument constructor for implicit base initialization" <<'NS'
+class NeedsArgument {
+public:
+    NeedsArgument(value) {}
+};
+class Child : NeedsArgument {};
+nix main() {
+    var item = Child();
+}
+NS
+
 printf '\nLanguage stress suite: %d passed, %d failed\n' "$passed" "$failed"
 if (( failed > 0 )); then
     exit 1
