@@ -868,6 +868,97 @@ nix main() {
 }
 NS
 
+run_ok explicit_fn_class_method_prototype_and_definition $'null × _×Hey, x = 6 now!' <<'NS'
+class Test {
+    var x;
+    Test() {
+        print("${x} × _×");
+    }
+    fn Put();
+};
+
+fn Test::Put() {
+    x = 6;
+    print("Hey, x = ", x, " now!");
+}
+
+nix main() {
+    Test t;
+    t.Put();
+}
+NS
+
+run_ok polymorphic_dispatch_through_base_typed_variable $'dog\n' <<'NS'
+class Animal {
+public:
+    fn speak() {
+        println("animal");
+    }
+};
+class Dog : Animal {
+public:
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_ok abstract_class_concrete_implementation $'dog\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class Dog : Animal {
+    fn speak() {
+        println("dog");
+    }
+};
+nix main() {
+    Animal pet = Dog();
+    pet.speak();
+}
+NS
+
+run_error cannot_instantiate_abstract_class "Cannot instantiate abstract class 'Animal'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+nix main() {
+    var pet = Animal();
+}
+NS
+
+run_error concrete_class_missing_abstract_method "must implement abstract method 'speak'" <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+class SilentDog : Animal {
+};
+nix main() {
+    var pet = SilentDog();
+}
+NS
+
+run_ok abstract_class_can_extend_abstract_class $'bird\n' <<'NS'
+abstract class Animal {
+    abstract fn speak();
+};
+abstract class Bird : Animal {
+};
+class Sparrow : Bird {
+    fn speak() {
+        println("bird");
+    }
+};
+nix main() {
+    var bird = Sparrow();
+    bird.speak();
+}
+NS
+
 run_ok out_of_class_constructor_method_and_destructor $'stored\nitem destroyed\n' <<'NS'
 class Item {
 public:
@@ -1258,13 +1349,66 @@ nix main() {
 }
 NS
 
-run_error implicit_private_access "not accessible here" <<'NS'
-class HiddenByDefault {
+run_ok implicit_public_access $'4\n' <<'NS'
+class PublicByDefault {
+    int value = 4;
+};
+nix main() {
+    var object = PublicByDefault();
+    println(object.value);
+}
+NS
+
+run_error secured_field_access "not accessible here" <<'NS'
+class HiddenByChoice {
+secured:
     int secret = 4;
 };
 nix main() {
-    var object = HiddenByDefault();
+    var object = HiddenByChoice();
     println(object.secret);
+}
+NS
+
+run_error secured_method_access "not accessible here" <<'NS'
+class HiddenMethod {
+secured:
+    fn reveal() {
+        return 42;
+    }
+};
+nix main() {
+    var object = HiddenMethod();
+    println(object.reveal());
+}
+NS
+
+run_ok secured_method_can_access_secured_field $'42\n' <<'NS'
+class Encapsulated {
+secured:
+    var secret = 42;
+    fn reveal() {
+        return secret;
+    }
+public:
+    fn value() {
+        return reveal();
+    }
+};
+nix main() {
+    var object = Encapsulated();
+    println(object.value());
+}
+NS
+
+run_ok explicit_public_section_remains_supported $'7\n' <<'NS'
+class ExplicitPublic {
+public:
+    var value = 7;
+};
+nix main() {
+    var object = ExplicitPublic();
+    println(object.value);
 }
 NS
 

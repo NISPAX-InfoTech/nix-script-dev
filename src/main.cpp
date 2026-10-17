@@ -214,6 +214,7 @@ enum class Access { Public, Protected, Private };
 struct ClassMember {
     enum class Kind { Field, Method };
     Kind kind = Kind::Field;
+    bool isAbstract = false;
     std::string name;
     std::string typeName;
     std::string owner;
@@ -221,7 +222,7 @@ struct ClassMember {
     bool isConstructor = false;
     bool isDestructor = false;
     bool defined = true;
-    Access access = Access::Private;
+    Access access = Access::Public;
     std::unique_ptr<Expr> initializer;
     std::vector<std::string> parameters;
     std::vector<Stmt> body;
@@ -229,6 +230,7 @@ struct ClassMember {
 
 struct ClassDef {
     std::string name;
+    bool isAbstract = false;
     std::string baseName;
     std::shared_ptr<ClassDef> base;
     std::vector<ClassMember> members;
@@ -259,8 +261,15 @@ public:
         }
 
         while (!(check(TokenKind::Identifier) && peek().text == "nix") && !atEnd()) {
-            if (matchIdentifier("class")) {
+            if (matchIdentifier("abstract")) {
+                consumeIdentifierExact("class", "'abstract' must be followed by 'class'.");
+                program.push_back(parseClass(true));
+            } else if (matchIdentifier("class")) {
                 program.push_back(parseClass());
+            } else if (check(TokenKind::Identifier) && peek().text == "fn" &&
+                       look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
+                advance(); // fn
+                parseOutOfClassDefinition();
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
@@ -280,7 +289,11 @@ public:
         for (auto& stmt : mainBody) program.push_back(std::move(stmt));
 
         while (!atEnd()) {
-            if (matchIdentifier("fn")) {
+            if (check(TokenKind::Identifier) && peek().text == "fn" &&
+                look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
+                advance(); // fn
+                parseOutOfClassDefinition();
+            } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
@@ -339,7 +352,7 @@ private:
         static const std::vector<std::string> reserved = {
             "main", "nix", "fn", "class", "use", "print", "println", "repeat", "if", "elif",
             "else", "for", "return", "true", "false", "null", "and", "or", "not",
-            "this", "public", "private", "protected", "static", "uin", "sqrt", "sq",
+            "this", "public", "private", "protected", "secured", "static", "abstract", "uin", "sqrt", "sq",
             "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
             "toUpper", "toLower"
         };
@@ -435,9 +448,10 @@ private:
             member.defined = false;
         }
     }
-    Stmt parseClass() {
+    Stmt parseClass(bool isAbstract = false) {
         const Token classToken = previous();
         auto klass = std::make_shared<ClassDef>();
+        klass->isAbstract = isAbstract;
         klass->name = consumeName("Expected a class name after 'class'.");
         if (classNames_.count(klass->name)) fail(classToken, "Class '" + klass->name + "' is already declared.");
         if (functionNames_.count(klass->name))
@@ -446,7 +460,7 @@ private:
         if (match(TokenKind::Colon)) klass->baseName = consumeName("Expected a base class name after ':'.");
         consume(TokenKind::LeftBrace, "Expected '{' after class name.");
 
-        Access access = Access::Private;
+        Access access = Access::Public;
         auto appendMember = [&](ClassMember&& member) {
             for (const auto& existing : klass->members) {
                 if (existing.name == member.name) {
@@ -458,7 +472,8 @@ private:
         };
         while (!check(TokenKind::RightBrace) && !atEnd()) {
             if (check(TokenKind::Identifier) &&
-                (peek().text == "public" || peek().text == "private" || peek().text == "protected") &&
+                (peek().text == "public" || peek().text == "private" ||
+                 peek().text == "secured" || peek().text == "protected") &&
                 look(1).kind == TokenKind::Colon) {
                 const std::string label = advance().text;
                 advance();
@@ -470,7 +485,23 @@ private:
             ClassMember member;
             member.owner = klass->name;
             member.access = access;
+            member.isAbstract = matchIdentifier("abstract");
             member.isStatic = matchIdentifier("static");
+            if (member.isAbstract && !klass->isAbstract) {
+                fail(peek(), "Abstract methods can only be declared inside an abstract class.");
+            }
+            if (matchIdentifier("fn")) {
+                member.name = consumeName("Expected a method name after 'fn'.");
+                member.typeName = "var";
+                member.kind = ClassMember::Kind::Method;
+                member.isConstructor = member.name == klass->name;
+                parseMethodTail(member);
+                if (member.isAbstract && member.defined)
+                    fail(previous(), "An abstract method must end with ';' and have no body.");
+                appendMember(std::move(member));
+                continue;
+            }
+            if (member.isAbstract) fail(peek(), "'abstract' must be followed by a method declaration.");
             if (match(TokenKind::Tilde)) {
                 member.kind = ClassMember::Kind::Method;
                 member.name = "~" + consumeName("Expected a destructor name after '~'.");
@@ -523,6 +554,11 @@ private:
 
     bool looksLikeOutOfClassDefinition() const {
         if (!check(TokenKind::Identifier)) return false;
+        if (peek().text == "fn") {
+            return look(1).kind == TokenKind::Identifier &&
+                   look(2).kind == TokenKind::Scope &&
+                   classNames_.count(look(1).text) != 0;
+        }
         if (look(1).kind == TokenKind::Scope) return classNames_.count(peek().text) != 0;
         return look(1).kind == TokenKind::Identifier &&
                look(2).kind == TokenKind::Scope &&
@@ -530,9 +566,12 @@ private:
     }
 
     void parseOutOfClassDefinition() {
+        const bool hasFnKeyword = matchIdentifier("fn");
         std::string returnType;
         std::string className;
-        if (look(1).kind == TokenKind::Scope) {
+        if (hasFnKeyword) {
+            className = consumeName("Expected a class name after 'fn'.");
+        } else if (look(1).kind == TokenKind::Scope) {
             className = advance().text;
         } else {
             returnType = advance().text;
@@ -1056,7 +1095,12 @@ private:
     std::string interpolate(const std::string& input, int line) {
         std::string output;
         for (std::size_t i = 0; i < input.size();) {
-            if (input[i] == '{' && i + 2 < input.size() && input[i + 1] == '$') {
+            // Accept both {$name} and the familiar ${name} interpolation form.
+            const bool legacyInterpolation =
+                input[i] == '{' && i + 2 < input.size() && input[i + 1] == '$';
+            const bool dollarInterpolation =
+                input[i] == '$' && i + 2 < input.size() && input[i + 1] == '{';
+            if (legacyInterpolation || dollarInterpolation) {
                 const std::size_t close = input.find('}', i + 2);
                 if (close == std::string::npos)
                     runtimeError(line, "Unclosed interpolation; expected '}' after variable name.");
@@ -1369,6 +1413,8 @@ private:
     }
 
     Value instantiate(const std::shared_ptr<ClassDef>& klass, const std::vector<Value>& args, int line) {
+        if (klass->isAbstract)
+            runtimeError(line, "Cannot instantiate abstract class '" + klass->name + "'.");
         auto instance = std::make_shared<Instance>();
         instance->klass = klass;
         initializeFields(instance, klass);
@@ -1645,6 +1691,26 @@ private:
             auto base = classes_.find(klass->baseName);
             if (base == classes_.end()) runtimeError(line, "Unknown base class '" + klass->baseName + "'.");
             klass->base = base->second;
+        }
+        if (!klass->isAbstract) {
+            for (auto ancestor = klass->base; ancestor; ancestor = ancestor->base) {
+                for (const auto& inherited : ancestor->members) {
+                    if (!inherited.isAbstract) continue;
+                    const ClassMember* implementation = nullptr;
+                    for (auto current = klass; current && !implementation; current = current->base) {
+                        for (const auto& candidate : current->members) {
+                            if (candidate.name == inherited.name && candidate.kind == ClassMember::Kind::Method) {
+                                implementation = &candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (!implementation || implementation->isAbstract || !implementation->defined) {
+                        runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
+                                            inherited.name + "' or be declared abstract.");
+                    }
+                }
+            }
         }
         classes_[klass->name] = klass;
         for (auto& member : klass->members) {
