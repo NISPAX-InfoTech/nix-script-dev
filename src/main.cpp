@@ -1221,7 +1221,7 @@ private:
                 auto thisIt = scope->find("this");
                 if (thisIt == scope->end()) continue;
                 if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
-                    ClassMember* member = findMember((*instance)->klass, name);
+                    ClassMember* member = findMember((*instance)->klass, name, line);
                     if (member && member->kind == ClassMember::Kind::Field)
                         return getMember(*instance, name, line);
                     if (member && member->kind == ClassMember::Kind::Method) {
@@ -1392,16 +1392,60 @@ private:
         }
     }
 
-    ClassMember* findMember(const std::shared_ptr<ClassDef>& klass, const std::string& name) const {
-        for (auto current = klass; current; current = current->base) {
-            for (auto& member : current->members) if (member.name == name) return const_cast<ClassMember*>(&member);
+    ClassMember* findMember(const std::shared_ptr<ClassDef>& klass,
+                            const std::string& name,
+                            int line = 1) const {
+        std::vector<ClassMember*> matches;
+        std::unordered_set<const ClassDef*> visited;
+        std::function<void(const std::shared_ptr<ClassDef>&)> search =
+            [&](const std::shared_ptr<ClassDef>& current) {
+                if (!current || !visited.insert(current.get()).second) return;
+                for (const auto& member : current->members) {
+                    if (member.name == name) {
+                        matches.push_back(const_cast<ClassMember*>(&member));
+                        return;
+                    }
+                }
+                if (!current->bases.empty()) {
+                    for (const auto& base : current->bases) search(base);
+                } else if (current->base) {
+                    search(current->base);
+                }
+            };
+        search(klass);
+        if (matches.empty()) return nullptr;
+        ClassMember* selected = matches.front();
+        for (std::size_t i = 1; i < matches.size(); ++i) {
+            ClassMember* candidate = matches[i];
+            if (candidate == selected) continue;
+            const auto selectedOwner = classes_.find(selected->owner);
+            const auto candidateOwner = classes_.find(candidate->owner);
+            const auto selectedClass = selectedOwner == classes_.end() ? nullptr : selectedOwner->second;
+            const auto candidateClass = candidateOwner == classes_.end() ? nullptr : candidateOwner->second;
+            if (classDerivesFrom(candidateClass, selected->owner)) selected = candidate;
+            else if (classDerivesFrom(selectedClass, candidate->owner)) continue;
+            else runtimeError(line, "Ambiguous inherited member '" + name +
+                                    "'; redeclare it in the derived class to resolve the conflict.");
         }
-        return nullptr;
+        return selected;
     }
+
     bool derivesFrom(const std::string& candidate, const std::string& base) const {
         auto it = classes_.find(candidate);
-        for (auto k = it == classes_.end() ? nullptr : it->second; k; k = k->base)
-            if (k->name == base) return true;
+        if (it == classes_.end()) return false;
+        std::vector<std::shared_ptr<ClassDef>> pending{it->second};
+        std::unordered_set<const ClassDef*> visited;
+        while (!pending.empty()) {
+            auto current = pending.back();
+            pending.pop_back();
+            if (!current || !visited.insert(current.get()).second) continue;
+            if (current->name == base) return true;
+            if (!current->bases.empty()) {
+                for (const auto& parent : current->bases) pending.push_back(parent);
+            } else if (current->base) {
+                pending.push_back(current->base);
+            }
+        }
         return false;
     }
     void checkAccess(const ClassMember& member, int line) const {
@@ -1411,7 +1455,7 @@ private:
         runtimeError(line, "Member '" + member.name + "' is not accessible here.");
     }
     Value getMember(const std::shared_ptr<Instance>& instance, const std::string& name, int line) {
-        ClassMember* member = findMember(instance->klass, name);
+        ClassMember* member = findMember(instance->klass, name, line);
         if (!member) runtimeError(line, "Class '" + instance->klass->name + "' has no member '" + name + "'.");
         checkAccess(*member, line);
         if (member->kind == ClassMember::Kind::Method) {
@@ -1431,7 +1475,7 @@ private:
         return field->second;
     }
     Value getStaticMember(const std::shared_ptr<ClassDef>& klass, const std::string& name, int line) {
-        ClassMember* member = findMember(klass, name);
+        ClassMember* member = findMember(klass, name, line);
         if (!member) runtimeError(line, "Class '" + klass->name + "' has no member '" + name + "'.");
         checkAccess(*member, line);
         if (!member->isStatic) runtimeError(line, "Member '" + name + "' is not static.");
@@ -1450,7 +1494,7 @@ private:
             Value baseValue = evaluate(*target.left);
             auto* instance = std::get_if<std::shared_ptr<Instance>>(&baseValue);
             if (!instance || !*instance) runtimeError(line, "Member assignment requires an object.");
-            ClassMember* member = findMember((*instance)->klass, target.name);
+            ClassMember* member = findMember((*instance)->klass, target.name, line);
             if (!member) runtimeError(line, "Unknown member '" + target.name + "'.");
             checkAccess(*member, line);
             if (member->kind != ClassMember::Kind::Field) runtimeError(line, "Cannot assign to a method.");
@@ -1465,7 +1509,7 @@ private:
             Value baseValue = evaluate(*target.left);
             auto* klass = std::get_if<std::shared_ptr<ClassDef>>(&baseValue);
             if (!klass || !*klass) runtimeError(line, "'::' assignment requires a class name.");
-            ClassMember* member = findMember(*klass, target.name);
+            ClassMember* member = findMember(*klass, target.name, line);
             if (!member || member->kind != ClassMember::Kind::Field || !member->isStatic)
                 runtimeError(line, "Target is not a static field.");
             checkAccess(*member, line);
@@ -2015,36 +2059,76 @@ private:
     }
 
     void registerClass(const std::shared_ptr<ClassDef>& klass, int line) {
-        if (classes_.count(klass->name)) runtimeError(line, "Class '" + klass->name + "' is already declared.");
-        if (!klass->baseName.empty()) {
-            auto base = classes_.find(klass->baseName);
-            if (base == classes_.end()) runtimeError(line, "Unknown base class '" + klass->baseName + "'.");
-            klass->base = base->second;
+        if (classes_.count(klass->name))
+            runtimeError(line, "Class '" + klass->name + "' is already declared.");
+
+        if (klass->baseNames.empty() && !klass->baseName.empty())
+            klass->baseNames.push_back(klass->baseName);
+        klass->bases.clear();
+        for (const auto& baseName : klass->baseNames) {
+            auto base = classes_.find(baseName);
+            if (base == classes_.end())
+                runtimeError(line, "Unknown base class '" + baseName + "' in inheritance list for '" + klass->name + "'.");
+            if (base->second == klass)
+                runtimeError(line, "Class '" + klass->name + "' cannot inherit from itself.");
+            klass->bases.push_back(base->second);
         }
+        klass->base = klass->bases.empty() ? nullptr : klass->bases.front();
+
+        classes_[klass->name] = klass;
+        for (const auto& member : klass->members) {
+            if (!member.isConstructor) continue;
+            for (const auto& initializer : member.baseInitializers) {
+                const bool directBase = std::find(klass->baseNames.begin(), klass->baseNames.end(),
+                                                  initializer.baseName) != klass->baseNames.end();
+                if (!directBase)
+                    runtimeError(line, "Constructor '" + klass->name + "' initializes '" +
+                                       initializer.baseName + "', which is not a direct base class.");
+            }
+        }
+
         if (!klass->isAbstract) {
-            for (auto ancestor = klass->base; ancestor; ancestor = ancestor->base) {
-                for (const auto& inherited : ancestor->members) {
-                    if (!inherited.isAbstract) continue;
-                    const ClassMember* implementation = nullptr;
-                    for (auto current = klass; current && !implementation; current = current->base) {
-                        for (const auto& candidate : current->members) {
-                            if (candidate.name == inherited.name && candidate.kind == ClassMember::Kind::Method) {
-                                implementation = &candidate;
-                                break;
-                            }
-                        }
+            std::unordered_set<std::string> requiredAbstractSignatures;
+            std::unordered_set<const ClassDef*> visited;
+            std::function<void(const std::shared_ptr<ClassDef>&)> collectRequirements =
+                [&](const std::shared_ptr<ClassDef>& current) {
+                    if (!current || !visited.insert(current.get()).second) return;
+                    for (const auto& member : current->members) {
+                        if (member.kind == ClassMember::Kind::Method && member.isAbstract)
+                            requiredAbstractSignatures.insert(overloadSignatureKey(member.name, member.parameterTypes));
                     }
-                    if (!implementation || implementation->isAbstract || !implementation->defined) {
-                        runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
-                                            inherited.name + "' or be declared abstract.");
+                    if (!current->bases.empty()) {
+                        for (const auto& base : current->bases) collectRequirements(base);
+                    } else if (current->base) {
+                        collectRequirements(current->base);
                     }
+                };
+            for (const auto& base : klass->bases) collectRequirements(base);
+
+            for (const auto& signature : requiredAbstractSignatures) {
+                const std::size_t open = signature.find('(');
+                const std::string methodName = signature.substr(0, open);
+                std::unordered_set<std::string> ambiguous;
+                auto candidates = methodOverloads(klass, methodName, ambiguous, line);
+                const ClassMember* implementation = nullptr;
+                for (const ClassMember* candidate : candidates) {
+                    if (overloadSignatureKey(candidate->name, candidate->parameterTypes) == signature) {
+                        implementation = candidate;
+                        break;
+                    }
+                }
+                if (!implementation || implementation->isAbstract || !implementation->defined ||
+                    ambiguous.count(signature)) {
+                    runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
+                                       methodName + "' or be declared abstract.");
                 }
             }
         }
-        classes_[klass->name] = klass;
+
         for (auto& member : klass->members) {
             if (member.kind == ClassMember::Kind::Field && member.isStatic) {
-                klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) : defaultValue(member.typeName);
+                klass->staticValues[member.name] = member.initializer
+                    ? evaluate(*member.initializer) : defaultValue(member.typeName);
             }
         }
     }
