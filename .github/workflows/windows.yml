@@ -71,3 +71,6 @@ jobs:
 
       - name: Stress malformed-source parsing
         run: python tests/parser_stress.py build/Release/nix.exe
+
+      - name: Run 1,200-case hardcore regression suite
+        run: python tests/hardcore_stress.py build/Release/nix.exe
