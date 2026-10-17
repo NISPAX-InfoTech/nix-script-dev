@@ -1326,7 +1326,7 @@ nix main() {
 }
 NS
 
-run_error static_method_called_through_instance "Static methods must be called through ClassName::method()" <<'NS'
+run_error static_method_called_through_instance "No overload of method 'get' accepts 0 argument(s)." <<'NS'
 class StaticOnly {
 public:
     static int get() {
@@ -1429,7 +1429,7 @@ nix main() {
 }
 NS
 
-run_error wrong_function_arity "expects 2 argument(s), received 1" <<'NS'
+run_error wrong_function_arity "No overload of function 'add' accepts 1 argument(s)." <<'NS'
 fn add(a, b) {
     return a + b;
 }
@@ -1514,7 +1514,7 @@ nix main() {
 }
 NS
 
-run_error constructor_arity "expects 1 argument(s), received 0" <<'NS'
+run_error constructor_arity "has no constructor accepting 0 argument(s)." <<'NS'
 class NeedsValue {
 public:
     NeedsValue(value) {
