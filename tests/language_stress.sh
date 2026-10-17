@@ -2338,7 +2338,7 @@ nix main() {
 }
 NS
 
-run_error index_non_array_value "Indexing requires an array value" <<'NS'
+run_error index_non_array_value "Indexing requires an array or map value" <<'NS'
 nix main() {
     var value = "hello";
     println(value[0]);
@@ -2441,6 +2441,118 @@ nix main() {
     var kept = makeItems();
     println("returned");
     println(kept[0].length);
+}
+NS
+
+echo "=== Dictionaries and maps ==="
+
+run_ok map_literals_indexing_properties_and_mutation $'Alex\n32\n4\ntrue\n{"name": Alex, "age": 32, "active": true, "city": Goa}\n' <<'NS'
+nix main() {
+    var user = {"name": "Alex", age: 31, "active": true};
+    user["age"] = 32;
+    user.city = "Goa";
+    println(user["name"]);
+    println(user.age);
+    println(user.length);
+    println(user.has("active"));
+    println(user);
+}
+NS
+
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n3\n9\ntrue\nfalse\n{"a": 1, "b": 9, "c": 3}\n' <<'NS'
+nix main() {
+    var data = {a: 1, b: 2};
+    println(len(data));
+    println(data.keys());
+    println(values(data));
+    data.set("c", 3);
+    data["b"] = 9;
+    println(data.get("c"));
+    println(data.remove("a"));
+    println(data.has("missing"));
+    println(data);
+}
+NS
+
+run_ok map_numeric_and_boolean_keys_are_canonicalized $'five\nbool\n2\n' <<'NS'
+nix main() {
+    var data = {5: "five", true: "bool"};
+    println(data[5]);
+    println(data[true]);
+    println(data.length);
+}
+NS
+
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[3, 4]\n' <<'NS'
+nix main() {
+    var data = {items: [3, 4], metadata: {version: 1}};
+    data.items[0] = 42;
+    println(data.items[0]);
+    println(data["items"]);
+}
+NS
+
+run_ok map_missing_keys_return_null_and_clear $'null\ntrue\n0\n' <<'NS'
+nix main() {
+    var data = {x: 1};
+    println(data["missing"]);
+    data.clear();
+    println(data.length == 0);
+    println(len(data));
+}
+NS
+
+run_ok map_cycle_stringification_is_safe $'{"self": {...}}\n' <<'NS'
+nix main() {
+    var data = {};
+    data["self"] = data;
+    println(data);
+}
+NS
+
+run_error map_rejects_array_keys "Map keys must be strings, numbers, booleans, or null" <<'NS'
+nix main() {
+    var data = {};
+    println(data[[1]]);
+}
+NS
+
+run_error map_length_is_read_only "Map.length is read-only" <<'NS'
+nix main() {
+    var data = {};
+    data.length = 4;
+}
+NS
+
+run_ok map_owns_objects_and_destroys_them_at_scope_exit $'inside\nmap item destroyed\nafter\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn dropMap() {
+    var data = {item: MapItem()};
+    println("inside");
+}
+nix main() {
+    dropMap();
+    println("after");
+}
+NS
+
+run_ok returned_map_preserves_object_lifetime $'returned\nmap item destroyed\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn makeMap() {
+    var data = {nested: {item: MapItem()}};
+    return data;
+}
+nix main() {
+    var kept = makeMap();
+    println("returned");
 }
 NS
 
