@@ -252,6 +252,7 @@ struct Instance {
     std::shared_ptr<ClassDef> klass;
     std::unordered_map<std::string, Value> fields;
     bool destroyed = false;
+    std::unordered_set<const ClassDef*> destroyedClasses;
 };
 
 static std::string overloadSignatureKey(const std::string& name,
@@ -1678,6 +1679,18 @@ private:
             std::vector<Value> baseArgs;
             const auto argsIt = baseArguments.find(base->name);
             if (argsIt != baseArguments.end()) baseArgs = argsIt->second;
+            if (argsIt == baseArguments.end()) {
+                bool hasConstructor = false;
+                bool hasZeroArgumentConstructor = false;
+                for (const auto& member : base->members) {
+                    if (!member.isConstructor || member.name != base->name) continue;
+                    hasConstructor = true;
+                    if (member.parameters.empty()) hasZeroArgumentConstructor = true;
+                }
+                if (hasConstructor && !hasZeroArgumentConstructor)
+                    runtimeError(line, "Base class '" + base->name +
+                                       "' has no zero-argument constructor for implicit base initialization.");
+            }
             const ClassMember* baseCtor = selectConstructor(base, baseArgs, line);
 
             const std::string oldClass = currentClass_;
@@ -1759,10 +1772,11 @@ private:
 
     void destroyClassPart(const std::shared_ptr<Instance>& instance,
                           const std::shared_ptr<ClassDef>& klass,
-                          std::size_t poppedIndex,
-                          std::unordered_set<const ClassDef*>& visited) {
-        if (!instance || !klass || !visited.insert(klass.get()).second) return;
+                          std::size_t poppedIndex) {
+        if (!instance || !klass || !instance->destroyedClasses.insert(klass.get()).second) return;
 
+        // C++-style destruction order for this class part: destructor body,
+        // fields in reverse declaration order, then the base-class part.
         const std::string destructorName = "~" + klass->name;
         ClassMember* destructor = nullptr;
         for (auto& member : klass->members) {
@@ -1780,8 +1794,6 @@ private:
             try { callMethod(bound, {}, 1); } catch (...) {}
         }
 
-        // Destroy fields introduced by this class in reverse declaration order,
-        // then its base subobjects in reverse declaration order.
         for (auto member = klass->members.rbegin(); member != klass->members.rend(); ++member) {
             if (member->kind != ClassMember::Kind::Field || member->isStatic) continue;
             const auto value = instance->fields.find(fieldStorageKey(*member));
@@ -1792,12 +1804,17 @@ private:
                 destroyInstance(*child, poppedIndex);
         }
 
-        if (!klass->bases.empty()) {
-            for (auto base = klass->bases.rbegin(); base != klass->bases.rend(); ++base)
-                destroyClassPart(instance, *base, poppedIndex, visited);
-        } else if (klass->base) {
-            destroyClassPart(instance, klass->base, poppedIndex, visited);
-        }
+    }
+
+    void collectClassPartsForDestruction(const std::shared_ptr<ClassDef>& klass,
+                                         std::unordered_set<const ClassDef*>& visited,
+                                         std::vector<std::shared_ptr<ClassDef>>& ordered) {
+        if (!klass || !visited.insert(klass.get()).second) return;
+        // Postorder with bases in declaration order, reversed by the caller:
+        // derived classes are destroyed before bases and shared ancestors once.
+        for (const auto& parent : klass->bases)
+            collectClassPartsForDestruction(parent, visited, ordered);
+        ordered.push_back(klass);
     }
 
     void destroyInstance(const std::shared_ptr<Instance>& instance,
@@ -1805,7 +1822,10 @@ private:
         if (!instance || instance->destroyed) return;
         instance->destroyed = true;
         std::unordered_set<const ClassDef*> visited;
-        destroyClassPart(instance, instance->klass, poppedIndex, visited);
+        std::vector<std::shared_ptr<ClassDef>> ordered;
+        collectClassPartsForDestruction(instance->klass, visited, ordered);
+        for (auto part = ordered.rbegin(); part != ordered.rend(); ++part)
+            destroyClassPart(instance, *part, poppedIndex);
     }
     void popScope(bool runDestructors = true, const Value* preservedValue = nullptr) {
         if (scopes_.empty()) return;
@@ -2194,8 +2214,15 @@ private:
                 }
                 if (!implementation || implementation->isAbstract || !implementation->defined ||
                     ambiguous.count(signature)) {
+                    const std::size_t left = signature.find('(');
+                    const std::size_t right = signature.find(')', left == std::string::npos ? 0 : left + 1);
+                    const std::string parameterList = (left != std::string::npos && right != std::string::npos)
+                        ? signature.substr(left + 1, right - left - 1) : std::string{};
+                    const std::size_t parameterCount = parameterList.empty() ? 0 :
+                        1 + static_cast<std::size_t>(std::count(parameterList.begin(), parameterList.end(), ','));
                     runtimeError(line, "Class '" + klass->name + "' must implement abstract method '" +
-                                       methodName + "' or be declared abstract.");
+                                       methodName + "' with " + std::to_string(parameterCount) +
+                                       " parameter(s) or be declared abstract.");
                 }
             }
         }
