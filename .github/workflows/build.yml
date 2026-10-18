@@ -105,6 +105,32 @@ jobs:
             exit 1
           }
 
+          # Named imports must use the same cycle detection and useful path diagnostics.
+          cat > import-test/lib/left.ns <<'EOF'
+          import { right } from "./right";
+          export fn left() { return 1; }
+          EOF
+          cat > import-test/lib/right.ns <<'EOF'
+          import { left } from "./left";
+          export fn right() { return 2; }
+          EOF
+          cat > import-test/named_circular.ns <<'EOF'
+          import { left } from "./lib/left";
+          nix main() {
+              println(left());
+          }
+          EOF
+          if ./build/nix import-test/named_circular.ns >import-test/named_circular.log 2>&1; then
+            echo "A named-import circular dependency unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "Circular library import detected" import-test/named_circular.log
+          grep -E -q "left\.ns.*right\.ns.*left\.ns" import-test/named_circular.log || {
+            echo "Named-import cycle diagnostic did not include the complete import chain" >&2
+            cat import-test/named_circular.log >&2
+            exit 1
+          }
+
       - name: Test official library install and updates
         shell: bash
         run: |
