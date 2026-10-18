@@ -168,8 +168,13 @@ public:
         return Task<T>(std::move(state));
     }
 
-    template <typename Fn, typename R = std::invoke_result_t<std::decay_t<Fn>&>>
+    template <typename R, typename Fn>
     Task<R> spawn(std::string label, Fn&& work) {
+        using ActualResult = std::invoke_result_t<std::decay_t<Fn>&>;
+        static_assert(std::is_void_v<R> == std::is_void_v<ActualResult>,
+                      "Task result type must match the callable's void/non-void result.");
+        static_assert(std::is_void_v<R> || std::is_convertible_v<ActualResult, R>,
+                      "Task result type must accept the callable's result.");
         static_assert(!std::is_reference_v<R>, "Async tasks cannot return references.");
         auto callable = std::make_shared<std::decay_t<Fn>>(std::forward<Fn>(work));
         // The callback captures only a weak task state to avoid a state -> callback
