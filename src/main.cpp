@@ -1,3 +1,4 @@
+#include "async_runtime.hpp"
 #include <algorithm>
 #include <map>
 #include <chrono>
@@ -181,17 +182,20 @@ struct UninitializedValue {};
 struct ArrayValue;
 struct MapValue;
 struct FunctionValue;
+struct AsyncTaskValue;
 using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>, std::shared_ptr<ArrayValue>,
-                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>>;
+                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>,
+                           std::shared_ptr<AsyncTaskValue>>;
 
 struct ArrayValue { std::vector<Value> elements; };
 struct MapValue { std::vector<std::pair<std::string, Value>> entries; };
 struct FunctionValue { std::string name; };
+struct AsyncTaskValue { async::Task<Value> task; };
 
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List, Await };
     Kind kind = Kind::Literal;
     Value value{};
     std::string name;
@@ -216,6 +220,7 @@ struct Stmt {
     std::vector<std::string> parameters;
     std::vector<std::string> parameterTypes;
     bool functionDefined = false;
+    bool isAsync = false;
     bool printNewline = false;
     std::unique_ptr<Expr> target;
     std::unique_ptr<Expr> expression;
@@ -304,6 +309,10 @@ public:
                        look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
                 advance(); // fn
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("async")) {
+                consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
+                Stmt function = parseFunction(); function.isAsync = true;
+                program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
@@ -327,6 +336,10 @@ public:
                 look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
                 advance(); // fn
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("async")) {
+                consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
+                Stmt function = parseFunction(); function.isAsync = true;
+                program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
@@ -386,7 +399,7 @@ private:
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
-            "main", "nix", "fn", "class", "use", "print", "println", "repeat", "if", "elif",
+            "main", "nix", "fn", "async", "await", "class", "use", "print", "println", "repeat", "if", "elif",
             "else", "for", "return", "true", "false", "null", "and", "or", "not",
             "this", "public", "private", "protected", "secured", "static", "abstract", "uin", "sqrt", "sq",
             "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
@@ -977,6 +990,11 @@ private:
         return expr;
     }
     std::unique_ptr<Expr> unary() {
+        if (matchIdentifier("await")) {
+            const Token op = previous();
+            auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Await;
+            expr->right = unary(); expr->line = op.line; return expr;
+        }
         if (match(TokenKind::Minus) || match(TokenKind::Bang) || matchIdentifier("not")) {
             Token op = previous();
             auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Unary; expr->op = op.kind;
@@ -1103,7 +1121,7 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
-    ~Interpreter() { breakContainerReferenceCycles(); }
+    ~Interpreter() { scheduler_.shutdown(); breakContainerReferenceCycles(); }
 
     std::shared_ptr<ArrayValue> makeArray() const {
         auto array = std::make_shared<ArrayValue>();
@@ -1153,6 +1171,17 @@ public:
     }
 
 private:
+    struct AsyncFrame {
+        const Stmt* function = nullptr;
+        std::unordered_map<std::string, Value> locals;
+        std::size_t pc = 0;
+        std::unordered_map<const Expr*, Value> expressionCache;
+        async::Task<Value> task;
+    };
+    struct AsyncSuspend {};
+    async::Scheduler scheduler_;
+    AsyncFrame* activeAsyncFrame_ = nullptr;
+    async::TaskContext* activeTaskContext_ = nullptr;
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
     mutable std::vector<std::weak_ptr<MapValue>> maps_;
@@ -1329,6 +1358,15 @@ private:
         }
         if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&value))
             return *function ? "<function " + (*function)->name + ">" : "<function>";
+        if (const auto* task = std::get_if<std::shared_ptr<AsyncTaskValue>>(&value)) {
+            if (!*task) return "<task invalid>";
+            const auto status = (*task)->task.status();
+            const char* name = status == async::TaskStatus::Pending ? "pending" :
+                status == async::TaskStatus::Running ? "running" :
+                status == async::TaskStatus::Succeeded ? "succeeded" :
+                status == async::TaskStatus::Failed ? "failed" : "cancelled";
+            return std::string("<task ") + name + ">";
+        }
         return "<method>";
     }
     static std::string stringify(const Value& value) {
@@ -1450,7 +1488,30 @@ private:
         return output;
     }
     Value evaluate(const Expr& expr) {
+        if (activeAsyncFrame_) {
+            auto found = activeAsyncFrame_->expressionCache.find(&expr);
+            if (found != activeAsyncFrame_->expressionCache.end()) return found->second;
+            Value value = evaluateUncached(expr);
+            activeAsyncFrame_->expressionCache.emplace(&expr, value);
+            return value;
+        }
+        return evaluateUncached(expr);
+    }
+    Value evaluateUncached(const Expr& expr) {
         switch (expr.kind) {
+            case Expr::Kind::Await: {
+                Value awaited = evaluate(*expr.right);
+                auto* taskValue = std::get_if<std::shared_ptr<AsyncTaskValue>>(&awaited);
+                if (!taskValue || !*taskValue) runtimeError(expr.line, "await expects an async task; call an async function first.");
+                auto& task = (*taskValue)->task;
+                if (activeTaskContext_) {
+                    if (!activeTaskContext_->await(task)) throw AsyncSuspend{};
+                } else {
+                    scheduler_.runUntil(task);
+                }
+                try { return task.result(); }
+                catch (const std::exception& error) { runtimeError(expr.line, std::string("Awaited task failed: ") + error.what()); }
+            }
             case Expr::Kind::Literal:
                 if (const auto* text = std::get_if<std::string>(&expr.value)) return interpolate(*text, expr.line);
                 return expr.value;
@@ -1851,6 +1912,51 @@ private:
         }
     }
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
+        if (function.isAsync) {
+            if (args.size() != function.parameters.size())
+                runtimeError(line, "Async function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
+                                   " argument(s), received " + std::to_string(args.size()) + ".");
+            auto frame = std::make_shared<AsyncFrame>();
+            frame->function = &function;
+            for (std::size_t i = 0; i < args.size(); ++i) frame->locals[function.parameters[i]] = args[i];
+            frame->task = scheduler_.create<Value>(function.name, [this, frame](async::TaskContext& context) {
+                if (frame->pc >= frame->function->body.size()) {
+                    context.complete(frame->task, Value{std::monostate{}});
+                    return;
+                }
+                scopes_.push_back(frame->locals);
+                AsyncFrame* previousFrame = activeAsyncFrame_;
+                async::TaskContext* previousContext = activeTaskContext_;
+                activeAsyncFrame_ = frame.get();
+                activeTaskContext_ = &context;
+                bool suspended = false;
+                try {
+                    execute(frame->function->body[frame->pc]);
+                    ++frame->pc;
+                    frame->expressionCache.clear();
+                } catch (const AsyncSuspend&) {
+                    suspended = true;
+                } catch (const ReturnSignal& returned) {
+                    frame->locals = scopes_.back();
+                    scopes_.pop_back();
+                    activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
+                    context.complete(frame->task, returned.value);
+                    return;
+                } catch (...) {
+                    frame->locals = scopes_.back();
+                    scopes_.pop_back();
+                    activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
+                    throw;
+                }
+                frame->locals = scopes_.back();
+                scopes_.pop_back();
+                activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
+                if (!suspended && frame->pc >= frame->function->body.size())
+                    context.complete(frame->task, Value{std::monostate{}});
+            });
+            auto value = std::make_shared<AsyncTaskValue>(); value->task = frame->task;
+            return value;
+        }
         if (args.size() != function.parameters.size())
             runtimeError(line, "Function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
