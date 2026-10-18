@@ -201,7 +201,11 @@ public:
             if (!state) continue;
             state->queued = false;
             if (state->status == TaskStatus::Succeeded || state->status == TaskStatus::Failed ||
-                state->status == TaskStatus::Cancelled || !state->resume) continue;
+                state->status == TaskStatus::Cancelled) {
+                state->resume = {};
+                continue;
+            }
+            if (!state->resume) continue;
             state->status = TaskStatus::Running;
             TaskContext context(state, [this](const std::shared_ptr<TaskState>& task) { enqueue(task); });
             try {
@@ -217,6 +221,9 @@ public:
                     context.fail(Task<void>(state), std::current_exception());
             }
             if (state->status == TaskStatus::Running) state->status = TaskStatus::Pending;
+            else if (state->status == TaskStatus::Succeeded || state->status == TaskStatus::Failed ||
+                     state->status == TaskStatus::Cancelled)
+                state->resume = {};
             return true;
         }
         return false;
@@ -248,12 +255,13 @@ public:
         ready_.clear();
         for (auto& weak : tasks_) {
             if (auto state = weak.lock()) {
-                if (state->status == TaskStatus::Pending || state->status == TaskStatus::Running) {
+                if (state->status == TaskStatus::Pending || state->status == TaskStatus::Running)
                     state->status = TaskStatus::Cancelled;
-                    state->resume = {};
-                    state->waitingOn.reset();
-                    state->waiters.clear();
-                }
+                // Release callback captures for terminal as well as pending
+                // tasks; callbacks may own arbitrary user state.
+                state->resume = {};
+                state->waitingOn.reset();
+                state->waiters.clear();
             }
         }
         tasks_.clear();
