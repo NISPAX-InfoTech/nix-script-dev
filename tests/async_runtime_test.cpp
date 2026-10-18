@@ -171,6 +171,16 @@ int main() {
     scheduler.runUntil(releaseTask);
     CHECK(resourceWeak.expired());
 
+    Task<void> reentrant;
+    bool reentrancyRejected = false;
+    reentrant = scheduler.create<void>("reentrant-pump", [&](TaskContext& ctx) {
+        try { (void)scheduler.runOne(); }
+        catch (const std::logic_error&) { reentrancyRejected = true; }
+        ctx.complete(reentrant);
+    });
+    scheduler.runUntil(reentrant);
+    CHECK(reentrancyRejected);
+
     scheduler.shutdown();
     bool rejected = false;
     try {
