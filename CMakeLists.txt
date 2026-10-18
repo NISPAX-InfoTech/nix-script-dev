@@ -14,5 +14,5 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
     add_test(NAME async_runtime_test COMMAND async_runtime_test)
     add_test(NAME async_language_test
         COMMAND $<TARGET_FILE:nix> ${CMAKE_CURRENT_SOURCE_DIR}/tests/async_language.ns)
-    set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "42")
+    set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42")
 endif()
