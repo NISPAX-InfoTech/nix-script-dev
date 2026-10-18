@@ -131,6 +131,25 @@ jobs:
             exit 1
           }
 
+          cat > import-test/lib/first.ns <<'EOF'
+          export fn shared() { return 1; }
+          EOF
+          cat > import-test/lib/second.ns <<'EOF'
+          export fn shared() { return 2; }
+          EOF
+          cat > import-test/duplicate_import.ns <<'EOF'
+          import { shared } from "./lib/first";
+          import { shared } from "./lib/second";
+          nix main() {
+              println(shared());
+          }
+          EOF
+          if ./build/nix import-test/duplicate_import.ns >import-test/duplicate_import.log 2>&1; then
+            echo "Duplicate named imports unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "Imported name 'shared' is declared more than once" import-test/duplicate_import.log
+
       - name: Test official library install and updates
         shell: bash
         run: |
