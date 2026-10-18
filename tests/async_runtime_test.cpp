@@ -52,6 +52,18 @@ int main() {
     catch (const TaskCancelled&) { cancellationReported = true; }
     assert(cancellationReported);
 
+    Task<void> cancelledDependency, cancellationConsumer;
+    cancelledDependency = scheduler.create<void>("cancelled-dependency", [&](TaskContext& ctx) {
+        ctx.complete(cancelledDependency);
+    });
+    cancellationConsumer = scheduler.create<void>("cancellation-consumer", [&](TaskContext& ctx) {
+        if (!ctx.await(cancelledDependency)) return;
+        ctx.complete(cancellationConsumer);
+    });
+    scheduler.cancel(cancelledDependency);
+    scheduler.runUntilIdle();
+    assert(cancellationConsumer.status() == TaskStatus::Cancelled);
+
     // Multiple consumers of one task must all resume when it completes.
     Task<int> shared;
     shared = scheduler.create<int>("shared", [&](TaskContext& ctx) {
