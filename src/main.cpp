@@ -2928,6 +2928,10 @@ struct SourceLoader {
         std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
         exportsByPath[key] = scanExports(source);
         std::istringstream lines(source); std::string line; std::vector<ImportSpec> imports; std::ostringstream localSource;
+        // Named imports share the importing module's top-level namespace. Reject
+        // collisions early instead of allowing flattened-source order to decide
+        // which declaration wins or producing a confusing parser error later.
+        std::unordered_set<std::string> importedNames;
         bool importSection = true; int lineNumber = 0;
         while (std::getline(lines, line)) {
             ++lineNumber; const std::string code = trim(withoutComment(line));
@@ -2935,8 +2939,19 @@ struct SourceLoader {
                 std::string library;
                 if (parseUse(line, library)) { ImportSpec spec; spec.legacy = true; spec.name = library; spec.line = lineNumber; imports.push_back(std::move(spec)); continue; }
                 ImportSpec spec;
-                try { if (parseNamedImport(line, spec)) { spec.line = lineNumber; imports.push_back(std::move(spec)); continue; } }
-                catch (const std::exception& error) { throw std::runtime_error(path.string() + ":" + std::to_string(lineNumber) + ": " + error.what()); }
+                try {
+                    if (parseNamedImport(line, spec)) {
+                        spec.line = lineNumber;
+                        for (const auto& symbol : spec.symbols) {
+                            if (!importedNames.insert(symbol).second)
+                                throw std::runtime_error("Imported name '" + symbol + "' is declared more than once in this module.");
+                        }
+                        imports.push_back(std::move(spec));
+                        continue;
+                    }
+                } catch (const std::exception& error) {
+                    throw std::runtime_error(path.string() + ":" + std::to_string(lineNumber) + ": " + error.what());
+                }
                 if (isCommentOrBlank(line)) { localSource << line << '\n'; continue; }
                 importSection = false;
             }
