@@ -2971,7 +2971,7 @@ struct SourceLoader {
                     if (c == '*' && i + 1 < line.size() && line[i + 1] == '/') { inBlockComment = false; ++i; }
                 } else if (inString) {
                     if (escaped) escaped = false;
-                    else if (c == '\\\\') escaped = true;
+                    else if (c == '\\') escaped = true;
                     else if (c == '"') inString = false;
                 } else if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') {
                     break;
