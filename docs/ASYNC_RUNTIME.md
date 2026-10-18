@@ -1,9 +1,9 @@
 # Cooperative async runtime (C++ foundation)
 
-This header provides the execution primitive intended to back Nix Script async
-functions. It is deliberately cooperative and single-threaded: a task advances
-only when the scheduler invokes its resume callback. It does not claim parallel
-execution or non-blocking I/O by itself.
+Nix Script now supports top-level `async fn` declarations and `await`
+expressions in the C++ interpreter. Async functions return task values and run
+cooperatively, advancing one statement per scheduler turn. The scheduler is
+single-threaded: this does not claim parallel execution or non-blocking I/O.
 
 ## Task lifecycle
 
