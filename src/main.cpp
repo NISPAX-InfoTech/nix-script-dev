@@ -2995,8 +2995,6 @@ struct SourceLoader {
                         for (const auto& symbol : spec.symbols) {
                             if (!importedNames.insert(symbol).second)
                                 throw std::runtime_error("Imported name '" + symbol + "' is imported more than once in this module.");
-                            if (localTopLevelNames.count(symbol))
-                                throw std::runtime_error("Imported name '" + symbol + "' conflicts with a local top-level declaration.");
                         }
                         imports.push_back(std::move(spec));
                         continue;
@@ -3011,6 +3009,14 @@ struct SourceLoader {
                 const auto marker = line.find("export"); if (marker != std::string::npos) line.erase(marker, 6);
             }
             localSource << line << '\n';
+        }
+        for (const auto& spec : imports) {
+            if (spec.legacy) continue;
+            for (const auto& symbol : spec.symbols) {
+                if (localTopLevelNames.count(symbol))
+                    throw std::runtime_error(path.string() + ":" + std::to_string(spec.line) +
+                        ": Imported name '" + symbol + "' conflicts with a local top-level declaration.");
+            }
         }
         active.insert(key);
         activeStack.push_back(key);
