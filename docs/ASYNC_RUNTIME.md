@@ -61,9 +61,31 @@ to the scheduler.
 - Cancellation and scheduler shutdown release callbacks and their captures.
 - The scheduler is single-threaded and must not be pumped concurrently.
 
-## Language integration status
+## Language syntax and current boundaries
 
-This is a C++ runtime foundation, not yet the Nix Script language feature. The
-parser, expression evaluator, function-call path, async entry point, and language
-regression suite must be wired to these primitives before `async`/`await` can
-be advertised as supported in `.ns` source files.
+```ns
+async fn plusOne(value) {
+    return value + 1;
+}
+
+async fn nested(value) {
+    var first = await plusOne(value);
+    var second = await plusOne(first);
+    return second;
+}
+
+nix main() {
+    var answer = await nested(40);
+    println(answer); // 42
+}
+```
+
+The nested-await example is covered by `tests/async_language.ns` and the
+`async_language_test` CTest target. Awaiting a non-task is a runtime error.
+The runtime is cooperative, not parallel; synchronous work and blocking input
+still block the interpreter. External I/O futures, timers, and a worker pool are
+not connected yet. Async methods and async constructors are not implemented.
+The current interpreter resumes at statement boundaries; avoid putting
+suspending awaits inside complex nested control-flow bodies until that
+continuation path has dedicated regression coverage. Module visibility remains
+a separate release blocker because modules are still flattened by the loader.
