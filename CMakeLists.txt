@@ -12,4 +12,7 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
     add_executable(async_runtime_test tests/async_runtime_test.cpp)
     target_include_directories(async_runtime_test PRIVATE src)
     add_test(NAME async_runtime_test COMMAND async_runtime_test)
+    add_test(NAME async_language_test
+        COMMAND $<TARGET_FILE:nix> ${CMAKE_CURRENT_SOURCE_DIR}/tests/async_language.ns)
+    set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "42")
 endif()
