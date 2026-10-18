@@ -9,7 +9,7 @@
 using namespace nix::async;
 
 [[noreturn]] static void checkFailed(const char* expression, int line) {
-    std::cerr << "async_runtime_test:" << line << ": CHECK failed: " << expression << '\\n';
+    std::cerr << "async_runtime_test:" << line << ": CHECK failed: " << expression << std::endl;
     std::exit(1);
 }
 #define CHECK(expression) do { if (!(expression)) checkFailed(#expression, __LINE__); } while (false)
