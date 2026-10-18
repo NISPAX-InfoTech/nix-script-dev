@@ -148,7 +148,20 @@ jobs:
             echo "Duplicate named imports unexpectedly succeeded" >&2
             exit 1
           fi
-          grep -q "Imported name 'shared' is declared more than once" import-test/duplicate_import.log
+          grep -q "Imported name 'shared' is imported more than once" import-test/duplicate_import.log
+
+          cat > module-test/local_conflict.ns <<'EOF'
+          import { add } from "./math";
+          fn add(a, b) { return a - b; }
+          nix main() {
+              println(add(20, 22));
+          }
+          EOF
+          if ./build/nix module-test/local_conflict.ns >module-test/local_conflict.log 2>&1; then
+              echo "An imported name conflicting with a local function unexpectedly succeeded" >&2
+              exit 1
+          fi
+          grep -q "conflicts with a local top-level declaration" module-test/local_conflict.log
 
       - name: Test official library install and updates
         shell: bash
