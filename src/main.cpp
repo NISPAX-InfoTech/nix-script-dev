@@ -2803,7 +2803,24 @@ namespace fs = std::filesystem;
 struct SourceLoader {
     std::unordered_set<std::string> loaded;
     std::unordered_set<std::string> active;
+    // Preserve import order for actionable cycle diagnostics.
+    std::vector<std::string> activeStack;
     std::unordered_map<std::string, std::unordered_set<std::string>> exportsByPath;
+
+    std::string cycleDescription(const std::string& repeated) const {
+        std::ostringstream out;
+        auto begin = std::find(activeStack.begin(), activeStack.end(), repeated);
+        if (begin == activeStack.end()) begin = activeStack.begin();
+        bool first = true;
+        for (auto it = begin; it != activeStack.end(); ++it) {
+            if (!first) out << " -> ";
+            out << *it;
+            first = false;
+        }
+        if (!first) out << " -> ";
+        out << repeated;
+        return out.str();
+    }
     struct ImportSpec { bool legacy = false; std::string name; std::vector<std::string> symbols; int line = 1; };
     static std::string trim(const std::string& value) {
         const auto first = value.find_first_not_of(" \t\r");
@@ -2905,7 +2922,7 @@ struct SourceLoader {
         std::error_code ec; fs::path path = fs::weakly_canonical(inputPath, ec);
         if (ec) path = fs::absolute(inputPath).lexically_normal();
         const std::string key = path.string();
-        if (active.count(key)) throw std::runtime_error("Circular library import detected at '" + key + "'.");
+        if (active.count(key)) throw std::runtime_error("Circular library import detected: " + cycleDescription(key) + ".");
         if (loaded.count(key)) return {};
         std::ifstream file(path); if (!file) throw std::runtime_error("Could not open source file: " + path.string());
         std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
@@ -2928,7 +2945,9 @@ struct SourceLoader {
             }
             localSource << line << '\n';
         }
-        active.insert(key); std::string combined;
+        active.insert(key);
+        activeStack.push_back(key);
+        std::string combined;
         try {
             for (const auto& spec : imports) {
                 const fs::path importedPath = resolve(path, spec.name);
@@ -2945,8 +2964,16 @@ struct SourceLoader {
                 }
                 combined += load(importedPath); combined += '\n';
             }
-        } catch (const std::exception& error) { active.erase(key); throw std::runtime_error(path.string() + ": " + error.what()); }
-        active.erase(key); loaded.insert(key); combined += localSource.str(); return combined;
+        } catch (const std::exception& error) {
+            active.erase(key);
+            if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
+            throw std::runtime_error(path.string() + ": " + error.what());
+        }
+        active.erase(key);
+        if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
+        loaded.insert(key);
+        combined += localSource.str();
+        return combined;
     }
 };
 #ifndef NIX_ANDROID
