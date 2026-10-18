@@ -11,8 +11,10 @@ int main() {
     Scheduler scheduler;
     std::vector<int> order;
     Task<int> dependency;
+    int dependencySteps = 0;
     dependency = scheduler.create<int>("dependency", [&](TaskContext& ctx) {
         order.push_back(1);
+        if (++dependencySteps == 1) { ctx.yield(); return; }
         ctx.complete(dependency, 21);
     });
     Task<int> parent;
