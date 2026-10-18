@@ -1167,6 +1167,7 @@ public:
             popScope();
             runtimeError(returned.line, "'return' can only be used inside a function or method.");
         }
+        scheduler_.runUntilIdle();
         popScope();
     }
 
