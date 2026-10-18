@@ -2955,7 +2955,7 @@ struct SourceLoader {
                 if (importedEc) canonical = fs::absolute(importedPath).lexically_normal();
                 const std::string importedKey = canonical.string();
                 if (!spec.legacy) {
-                    if (active.count(importedKey)) throw std::runtime_error("Circular library import detected: '" + path.string() + "' imports '" + importedKey + "'.");
+                    if (active.count(importedKey)) throw std::runtime_error("Circular library import detected: " + cycleDescription(importedKey) + ".");
                     if (!exportsByPath.count(importedKey)) {
                         std::ifstream importedFile(importedPath); if (!importedFile) throw std::runtime_error("Could not open module: " + importedPath.string());
                         std::ostringstream importedContents; importedContents << importedFile.rdbuf(); exportsByPath[importedKey] = scanExports(importedContents.str());
