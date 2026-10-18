@@ -201,6 +201,9 @@ public:
             TaskContext context(state, [this](const std::shared_ptr<TaskState>& task) { enqueue(task); });
             try {
                 state->resume(context);
+            } catch (const TaskCancelled&) {
+                if (state->status == TaskStatus::Running || state->status == TaskStatus::Pending)
+                    cancelState(state);
             } catch (...) {
                 // A callback may have completed its task and then thrown during
                 // cleanup. Never try to transition an already-terminal task a
