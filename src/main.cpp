@@ -2803,6 +2803,8 @@ namespace fs = std::filesystem;
 struct SourceLoader {
     std::unordered_set<std::string> loaded;
     std::unordered_set<std::string> active;
+    std::unordered_map<std::string, std::unordered_set<std::string>> exportsByPath;
+    struct ImportSpec { bool legacy = false; std::string name; std::vector<std::string> symbols; int line = 1; };
     static std::string trim(const std::string& value) {
         const auto first = value.find_first_not_of(" \t\r");
         if (first == std::string::npos) return {};
@@ -2810,125 +2812,143 @@ struct SourceLoader {
         return value.substr(first, last - first + 1);
     }
     static bool isCommentOrBlank(const std::string& line) {
-        const auto text = trim(line);
-        return text.empty() || text.rfind("//", 0) == 0;
+        const auto text = trim(line); return text.empty() || text.rfind("//", 0) == 0;
+    }
+    static std::string withoutComment(const std::string& line) {
+        bool inString = false, escaped = false;
+        for (std::size_t i = 0; i + 1 < line.size(); ++i) {
+            const char c = line[i];
+            if (inString) { if (escaped) escaped = false; else if (c == '\\') escaped = true; else if (c == '"') inString = false; }
+            else if (c == '"') inString = true;
+            else if (c == '/' && line[i + 1] == '/') return line.substr(0, i);
+        }
+        return line;
     }
     static bool parseUse(const std::string& line, std::string& name) {
-        // Import declarations are line-based, but a trailing lexer-style comment
-        // should not make an otherwise valid "use name;" declaration disappear.
-        const auto comment = line.find("//");
-        const std::string declaration = comment == std::string::npos
-            ? line : line.substr(0, comment);
-        const auto text = trim(declaration);
-        if (text.rfind("use", 0) != 0 ||
-            (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_')))
-            return false;
+        const std::string text = trim(withoutComment(line));
+        if (text.rfind("use", 0) != 0 || (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_'))) return false;
         if (text.size() < 6 || text.back() != ';') return false;
-        const auto nameText = trim(text.substr(3, text.size() - 4));
-        if (nameText.empty() ||
-            !(std::isalpha(static_cast<unsigned char>(nameText[0])) || nameText[0] == '_'))
-            return false;
-        for (char c : nameText)
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) return false;
-        name = nameText;
+        const auto value = trim(text.substr(3, text.size() - 4));
+        if (value.empty() || !(std::isalpha(static_cast<unsigned char>(value[0])) || value[0] == '_')) return false;
+        for (char c : value) if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) return false;
+        name = value; return true;
+    }
+    static bool parseNamedImport(const std::string& line, ImportSpec& spec) {
+        const std::string text = trim(withoutComment(line));
+        if (text.rfind("import", 0) != 0 || (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_'))) return false;
+        std::size_t pos = 6;
+        auto skipSpace = [&]() { while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos; };
+        auto syntaxError = [&]() { throw std::runtime_error("Invalid import syntax. Expected: import { name, other } from \"./module\";"); };
+        skipSpace(); if (pos >= text.size() || text[pos++] != '{') syntaxError(); skipSpace();
+        std::unordered_set<std::string> seen;
+        while (pos < text.size() && text[pos] != '}') {
+            const std::size_t begin = pos;
+            if (!(std::isalpha(static_cast<unsigned char>(text[pos])) || text[pos] == '_')) syntaxError();
+            ++pos; while (pos < text.size() && (std::isalnum(static_cast<unsigned char>(text[pos])) || text[pos] == '_')) ++pos;
+            std::string symbol = text.substr(begin, pos - begin);
+            if (!seen.insert(symbol).second) throw std::runtime_error("Duplicate imported name '" + symbol + "'.");
+            spec.symbols.push_back(symbol); skipSpace();
+            if (pos < text.size() && text[pos] == ',') { ++pos; skipSpace(); }
+            else if (pos < text.size() && text[pos] != '}') syntaxError();
+        }
+        if (spec.symbols.empty() || pos >= text.size() || text[pos++] != '}') syntaxError();
+        skipSpace(); if (text.compare(pos, 4, "from") != 0) syntaxError(); pos += 4; skipSpace();
+        if (pos >= text.size() || text[pos++] != '"') syntaxError();
+        const std::size_t pathBegin = pos;
+        while (pos < text.size() && text[pos] != '"') { if (text[pos] == '\\') syntaxError(); ++pos; }
+        if (pos >= text.size()) syntaxError();
+        spec.name = text.substr(pathBegin, pos - pathBegin); ++pos; skipSpace();
+        if (pos >= text.size() || text[pos++] != ';') syntaxError(); skipSpace();
+        if (pos != text.size() || spec.name.empty()) syntaxError();
         return true;
     }
+    static std::unordered_set<std::string> scanExports(const std::string& source) {
+        std::unordered_set<std::string> result; std::istringstream lines(source); std::string line; int number = 0;
+        while (std::getline(lines, line)) {
+            ++number; std::string text = trim(withoutComment(line));
+            if (text.rfind("export", 0) != 0 || (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_'))) continue;
+            text = trim(text.substr(6));
+            if (text.rfind("fn ", 0) == 0) text = trim(text.substr(3));
+            else if (text.rfind("class ", 0) == 0) text = trim(text.substr(6));
+            else if (text.rfind("abstract class ", 0) == 0) text = trim(text.substr(15));
+            else throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function or class declaration.");
+            const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+            const std::string name = text.substr(0, end);
+            if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) throw std::runtime_error("Line " + std::to_string(number) + ": Expected a declaration name after 'export'.");
+            if (!result.insert(name).second) throw std::runtime_error("Line " + std::to_string(number) + ": Duplicate export '" + name + "'.");
+        }
+        return result;
+    }
     static fs::path installedLibraryRoot() {
-        if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) {
-            if (*overridePath != '\0') return fs::path(overridePath);
-        }
+        if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) if (*overridePath != '\0') return fs::path(overridePath);
 #ifdef _WIN32
-        if (const char* appData = std::getenv("APPDATA")) {
-            if (*appData != '\0') return fs::path(appData) / "NixScript" / "libraries";
-        }
-        if (const char* home = std::getenv("USERPROFILE")) {
-            if (*home != '\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
-        }
+        if (const char* appData = std::getenv("APPDATA")) if (*appData != '\0') return fs::path(appData) / "NixScript" / "libraries";
+        if (const char* home = std::getenv("USERPROFILE")) if (*home != '\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
 #elif defined(__APPLE__)
-        if (const char* home = std::getenv("HOME")) {
-            if (*home != '\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
-        }
+        if (const char* home = std::getenv("HOME")) if (*home != '\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
 #else
-        if (const char* xdg = std::getenv("XDG_DATA_HOME")) {
-            if (*xdg != '\0') return fs::path(xdg) / "nixscript" / "libraries";
-        }
-        if (const char* home = std::getenv("HOME")) {
-            if (*home != '\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
-        }
+        if (const char* xdg = std::getenv("XDG_DATA_HOME")) if (*xdg != '\0') return fs::path(xdg) / "nixscript" / "libraries";
+        if (const char* home = std::getenv("HOME")) if (*home != '\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
 #endif
         return {};
     }
     static fs::path resolve(const fs::path& importer, const std::string& name) {
-        const fs::path directory = importer.parent_path();
-        const fs::path installedRoot = installedLibraryRoot();
-        // Project-local libraries are preferred. Installed libraries live in one
-        // predictable per-user directory, overridable with NIXSCRIPT_LIB_PATH.
-        const std::vector<fs::path> candidates = {
-            directory / "lib" / (name + ".ns"),
-            directory / "libraries" / (name + ".ns"),
-            installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"),
-            directory / (name + ".ns")
-        };
-        for (const auto& candidate : candidates) {
-            if (candidate.empty()) continue;
-            std::error_code ec;
-            if (fs::is_regular_file(candidate, ec)) return candidate;
-        }
-        const std::string rootDescription = installedRoot.empty()
-            ? "the installed-library directory (set NIXSCRIPT_LIB_PATH)"
-            : installedRoot.string();
-        throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" +
-            importer.string() + "'. Searched project lib/ and libraries/ folders, beside the source, and " +
-            rootDescription + ".");
+        const fs::path directory = importer.parent_path(), installedRoot = installedLibraryRoot();
+        const bool pathLike = name.find('/') != std::string::npos || name.find('\\') != std::string::npos || name.rfind(".", 0) == 0;
+        std::vector<fs::path> candidates;
+        if (pathLike) { fs::path requested(name); if (!requested.has_extension()) requested += ".ns"; candidates.push_back(requested.is_absolute() ? requested : directory / requested); }
+        else candidates = {directory / "lib" / (name + ".ns"), directory / "libraries" / (name + ".ns"), installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"), directory / (name + ".ns")};
+        for (const auto& candidate : candidates) { if (candidate.empty()) continue; std::error_code ec; if (fs::is_regular_file(candidate, ec)) return candidate; }
+        throw std::runtime_error("Cannot resolve module/library '" + name + "' imported by '" + importer.string() + "'. Searched relative to the importer and project library folders, plus the installed-library directory.");
     }
     std::string load(const fs::path& inputPath) {
-        std::error_code ec;
-        fs::path path = fs::weakly_canonical(inputPath, ec);
+        std::error_code ec; fs::path path = fs::weakly_canonical(inputPath, ec);
         if (ec) path = fs::absolute(inputPath).lexically_normal();
         const std::string key = path.string();
-        if (active.count(key))
-            throw std::runtime_error("Circular library import detected at '" + key + "'.");
+        if (active.count(key)) throw std::runtime_error("Circular module/library import detected at '" + key + "'.");
         if (loaded.count(key)) return {};
-        std::ifstream file(path);
-        if (!file) throw std::runtime_error("Could not open source file: " + path.string());
-        std::ostringstream contents;
-        contents << file.rdbuf();
-        std::istringstream lines(contents.str());
-        std::string line;
-        std::vector<std::string> imports;
-        std::ostringstream localSource;
-        bool importSection = true;
+        std::ifstream file(path); if (!file) throw std::runtime_error("Could not open source file: " + path.string());
+        std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
+        exportsByPath[key] = scanExports(source);
+        std::istringstream lines(source); std::string line; std::vector<ImportSpec> imports; std::ostringstream localSource;
+        bool importSection = true; int lineNumber = 0;
         while (std::getline(lines, line)) {
-            std::string library;
-            if (importSection && parseUse(line, library)) {
-                imports.push_back(library);
-                continue;
+            ++lineNumber; const std::string code = trim(withoutComment(line));
+            if (importSection) {
+                std::string library;
+                if (parseUse(line, library)) { ImportSpec spec; spec.legacy = true; spec.name = library; spec.line = lineNumber; imports.push_back(std::move(spec)); continue; }
+                ImportSpec spec;
+                try { if (parseNamedImport(line, spec)) { spec.line = lineNumber; imports.push_back(std::move(spec)); continue; } }
+                catch (const std::exception& error) { throw std::runtime_error(path.string() + ":" + std::to_string(lineNumber) + ": " + error.what()); }
+                if (isCommentOrBlank(line)) { localSource << line << '\n'; continue; }
+                importSection = false;
             }
-            if (importSection && isCommentOrBlank(line)) {
-                localSource << line << '\n';
-                continue;
+            if (code.rfind("export", 0) == 0 && (code.size() == 6 || std::isspace(static_cast<unsigned char>(code[6])))) {
+                const auto marker = line.find("export"); if (marker != std::string::npos) line.erase(marker, 6);
             }
-            importSection = false;
             localSource << line << '\n';
         }
-        active.insert(key);
-        std::string combined;
+        active.insert(key); std::string combined;
         try {
-            for (const auto& library : imports) {
-                combined += load(resolve(path, library));
-                combined += '\n';
+            for (const auto& spec : imports) {
+                const fs::path importedPath = resolve(path, spec.name);
+                std::error_code importedEc; fs::path canonical = fs::weakly_canonical(importedPath, importedEc);
+                if (importedEc) canonical = fs::absolute(importedPath).lexically_normal();
+                const std::string importedKey = canonical.string();
+                if (!spec.legacy) {
+                    if (active.count(importedKey)) throw std::runtime_error("Circular module import detected: '" + path.string() + "' imports '" + importedKey + "'.");
+                    if (!exportsByPath.count(importedKey)) {
+                        std::ifstream importedFile(importedPath); if (!importedFile) throw std::runtime_error("Could not open module: " + importedPath.string());
+                        std::ostringstream importedContents; importedContents << importedFile.rdbuf(); exportsByPath[importedKey] = scanExports(importedContents.str());
+                    }
+                    for (const auto& symbol : spec.symbols) if (!exportsByPath.at(importedKey).count(symbol)) throw std::runtime_error("Module '" + spec.name + "' does not export '" + symbol + "'.");
+                }
+                combined += load(importedPath); combined += '\n';
             }
-        } catch (...) {
-            active.erase(key);
-            throw;
-        }
-        active.erase(key);
-        loaded.insert(key);
-        combined += localSource.str();
-        return combined;
+        } catch (const std::exception& error) { active.erase(key); throw std::runtime_error(path.string() + ": " + error.what()); }
+        active.erase(key); loaded.insert(key); combined += localSource.str(); return combined;
     }
 };
-
 #ifndef NIX_ANDROID
 // The package manager trusts one fixed, team-maintained GitHub registry.
 // The index contains "name MAJOR.MINOR.PATCH" entries; package URLs are
