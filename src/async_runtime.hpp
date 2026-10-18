@@ -80,6 +80,8 @@ private:
 
 class TaskContext {
 public:
+    void yield() { enqueue_(current_); }
+
     bool await(const std::shared_ptr<TaskState>& dependency) {
         if (!dependency) throw std::logic_error("Cannot await an invalid task.");
         if (dependency->status == TaskStatus::Succeeded) return true;
@@ -111,7 +113,8 @@ public:
         if (!error) error = std::make_exception_ptr(std::runtime_error("Task failed without an exception."));
         finish(task.state_, {}, error, TaskStatus::Failed);
     }
-    template <typename T, typename E>
+    template <typename T, typename E,
+              std::enable_if_t<!std::is_same_v<std::decay_t<E>, std::exception_ptr>, int> = 0>
     void fail(const Task<T>& task, E&& error) {
         fail(task, std::make_exception_ptr(std::forward<E>(error)));
     }
