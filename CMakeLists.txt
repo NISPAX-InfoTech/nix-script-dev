@@ -15,4 +15,9 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
     add_test(NAME async_language_test
         COMMAND $<TARGET_FILE:nix> ${CMAKE_CURRENT_SOURCE_DIR}/tests/async_language.ns)
     set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42")
+    add_test(NAME async_failure_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_failure.ns"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_async_failure.cmake")
 endif()
