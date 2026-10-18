@@ -36,6 +36,25 @@ The exact import grammar must be implemented consistently and documented before 
 - Never allow an imported module's entry point to run as the application's entry point.
 - Preserve existing `use` syntax and current package installation behavior.
 
+## Module architecture decision (required before claiming isolation)
+
+The current implementation is a source concatenator. It scans export lines and checks requested names, then removes the export marker and concatenates dependency source before importer source. That can make an unexported declaration callable by importer code, allows unrelated modules' private names to collide, and means module top-level initialization is not an independently cached module lifecycle. Export validation alone is therefore not a privacy boundary.
+
+Do not attempt to repair this by deleting private declarations: exported functions may legitimately call private helpers. Do not repair it with blind string replacement: identifiers occur in comments, strings, fields, method names, and class-qualified definitions.
+
+The implementation must move to module-aware compilation/runtime boundaries:
+
+1. Parse each source file as a module with a canonical path and its own declaration table. Keep import declarations separate from executable statements.
+2. Build and validate the dependency graph before executing user code. Detect cycles using canonical paths and produce the full import chain. Do not partially mark a module initialized if parsing or initialization fails.
+3. Resolve each named import to an exported declaration identity during binding. A private declaration must never be inserted into the importing module's name lookup.
+4. Preserve private helpers by keeping them in their owning module's symbol table. Exported functions execute with their defining module's environment, not the caller's environment.
+5. Give each module an explicit lifecycle (Unloaded, Loading, Initialized, Failed) and initialize it at most once per program. Define deterministic behavior for cycles and initialization errors.
+6. Keep use package_name; as a compatibility adapter for the legacy package API. It must not silently bypass privacy for the new named-import syntax.
+7. Keep function overload sets, class definitions, static storage, inheritance and method dispatch associated with declaration identities/module ownership. Do not key runtime symbols only by bare strings across the entire flattened program.
+8. Add regression tests proving (a) exported functions can call private helpers, (b) importer code cannot call private helpers, (c) two modules can each define the same private name, (d) re-import initializes once, (e) import errors do not leave stale cache state, (f) classes/overloads work across module boundaries, and (g) existing use package behavior remains compatible.
+
+This is a runtime/compiler architecture change, not a small patch to scanExports. Keep PR #17 draft until these gates pass.
+
 ## Native async/await
 
 ### Proposed syntax
