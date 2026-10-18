@@ -1912,8 +1912,47 @@ private:
             instance->fields[fieldStorageKey(member)] = std::move(value);
         }
     }
+    bool expressionContainsAwait(const Expr* expr) const {
+        if (!expr) return false;
+        if (expr->kind == Expr::Kind::Await) return true;
+        if (expressionContainsAwait(expr->left.get()) || expressionContainsAwait(expr->right.get())) return true;
+        for (const auto& item : expr->items)
+            if (expressionContainsAwait(item.get())) return true;
+        return false;
+    }
+    bool statementContainsAwait(const Stmt& stmt) const {
+        if (expressionContainsAwait(stmt.target.get()) || expressionContainsAwait(stmt.expression.get()) ||
+            statementContainsAwaitPtr(stmt.initializer.get()) || statementContainsAwaitPtr(stmt.increment.get()))
+            return true;
+        for (const auto& child : stmt.body) if (statementContainsAwait(child)) return true;
+        for (const auto& child : stmt.elseBody) if (statementContainsAwait(child)) return true;
+        return false;
+    }
+    bool statementContainsAwaitPtr(const Stmt* stmt) const {
+        return stmt && statementContainsAwait(*stmt);
+    }
+    void validateAsyncFunction(const Stmt& function, int line) const {
+        for (const auto& stmt : function.body) {
+            if (stmt.kind == Stmt::Kind::For && statementContainsAwait(stmt))
+                runtimeError(line, "await in a for-loop is not supported yet; move the await into a separate statement.");
+            if (stmt.kind == Stmt::Kind::If) {
+                for (const auto& child : stmt.body)
+                    if (statementContainsAwait(child))
+                        runtimeError(line, "await inside an if/else body is not supported yet; await in the condition is supported.");
+                for (const auto& child : stmt.elseBody)
+                    if (statementContainsAwait(child))
+                        runtimeError(line, "await inside an if/else body is not supported yet; await in the condition is supported.");
+            }
+            if (stmt.kind == Stmt::Kind::Repeat) {
+                for (const auto& child : stmt.body)
+                    if (statementContainsAwait(child))
+                        runtimeError(line, "await inside a repeat body is not supported yet; await in the repeat count is supported.");
+            }
+        }
+    }
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
         if (function.isAsync) {
+            validateAsyncFunction(function, line);
             if (args.size() != function.parameters.size())
                 runtimeError(line, "Async function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                    " argument(s), received " + std::to_string(args.size()) + ".");
@@ -2858,10 +2897,14 @@ private:
             case Stmt::Kind::Assign:
                 setTarget(*stmt.target, evaluate(*stmt.expression), stmt.line);
                 break;
-            case Stmt::Kind::Print:
-                for (const auto& item : stmt.expression->items) std::cout << stringify(evaluate(*item));
+            case Stmt::Kind::Print: {
+                std::vector<std::string> rendered;
+                rendered.reserve(stmt.expression->items.size());
+                for (const auto& item : stmt.expression->items) rendered.push_back(stringify(evaluate(*item)));
+                for (const auto& item : rendered) std::cout << item;
                 if (stmt.printNewline) std::cout << '\n';
                 break;
+            }
             case Stmt::Kind::Expression:
                 (void)evaluate(*stmt.expression);
                 break;
