@@ -84,6 +84,30 @@ int main() {
     assert(cycleA.status() == TaskStatus::Failed);
     assert(cycleB.status() == TaskStatus::Failed);
 
+    // A pending dependency with no runnable producer is diagnosed, not spun on.
+    Task<void> never, blocked;
+    never = scheduler.create<void>("never-completes", [&](TaskContext&) {});
+    blocked = scheduler.create<void>("blocked", [&](TaskContext& ctx) {
+        if (!ctx.await(never)) return;
+        ctx.complete(blocked);
+    });
+    bool deadlockReported = false;
+    try { scheduler.runUntil(blocked); }
+    catch (const std::runtime_error& error) {
+        deadlockReported = std::string(error.what()).find("cannot make progress") != std::string::npos;
+    }
+    assert(deadlockReported);
+
+    // Exceptions after a terminal transition must not corrupt the scheduler.
+    Task<int> completedThenThrows;
+    completedThenThrows = scheduler.create<int>("completed-then-throws", [&](TaskContext& ctx) {
+        ctx.complete(completedThenThrows, 123);
+        throw std::runtime_error("cleanup failure after completion");
+    });
+    scheduler.runUntilIdle();
+    assert(completedThenThrows.status() == TaskStatus::Succeeded);
+    assert(completedThenThrows.result() == 123);
+
     scheduler.shutdown();
     bool rejected = false;
     try {
