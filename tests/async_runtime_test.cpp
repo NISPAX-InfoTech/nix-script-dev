@@ -23,7 +23,7 @@ int main() {
         if (!ctx.await(dependency)) return;
         ctx.complete(parent, dependency.result() * 2);
     });
-    scheduler.runUntilIdle();
+    scheduler.runUntil(parent);
     assert((order == std::vector<int>{1, 2, 1, 2}));
     assert(parent.status() == TaskStatus::Succeeded);
     assert(parent.result() == 42);
