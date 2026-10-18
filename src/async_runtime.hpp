@@ -28,7 +28,7 @@ struct TaskState : std::enable_shared_from_this<TaskState> {
     std::exception_ptr failure;
     std::function<void(TaskContext&)> resume;
     std::vector<std::weak_ptr<TaskState>> waiters;
-    std::weak_ptr<TaskState> waitingOn;
+    std::shared_ptr<TaskState> waitingOn;
     std::string label;
     bool queued = false;
 };
@@ -88,14 +88,14 @@ public:
         if (dependency->status == TaskStatus::Failed) std::rethrow_exception(dependency->failure);
         if (dependency->status == TaskStatus::Cancelled) throw TaskCancelled(dependency->label);
         // Reject direct and indirect wait cycles before adding an edge.
-        for (auto cursor = dependency; cursor; cursor = cursor->waitingOn.lock()) {
+        for (auto cursor = dependency; cursor; cursor = cursor->waitingOn) {
             if (cursor.get() == current_.get())
                 throw std::logic_error("Await dependency cycle detected.");
         }
 
         // Avoid registering the same waiter more than once if a resumed step
         // reaches the same await point again.
-        const bool alreadyWaiting = current_->waitingOn.lock() == dependency;
+        const bool alreadyWaiting = current_->waitingOn == dependency;
         current_->waitingOn = dependency;
         if (!alreadyWaiting) dependency->waiters.emplace_back(current_);
         return false;
