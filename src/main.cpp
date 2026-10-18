@@ -2899,13 +2899,13 @@ struct SourceLoader {
         if (pathLike) { fs::path requested(name); if (!requested.has_extension()) requested += ".ns"; candidates.push_back(requested.is_absolute() ? requested : directory / requested); }
         else candidates = {directory / "lib" / (name + ".ns"), directory / "libraries" / (name + ".ns"), installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"), directory / (name + ".ns")};
         for (const auto& candidate : candidates) { if (candidate.empty()) continue; std::error_code ec; if (fs::is_regular_file(candidate, ec)) return candidate; }
-        throw std::runtime_error("Cannot resolve module/library '" + name + "' imported by '" + importer.string() + "'. Searched relative to the importer and project library folders, plus the installed-library directory.");
+        throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" + importer.string() + "'. Searched relative to the importer and project library folders, plus the installed-library directory.");
     }
     std::string load(const fs::path& inputPath) {
         std::error_code ec; fs::path path = fs::weakly_canonical(inputPath, ec);
         if (ec) path = fs::absolute(inputPath).lexically_normal();
         const std::string key = path.string();
-        if (active.count(key)) throw std::runtime_error("Circular module/library import detected at '" + key + "'.");
+        if (active.count(key)) throw std::runtime_error("Circular library import detected at '" + key + "'.");
         if (loaded.count(key)) return {};
         std::ifstream file(path); if (!file) throw std::runtime_error("Could not open source file: " + path.string());
         std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
@@ -2936,7 +2936,7 @@ struct SourceLoader {
                 if (importedEc) canonical = fs::absolute(importedPath).lexically_normal();
                 const std::string importedKey = canonical.string();
                 if (!spec.legacy) {
-                    if (active.count(importedKey)) throw std::runtime_error("Circular module import detected: '" + path.string() + "' imports '" + importedKey + "'.");
+                    if (active.count(importedKey)) throw std::runtime_error("Circular library import detected: '" + path.string() + "' imports '" + importedKey + "'.");
                     if (!exportsByPath.count(importedKey)) {
                         std::ifstream importedFile(importedPath); if (!importedFile) throw std::runtime_error("Could not open module: " + importedPath.string());
                         std::ostringstream importedContents; importedContents << importedFile.rdbuf(); exportsByPath[importedKey] = scanExports(importedContents.str());
