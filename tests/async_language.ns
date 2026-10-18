@@ -2,13 +2,27 @@ async fn plusOne(value) {
     return value + 1;
 }
 
+async fn isPositive(value) {
+    return value > 0;
+}
+
 async fn nested(value) {
     var first = await plusOne(value);
     var second = await plusOne(first);
     return second;
 }
 
+async fn choose(value) {
+    if (await isPositive(value)) {
+        return value;
+    } else {
+        return 0;
+    }
+}
+
 nix main() {
-    var result = await nested(40);
-    println(result);
+    var task = nested(40);
+    var result = await task;
+    var chosen = await choose(result);
+    println("answer=", chosen);
 }
