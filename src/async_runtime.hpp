@@ -168,6 +168,27 @@ public:
         return Task<T>(std::move(state));
     }
 
+    template <typename Fn, typename R = std::invoke_result_t<std::decay_t<Fn>&>>
+    Task<R> spawn(std::string label, Fn&& work) {
+        static_assert(!std::is_reference_v<R>, "Async tasks cannot return references.");
+        auto callable = std::make_shared<std::decay_t<Fn>>(std::forward<Fn>(work));
+        // The callback captures only a weak task state to avoid a state -> callback
+        // -> task -> state ownership cycle.
+        auto stateSlot = std::make_shared<std::weak_ptr<TaskState>>();
+        auto task = create<R>(std::move(label), [callable, stateSlot](TaskContext& context) {
+            const auto state = stateSlot->lock();
+            if (!state) return;
+            if constexpr (std::is_void_v<R>) {
+                std::invoke(*callable);
+                context.complete(Task<void>(state));
+            } else {
+                context.complete(Task<R>(state), std::invoke(*callable));
+            }
+        });
+        *stateSlot = task.state_;
+        return task;
+    }
+
     bool runOne() {
         while (!ready_.empty()) {
             auto state = ready_.front();
