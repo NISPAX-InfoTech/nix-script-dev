@@ -1954,6 +1954,8 @@ private:
                 activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
                 if (!suspended && frame->pc >= frame->function->body.size())
                     context.complete(frame->task, Value{std::monostate{}});
+                else if (!suspended)
+                    context.yield(); // Resume the next statement on a later scheduler turn.
             });
             auto value = std::make_shared<AsyncTaskValue>(); value->task = frame->task;
             return value;
