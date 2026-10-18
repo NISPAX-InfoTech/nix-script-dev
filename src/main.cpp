@@ -311,7 +311,7 @@ public:
                 parseOutOfClassDefinition();
             } else if (matchIdentifier("async")) {
                 consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
-                Stmt function = parseFunction(); function.isAsync = true;
+                Stmt function = parseFunction(true);
                 program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
@@ -338,7 +338,7 @@ public:
                 parseOutOfClassDefinition();
             } else if (matchIdentifier("async")) {
                 consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
-                Stmt function = parseFunction(); function.isAsync = true;
+                Stmt function = parseFunction(true);
                 program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
@@ -361,6 +361,7 @@ private:
     std::unordered_map<std::string, bool> functionNames_;
     std::unordered_map<std::string, std::size_t> functionParameterCounts_;
     std::unordered_map<std::string, int> functionDefinitionLines_;
+    std::unordered_map<std::string, bool> functionAsyncBySignature_;
 
     const Token& peek() const { return tokens_[current_]; }
     const Token& previous() const { return tokens_[current_ - 1]; }
@@ -454,7 +455,7 @@ private:
         } while (match(TokenKind::Comma));
         return initializers;
     }
-    Stmt parseFunction() {
+    Stmt parseFunction(bool isAsync = false) {
         const Token fnToken = previous();
         const std::string name = consumeName("Expected a function name after 'fn'.");
         if (isReservedFunctionName(name))
@@ -465,6 +466,10 @@ private:
         std::vector<std::string> parameterTypes;
         auto params = parameters(true, &parameterTypes);
         const std::string signature = overloadSignatureKey(name, parameterTypes);
+        auto asyncSignature = functionAsyncBySignature_.find(signature);
+        if (asyncSignature != functionAsyncBySignature_.end() && asyncSignature->second != isAsync)
+            fail(fnToken, "Function overload '" + signature + "' cannot be declared both async and synchronous.");
+        functionAsyncBySignature_[signature] = isAsync;
         std::unordered_map<std::string, bool> seenParameters;
         for (const auto& param : params) {
             if (seenParameters.count(param))
@@ -489,6 +494,7 @@ private:
         function.parameterTypes = std::move(parameterTypes);
         function.line = fnToken.line;
         function.functionDefined = defined;
+        function.isAsync = isAsync;
 
         if (defined) {
             consume(TokenKind::LeftBrace, "Expected '{' before function body.");
