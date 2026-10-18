@@ -99,6 +99,11 @@ jobs:
             exit 1
           fi
           grep -q "Circular library import detected" import-test/circular.log
+          grep -E -q "left\.ns.*right\.ns.*left\.ns" import-test/circular.log || {
+            echo "Circular import diagnostic did not include the complete import chain" >&2
+            cat import-test/circular.log >&2
+            exit 1
+          }
 
       - name: Test official library install and updates
         shell: bash
