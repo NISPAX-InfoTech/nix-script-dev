@@ -181,6 +181,13 @@ int main() {
     scheduler.runUntil(reentrant);
     CHECK(reentrancyRejected);
 
+    Task<void> selfCancelled;
+    selfCancelled = scheduler.create<void>("self-cancel", [&](TaskContext&) {
+        scheduler.cancel(selfCancelled);
+    });
+    scheduler.runUntilIdle();
+    CHECK(selfCancelled.status() == TaskStatus::Cancelled);
+
     scheduler.shutdown();
     bool rejected = false;
     try {
