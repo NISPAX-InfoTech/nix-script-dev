@@ -151,6 +151,9 @@ jobs:
           grep -q "Imported name 'shared' is imported more than once" import-test/duplicate_import.log
 
           mkdir -p module-test
+          cat > module-test/math.ns <<'EOF'
+          export fn add(a, b) { return a + b; }
+          EOF
           cat > module-test/local_conflict.ns <<'EOF'
           import { add } from "./math";
           fn add(a, b) { return a - b; }
