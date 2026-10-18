@@ -1,3 +1,5 @@
+async fn plusOne(value);
+
 async fn plusOne(value) {
     return value + 1;
 }
