@@ -87,8 +87,11 @@ public:
         if (dependency->status == TaskStatus::Succeeded) return true;
         if (dependency->status == TaskStatus::Failed) std::rethrow_exception(dependency->failure);
         if (dependency->status == TaskStatus::Cancelled) throw TaskCancelled(dependency->label);
-        if (dependency.get() == current_.get())
-            throw std::logic_error("A task cannot await itself.");
+        // Reject direct and indirect wait cycles before adding an edge.
+        for (auto cursor = dependency; cursor; cursor = cursor->waitingOn.lock()) {
+            if (cursor.get() == current_.get())
+                throw std::logic_error("Await dependency cycle detected.");
+        }
 
         // Avoid registering the same waiter more than once if a resumed step
         // reaches the same await point again.
