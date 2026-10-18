@@ -52,6 +52,38 @@ int main() {
     catch (const TaskCancelled&) { cancellationReported = true; }
     assert(cancellationReported);
 
+    // Multiple consumers of one task must all resume when it completes.
+    Task<int> shared;
+    shared = scheduler.create<int>("shared", [&](TaskContext& ctx) {
+        ctx.complete(shared, 7);
+    });
+    Task<int> consumerA, consumerB;
+    consumerA = scheduler.create<int>("consumer-a", [&](TaskContext& ctx) {
+        if (!ctx.await(shared)) return;
+        ctx.complete(consumerA, shared.result() + 1);
+    });
+    consumerB = scheduler.create<int>("consumer-b", [&](TaskContext& ctx) {
+        if (!ctx.await(shared)) return;
+        ctx.complete(consumerB, shared.result() + 2);
+    });
+    scheduler.runUntilIdle();
+    assert(consumerA.result() == 8);
+    assert(consumerB.result() == 9);
+
+    // Indirect wait cycles fail deterministically instead of deadlocking.
+    Task<void> cycleA, cycleB;
+    cycleA = scheduler.create<void>("cycle-a", [&](TaskContext& ctx) {
+        if (!ctx.await(cycleB)) return;
+        ctx.complete(cycleA);
+    });
+    cycleB = scheduler.create<void>("cycle-b", [&](TaskContext& ctx) {
+        if (!ctx.await(cycleA)) return;
+        ctx.complete(cycleB);
+    });
+    scheduler.runUntilIdle();
+    assert(cycleA.status() == TaskStatus::Failed);
+    assert(cycleB.status() == TaskStatus::Failed);
+
     scheduler.shutdown();
     bool rejected = false;
     try {
