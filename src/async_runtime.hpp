@@ -93,6 +93,12 @@ public:
                 throw std::logic_error("Await dependency cycle detected.");
         }
 
+        // A suspended step must return until its awaited dependency resolves.
+        // Reject replacing the dependency edge, which could otherwise wake the
+        // task spuriously from an earlier dependency.
+        if (current_->waitingOn && current_->waitingOn != dependency)
+            throw std::logic_error("A task cannot await a second dependency before resuming.");
+
         // Avoid registering the same waiter more than once if a resumed step
         // reaches the same await point again.
         const bool alreadyWaiting = current_->waitingOn == dependency;
