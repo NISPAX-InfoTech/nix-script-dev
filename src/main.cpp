@@ -2932,9 +2932,59 @@ struct SourceLoader {
         // collisions early instead of allowing flattened-source order to decide
         // which declaration wins or producing a confusing parser error later.
         std::unordered_set<std::string> importedNames;
+        std::unordered_set<std::string> localTopLevelNames;
         bool importSection = true; int lineNumber = 0;
+        int braceDepth = 0;
+        bool inBlockComment = false;
         while (std::getline(lines, line)) {
-            ++lineNumber; const std::string code = trim(withoutComment(line));
+            ++lineNumber;
+            const std::string code = trim(withoutComment(line));
+            // Track top-level declaration names before source concatenation. This
+            // prevents a local declaration from silently shadowing an imported
+            // binding. The scanner intentionally only recognizes declaration
+            // headers; the parser remains authoritative for syntax validation.
+            if (braceDepth == 0) {
+                std::string declaration = code;
+                if (declaration.rfind("export ", 0) == 0) declaration = trim(declaration.substr(7));
+                if (declaration.rfind("abstract class ", 0) == 0) {
+                    declaration = trim(declaration.substr(15));
+                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
+                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                } else if (declaration.rfind("class ", 0) == 0) {
+                    declaration = trim(declaration.substr(6));
+                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
+                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                } else if (declaration.rfind("fn ", 0) == 0) {
+                    declaration = trim(declaration.substr(3));
+                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
+                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                }
+            }
+            // Count braces outside strings and comments for top-level scanning.
+            bool inString = false, escaped = false;
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                const char c = line[i];
+                if (inBlockComment) {
+                    if (c == '*' && i + 1 < line.size() && line[i + 1] == '/') { inBlockComment = false; ++i; }
+                } else if (inString) {
+                    if (escaped) escaped = false;
+                    else if (c == '\\\\') escaped = true;
+                    else if (c == '"') inString = false;
+                } else if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') {
+                    break;
+                } else if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') {
+                    inBlockComment = true; ++i;
+                } else if (c == '"') {
+                    inString = true;
+                } else if (c == '{') {
+                    ++braceDepth;
+                } else if (c == '}') {
+                    --braceDepth;
+                }
+            }
             if (importSection) {
                 std::string library;
                 if (parseUse(line, library)) { ImportSpec spec; spec.legacy = true; spec.name = library; spec.line = lineNumber; imports.push_back(std::move(spec)); continue; }
@@ -2944,7 +2994,9 @@ struct SourceLoader {
                         spec.line = lineNumber;
                         for (const auto& symbol : spec.symbols) {
                             if (!importedNames.insert(symbol).second)
-                                throw std::runtime_error("Imported name '" + symbol + "' is declared more than once in this module.");
+                                throw std::runtime_error("Imported name '" + symbol + "' is imported more than once in this module.");
+                            if (localTopLevelNames.count(symbol))
+                                throw std::runtime_error("Imported name '" + symbol + "' conflicts with a local top-level declaration.");
                         }
                         imports.push_back(std::move(spec));
                         continue;
