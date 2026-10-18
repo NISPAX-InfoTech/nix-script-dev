@@ -1,11 +1,18 @@
 #include "async_runtime.hpp"
 
-#include <cassert>
+#include <cstdlib>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 using namespace nix::async;
+
+[[noreturn]] static void checkFailed(const char* expression, int line) {
+    std::cerr << "async_runtime_test:" << line << ": CHECK failed: " << expression << '\\n';
+    std::exit(1);
+}
+#define CHECK(expression) do { if (!(expression)) checkFailed(#expression, __LINE__); } while (false)
 
 int main() {
     Scheduler scheduler;
@@ -24,9 +31,9 @@ int main() {
         ctx.complete(parent, dependency.result() * 2);
     });
     scheduler.runUntil(parent);
-    assert((order == std::vector<int>{1, 2, 1, 2}));
-    assert(parent.status() == TaskStatus::Succeeded);
-    assert(parent.result() == 42);
+    CHECK((order == std::vector<int>{1, 2, 1, 2}));
+    CHECK(parent.status() == TaskStatus::Succeeded);
+    CHECK(parent.result() == 42);
 
     Task<int> failed;
     failed = scheduler.create<int>("failure", [&](TaskContext& ctx) {
@@ -38,19 +45,19 @@ int main() {
     catch (const std::runtime_error& error) {
         propagated = std::string(error.what()) == "expected failure";
     }
-    assert(propagated);
+    CHECK(propagated);
 
     Task<void> cancelled;
     cancelled = scheduler.create<void>("cancelled", [&](TaskContext&) {
-        assert(false && "cancelled task must not run");
+        CHECK(false && "cancelled task must not run");
     });
     scheduler.cancel(cancelled);
     scheduler.runUntilIdle();
-    assert(cancelled.status() == TaskStatus::Cancelled);
+    CHECK(cancelled.status() == TaskStatus::Cancelled);
     bool cancellationReported = false;
     try { cancelled.result(); }
     catch (const TaskCancelled&) { cancellationReported = true; }
-    assert(cancellationReported);
+    CHECK(cancellationReported);
 
     Task<void> cancelledDependency, cancellationConsumer;
     cancelledDependency = scheduler.create<void>("cancelled-dependency", [&](TaskContext& ctx) {
@@ -62,7 +69,7 @@ int main() {
     });
     scheduler.cancel(cancelledDependency);
     scheduler.runUntilIdle();
-    assert(cancellationConsumer.status() == TaskStatus::Cancelled);
+    CHECK(cancellationConsumer.status() == TaskStatus::Cancelled);
 
     // Multiple consumers of one task must all resume when it completes.
     Task<int> shared;
@@ -79,8 +86,8 @@ int main() {
         ctx.complete(consumerB, shared.result() + 2);
     });
     scheduler.runUntilIdle();
-    assert(consumerA.result() == 8);
-    assert(consumerB.result() == 9);
+    CHECK(consumerA.result() == 8);
+    CHECK(consumerB.result() == 9);
 
     // Indirect wait cycles fail deterministically instead of deadlocking.
     Task<void> cycleA, cycleB;
@@ -93,8 +100,8 @@ int main() {
         ctx.complete(cycleB);
     });
     scheduler.runUntilIdle();
-    assert(cycleA.status() == TaskStatus::Failed);
-    assert(cycleB.status() == TaskStatus::Failed);
+    CHECK(cycleA.status() == TaskStatus::Failed);
+    CHECK(cycleB.status() == TaskStatus::Failed);
 
     // A pending dependency with no runnable producer is diagnosed, not spun on.
     Task<void> never, blocked;
@@ -108,7 +115,7 @@ int main() {
     catch (const std::runtime_error& error) {
         deadlockReported = std::string(error.what()).find("cannot make progress") != std::string::npos;
     }
-    assert(deadlockReported);
+    CHECK(deadlockReported);
 
     // Exceptions after a terminal transition must not corrupt the scheduler.
     Task<int> completedThenThrows;
@@ -117,15 +124,15 @@ int main() {
         throw std::runtime_error("cleanup failure after completion");
     });
     scheduler.runUntilIdle();
-    assert(completedThenThrows.status() == TaskStatus::Succeeded);
-    assert(completedThenThrows.result() == 123);
+    CHECK(completedThenThrows.status() == TaskStatus::Succeeded);
+    CHECK(completedThenThrows.result() == 123);
 
     auto spawned = scheduler.spawn<int>("spawned-value", [] { return 42; });
     scheduler.runUntil(spawned);
-    assert(spawned.result() == 42);
+    CHECK(spawned.result() == 42);
     auto spawnedVoid = scheduler.spawn<void>("spawned-void", [] {});
     scheduler.runUntil(spawnedVoid);
-    assert(spawnedVoid.status() == TaskStatus::Succeeded);
+    CHECK(spawnedVoid.status() == TaskStatus::Succeeded);
     auto spawnedFailure = scheduler.spawn<int>("spawned-failure", []() -> int {
         throw std::runtime_error("spawn failure");
     });
@@ -134,13 +141,13 @@ int main() {
     catch (const std::runtime_error& error) {
         spawnFailureReported = std::string(error.what()) == "spawn failure";
     }
-    assert(spawnFailureReported);
+    CHECK(spawnFailureReported);
 
     scheduler.shutdown();
     bool rejected = false;
     try {
         (void)scheduler.create<void>("late", [](TaskContext&) {});
     } catch (const std::logic_error&) { rejected = true; }
-    assert(rejected);
+    CHECK(rejected);
     return 0;
 }
