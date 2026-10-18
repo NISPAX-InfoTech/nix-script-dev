@@ -108,6 +108,22 @@ int main() {
     assert(completedThenThrows.status() == TaskStatus::Succeeded);
     assert(completedThenThrows.result() == 123);
 
+    auto spawned = scheduler.spawn<int>("spawned-value", [] { return 42; });
+    scheduler.runUntil(spawned);
+    assert(spawned.result() == 42);
+    auto spawnedVoid = scheduler.spawn<void>("spawned-void", [] {});
+    scheduler.runUntil(spawnedVoid);
+    assert(spawnedVoid.status() == TaskStatus::Succeeded);
+    auto spawnedFailure = scheduler.spawn<int>("spawned-failure", []() -> int {
+        throw std::runtime_error("spawn failure");
+    });
+    bool spawnFailureReported = false;
+    try { scheduler.runUntil(spawnedFailure); }
+    catch (const std::runtime_error& error) {
+        spawnFailureReported = std::string(error.what()) == "spawn failure";
+    }
+    assert(spawnFailureReported);
+
     scheduler.shutdown();
     bool rejected = false;
     try {
