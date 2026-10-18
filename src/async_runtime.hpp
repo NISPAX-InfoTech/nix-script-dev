@@ -193,6 +193,17 @@ public:
         while (runOne()) {}
     }
 
+    template <typename T>
+    void runUntil(const Task<T>& task) {
+        ensureRunning();
+        while (!task.ready()) {
+            if (!runOne())
+                throw std::runtime_error("Task cannot make progress: pending work is waiting on an unavailable event or dependency.");
+        }
+        // Surface failures/cancellation at the scheduler boundary as well.
+        (void)task.result();
+    }
+
     void cancel(const Task<void>& task) { cancelState(task.state_); }
 
     template <typename T>
