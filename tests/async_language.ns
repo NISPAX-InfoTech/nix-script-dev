@@ -20,9 +20,19 @@ async fn choose(value) {
     }
 }
 
+async fn work(value) {
+    print("s", value);
+    print("e", value);
+    return value;
+}
+
 nix main() {
+    var left = work(1);
+    var right = work(2);
     var task = nested(40);
     var result = await task;
     var chosen = await choose(result);
+    await left;
+    await right;
     println("answer=", chosen);
 }
