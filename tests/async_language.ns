@@ -1,0 +1,14 @@
+async fn plusOne(value) {
+    return value + 1;
+}
+
+async fn nested(value) {
+    var first = await plusOne(value);
+    var second = await plusOne(first);
+    return second;
+}
+
+nix main() {
+    var result = await nested(40);
+    println(result);
+}
