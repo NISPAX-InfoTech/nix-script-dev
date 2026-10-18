@@ -144,6 +144,22 @@ int main() {
     }
     CHECK(spawnFailureReported);
 
+    auto rejectedDependency = scheduler.spawn<int>("rejected-dependency", []() -> int {
+        throw std::runtime_error("dependency rejection");
+    });
+    Task<int> rejectionConsumer;
+    rejectionConsumer = scheduler.create<int>("rejection-consumer", [&](TaskContext& ctx) {
+        if (!ctx.await(rejectedDependency)) return;
+        ctx.complete(rejectionConsumer, rejectedDependency.result());
+    });
+    bool awaitFailurePropagated = false;
+    try { scheduler.runUntil(rejectionConsumer); }
+    catch (const std::runtime_error& error) {
+        awaitFailurePropagated = std::string(error.what()) == "dependency rejection";
+    }
+    CHECK(awaitFailurePropagated);
+    CHECK(rejectionConsumer.status() == TaskStatus::Failed);
+
     // Completion releases callback captures instead of retaining user state.
     auto resource = std::make_shared<int>(9);
     std::weak_ptr<int> resourceWeak = resource;
