@@ -195,6 +195,7 @@ public:
     }
 
     bool runOne() {
+        if (stepping_) throw std::logic_error("Scheduler cannot be pumped reentrantly.");
         while (!ready_.empty()) {
             auto state = ready_.front();
             ready_.pop_front();
@@ -207,6 +208,11 @@ public:
             }
             if (!state->resume) continue;
             state->status = TaskStatus::Running;
+            stepping_ = true;
+            struct StepGuard {
+                bool& stepping;
+                ~StepGuard() { stepping = false; }
+            } stepGuard{stepping_};
             TaskContext context(state, [this](const std::shared_ptr<TaskState>& task) { enqueue(task); });
             try {
                 state->resume(context);
@@ -271,6 +277,7 @@ private:
     std::deque<std::shared_ptr<TaskState>> ready_;
     std::vector<std::weak_ptr<TaskState>> tasks_;
     bool shuttingDown_ = false;
+    bool stepping_ = false;
 
     void ensureRunning() const {
         if (shuttingDown_) throw std::logic_error("Cannot schedule work after scheduler shutdown.");
