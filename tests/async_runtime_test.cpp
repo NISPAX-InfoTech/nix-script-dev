@@ -143,6 +143,17 @@ int main() {
     }
     CHECK(spawnFailureReported);
 
+    // Completion releases callback captures instead of retaining user state.
+    auto resource = std::make_shared<int>(9);
+    std::weak_ptr<int> resourceWeak = resource;
+    Task<void> releaseTask;
+    releaseTask = scheduler.create<void>("release-capture", [&, resource](TaskContext& ctx) {
+        ctx.complete(releaseTask);
+    });
+    resource.reset();
+    scheduler.runUntil(releaseTask);
+    CHECK(resourceWeak.expired());
+
     scheduler.shutdown();
     bool rejected = false;
     try {
