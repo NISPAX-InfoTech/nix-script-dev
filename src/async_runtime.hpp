@@ -215,10 +215,12 @@ public:
             if (!state->resume) continue;
             state->status = TaskStatus::Running;
             stepping_ = true;
+            currentStep_ = state;
             struct StepGuard {
                 bool& stepping;
-                ~StepGuard() { stepping = false; }
-            } stepGuard{stepping_};
+                std::shared_ptr<TaskState>& current;
+                ~StepGuard() { current.reset(); stepping = false; }
+            } stepGuard{stepping_, currentStep_};
             TaskContext context(state, [this](const std::shared_ptr<TaskState>& task) { enqueue(task); });
             try {
                 state->resume(context);
@@ -271,7 +273,7 @@ public:
                     state->status = TaskStatus::Cancelled;
                 // Release callback captures for terminal as well as pending
                 // tasks; callbacks may own arbitrary user state.
-                state->resume = {};
+                if (state != currentStep_) state->resume = {};
                 state->waitingOn.reset();
                 state->waiters.clear();
             }
@@ -284,6 +286,7 @@ private:
     std::vector<std::weak_ptr<TaskState>> tasks_;
     bool shuttingDown_ = false;
     bool stepping_ = false;
+    std::shared_ptr<TaskState> currentStep_;
 
     void ensureRunning() const {
         if (shuttingDown_) throw std::logic_error("Cannot schedule work after scheduler shutdown.");
@@ -299,7 +302,9 @@ private:
         if (!state || state->status == TaskStatus::Succeeded || state->status == TaskStatus::Failed ||
             state->status == TaskStatus::Cancelled) return;
         state->status = TaskStatus::Cancelled;
-        state->resume = {};
+        // If cancellation is requested from inside this task's callback, defer
+        // releasing its callable until that callback has returned.
+        if (state != currentStep_) state->resume = {};
         state->waitingOn.reset();
         for (const auto& weak : state->waiters) {
             if (auto waiter = weak.lock()) enqueue(waiter);
