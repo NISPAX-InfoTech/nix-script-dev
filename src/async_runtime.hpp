@@ -180,10 +180,14 @@ public:
             TaskContext context(state, [this](const std::shared_ptr<TaskState>& task) { enqueue(task); });
             try {
                 state->resume(context);
-                if (state->status == TaskStatus::Running) state->status = TaskStatus::Pending;
             } catch (...) {
-                context.fail(Task<void>(state), std::current_exception());
+                // A callback may have completed its task and then thrown during
+                // cleanup. Never try to transition an already-terminal task a
+                // second time; that must not escape the scheduler loop.
+                if (state->status == TaskStatus::Running || state->status == TaskStatus::Pending)
+                    context.fail(Task<void>(state), std::current_exception());
             }
+            if (state->status == TaskStatus::Running) state->status = TaskStatus::Pending;
             return true;
         }
         return false;
