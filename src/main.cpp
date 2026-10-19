@@ -242,6 +242,7 @@ struct ClassMember {
     std::string typeName;
     std::string owner;
     bool isStatic = false;
+    bool isAsync = false;
     bool isConstructor = false;
     bool isDestructor = false;
     bool defined = true;
@@ -586,6 +587,13 @@ private:
             member.access = access;
             member.isAbstract = matchIdentifier("abstract");
             member.isStatic = matchIdentifier("static");
+            member.isAsync = matchIdentifier("async");
+            if (member.isAsync &&
+                !(check(TokenKind::Identifier) && peek().text == "fn")) {
+                fail(peek(), "'async' must precede a method declaration using 'fn'.");
+            }
+            if (member.isAsync && member.isAbstract)
+                fail(peek(), "Async abstract methods are not supported yet.");
             if (member.isAbstract && !klass->isAbstract) {
                 fail(peek(), "Abstract methods can only be declared inside an abstract class.");
             }
@@ -594,7 +602,11 @@ private:
                 member.typeName = "var";
                 member.kind = ClassMember::Kind::Method;
                 member.isConstructor = member.name == klass->name;
+                if (member.isAsync && member.isConstructor)
+                    fail(classToken, "Constructors cannot be async.");
                 parseMethodTail(member);
+                if (member.isAsync && !member.defined)
+                    fail(previous(), "Async methods must have an inline body.");
                 if (member.isAbstract && member.defined)
                     fail(previous(), "An abstract method must end with ';' and have no body.");
                 appendMember(std::move(member));
@@ -1202,6 +1214,8 @@ private:
     };
     struct AsyncFrame {
         const Stmt* function = nullptr;
+        const ClassMember* method = nullptr;
+        std::shared_ptr<Instance> thisInstance;
         std::unordered_map<std::string, Value> locals;
         std::unordered_map<const Expr*, Value> expressionCache;
         async::Task<Value> task;
@@ -1978,7 +1992,7 @@ private:
         const std::string previousClass = currentClass_;
         activeAsyncFrame_ = frame.get();
         activeTaskContext_ = &context;
-        currentClass_.clear();
+        currentClass_ = frame->method ? frame->method->owner : std::string{};
 
         bool suspended = false;
         bool completed = false;
@@ -1988,10 +2002,12 @@ private:
         try {
             if (!frame->initialized) {
                 scopes_.emplace_back(frame->locals);
+                if (frame->method && frame->thisInstance)
+                    scopes_.back()["this"] = frame->thisInstance;
                 frame->initialized = true;
                 AsyncCursor root;
                 root.kind = AsyncCursor::Kind::Block;
-                root.body = &frame->function->body;
+                root.body = frame->function ? &frame->function->body : &frame->method->body;
                 frame->execution.push_back(std::move(root));
             }
 
@@ -2205,6 +2221,13 @@ private:
             auto value = std::make_shared<AsyncTaskValue>(); value->task = frame->task;
             return value;
         }
+        if (activeTaskContext_) {
+            for (const auto& statement : function.body) {
+                if (statementContainsAwait(statement))
+                    runtimeError(line, "Synchronous function '" + function.name +
+                        "' contains await and cannot suspend inside an async task; declare it async.");
+            }
+        }
         if (args.size() != function.parameters.size())
             runtimeError(line, "Function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
@@ -2230,6 +2253,30 @@ private:
     Value callMethod(const std::shared_ptr<BoundMethod>& bound, const std::vector<Value>& args, int line) {
         ClassMember& member = *bound->member;
         if (!member.defined) runtimeError(line, "Method '" + member.name + "' is declared but has no definition.");
+        if (member.isAsync) {
+            if (member.isConstructor || member.isDestructor)
+                runtimeError(line, "Constructors and destructors cannot be async.");
+            if (args.size() != member.parameters.size())
+                runtimeError(line, "Async method '" + member.name + "' expects " + std::to_string(member.parameters.size()) +
+                                   " argument(s), received " + std::to_string(args.size()) + ".");
+            auto frame = std::make_shared<AsyncFrame>();
+            frame->method = &member;
+            frame->thisInstance = bound->instance;
+            for (std::size_t i = 0; i < args.size(); ++i)
+                frame->locals[member.parameters[i]] = args[i];
+            frame->task = scheduler_.create<Value>(member.owner + "::" + member.name,
+                [this, frame](async::TaskContext& context) { runAsyncFrame(frame, context); });
+            auto value = std::make_shared<AsyncTaskValue>();
+            value->task = frame->task;
+            return value;
+        }
+        if (activeTaskContext_) {
+            for (const auto& statement : member.body) {
+                if (statementContainsAwait(statement))
+                    runtimeError(line, "Synchronous method '" + member.name +
+                        "' contains await and cannot suspend inside an async task; declare it async.");
+            }
+        }
         if (args.size() != member.parameters.size())
             runtimeError(line, "Method '" + member.name + "' expects " + std::to_string(member.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
@@ -3310,9 +3357,10 @@ struct SourceLoader {
         return prefix;
     }
 
-    static std::string rewritePrivateFunctionNames(
+    static std::string rewritePrivateModuleSymbols(
         const std::string& source,
         const std::unordered_set<std::string>& privateNames,
+        const std::unordered_set<std::string>& privateClassNames,
         const std::string& prefix) {
         if (privateNames.empty()) return source;
 
@@ -3391,7 +3439,11 @@ struct SourceLoader {
                      isBuiltinTypeName(previousToken));
                 const bool isMemberName =
                     previousToken == "." || previousToken == "::";
-                if (privateNames.count(token) && !isMemberName && !isClassMemberDeclaration) {
+                const bool isPrivateConstructorDeclaration =
+                    inClassMemberScope && previousToken == "fn" &&
+                    privateClassNames.count(token);
+                if (privateNames.count(token) && !isMemberName &&
+                    (!isClassMemberDeclaration || isPrivateConstructorDeclaration)) {
                     output += prefix;
                     output += token;
                 } else {
@@ -3481,6 +3533,7 @@ struct SourceLoader {
         std::unordered_set<std::string> importedNames;
         std::unordered_set<std::string> localTopLevelNames;
         std::unordered_set<std::string> privateSymbolNames;
+        std::unordered_set<std::string> privateClassNames;
         bool importSection = true; int lineNumber = 0;
         int braceDepth = 0;
         bool inBlockComment = false;
@@ -3508,14 +3561,24 @@ struct SourceLoader {
                     if (!name.empty() && !exportsByPath.at(key).count(name))
                         privateSymbolNames.insert(name);
                 };
+                auto rememberPrivateClassName = [&](const std::string& text) {
+                    if (!namedModule || text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string name = text.substr(0, end);
+                    if (!name.empty() && !exportsByPath.at(key).count(name)) {
+                        privateSymbolNames.insert(name);
+                        privateClassNames.insert(name);
+                    }
+                };
                 if (declaration.rfind("abstract class ", 0) == 0) {
                     const std::string header = trim(declaration.substr(15));
                     rememberTopLevelName(header);
-                    rememberPrivateName(header);
+                    rememberPrivateClassName(header);
                 } else if (declaration.rfind("class ", 0) == 0) {
                     const std::string header = trim(declaration.substr(6));
                     rememberTopLevelName(header);
-                    rememberPrivateName(header);
+                    rememberPrivateClassName(header);
                 } else if (declaration.rfind("async ", 0) == 0) {
                     std::string afterAsync = trim(declaration.substr(5));
                     if (afterAsync.rfind("fn", 0) == 0 &&
@@ -3648,7 +3711,7 @@ struct SourceLoader {
         active.erase(key);
         if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
         const std::string moduleSource = namedModule
-            ? rewritePrivateFunctionNames(localSource.str(), privateSymbolNames, privateModulePrefix(key))
+            ? rewritePrivateModuleSymbols(localSource.str(), privateSymbolNames, privateClassNames, privateModulePrefix(key))
             : localSource.str();
         loaded.insert(key);
         loadedModuleModes[key] = namedModule;

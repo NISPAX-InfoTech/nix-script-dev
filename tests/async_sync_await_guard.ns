@@ -1,0 +1,19 @@
+async fn plusOne(value) {
+    return value + 1;
+}
+
+fn legacyAsyncCaller(value) {
+    print("before");
+    var result = await plusOne(value);
+    print("after");
+    return result;
+}
+
+async fn invoke() {
+    return legacyAsyncCaller(41);
+}
+
+nix main() {
+    var answer = await invoke();
+    println(answer);
+}

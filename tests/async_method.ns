@@ -1,0 +1,25 @@
+async fn plusOne(value) {
+    return value + 1;
+}
+
+class Counter {
+    var value;
+
+    fn Counter(initial) {
+        this.value = initial;
+    }
+
+    async fn addLater(delta) {
+        this.value = this.value + 1;
+        var result = await plusOne(delta);
+        this.value = this.value + result;
+        return this.value;
+    }
+}
+
+nix main() {
+    var counter = Counter(10);
+    var result = await counter.addLater(5);
+    println("async-method=", result);
+    println("final=", counter.value);
+}

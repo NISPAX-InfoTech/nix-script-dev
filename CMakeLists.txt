@@ -17,6 +17,21 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
     # Require both the existing async output and the nested-await visit-count
     # assertion; the character class allows the match to cross printed lines.
     set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42(.|[[:space:]])*nested-result=125")
+    add_test(NAME async_method_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_method.ns"
+            "-DINPUT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_method.input"
+            "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_method.expected"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
+    set_tests_properties(async_method_test PROPERTIES TIMEOUT 10)
+    add_test(NAME async_sync_await_guard_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_sync_await_guard.ns"
+            "-DEXPECTED_DIAGNOSTIC=Synchronous function 'legacyAsyncCaller' contains await"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_async_failure.cmake")
+    set_tests_properties(async_sync_await_guard_test PROPERTIES TIMEOUT 10)
     add_test(NAME async_failure_test
         COMMAND ${CMAKE_COMMAND}
             "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
