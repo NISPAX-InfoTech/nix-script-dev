@@ -3278,7 +3278,7 @@ struct SourceLoader {
         out << repeated;
         return out.str();
     }
-    struct ImportSpec { bool legacy = false; std::string name; std::vector<std::string> symbols; int line = 1; };
+    struct ImportSpec { bool legacy = false; std::string name; std::vector<std::string> symbols; std::vector<std::string> localSymbols; int line = 1; };
     static std::string trim(const std::string& value) {
         const auto first = value.find_first_not_of(" \t\r");
         if (first == std::string::npos) return {};
@@ -3309,30 +3309,68 @@ struct SourceLoader {
     }
     static bool parseNamedImport(const std::string& line, ImportSpec& spec) {
         const std::string text = trim(withoutComment(line));
-        if (text.rfind("import", 0) != 0 || (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_'))) return false;
+        if (text.rfind("import", 0) != 0 ||
+            (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_')))
+            return false;
         std::size_t pos = 6;
-        auto skipSpace = [&]() { while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos; };
-        auto syntaxError = [&]() { throw std::runtime_error("Invalid import syntax. Expected: import { name, other } from \"./module\";"); };
-        skipSpace(); if (pos >= text.size() || text[pos++] != '{') syntaxError(); skipSpace();
-        std::unordered_set<std::string> seen;
+        auto skipSpace = [&]() {
+            while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos;
+        };
+        auto isIdentStart = [](unsigned char c) { return std::isalpha(c) || c == '_'; };
+        auto isIdentPart = [](unsigned char c) { return std::isalnum(c) || c == '_'; };
+        auto syntaxError = [&]() {
+            throw std::runtime_error("Invalid import syntax. Expected: import { name, other as alias } from a module path;");
+        };
+        auto parseIdentifier = [&]() -> std::string {
+            if (pos >= text.size() || !isIdentStart(static_cast<unsigned char>(text[pos]))) syntaxError();
+            const std::size_t begin = pos++;
+            while (pos < text.size() && isIdentPart(static_cast<unsigned char>(text[pos]))) ++pos;
+            return text.substr(begin, pos - begin);
+        };
+
+        skipSpace();
+        if (pos >= text.size() || text[pos++] != '{') syntaxError();
+        skipSpace();
+        std::unordered_set<std::string> seenLocalNames;
         while (pos < text.size() && text[pos] != '}') {
-            const std::size_t begin = pos;
-            if (!(std::isalpha(static_cast<unsigned char>(text[pos])) || text[pos] == '_')) syntaxError();
-            ++pos; while (pos < text.size() && (std::isalnum(static_cast<unsigned char>(text[pos])) || text[pos] == '_')) ++pos;
-            std::string symbol = text.substr(begin, pos - begin);
-            if (!seen.insert(symbol).second) throw std::runtime_error("Duplicate imported name '" + symbol + "'.");
-            spec.symbols.push_back(symbol); skipSpace();
-            if (pos < text.size() && text[pos] == ',') { ++pos; skipSpace(); }
-            else if (pos < text.size() && text[pos] != '}') syntaxError();
+            const std::string exportedName = parseIdentifier();
+            skipSpace();
+            std::string localName = exportedName;
+            if (text.compare(pos, 2, "as") == 0 &&
+                (pos + 2 == text.size() || std::isspace(static_cast<unsigned char>(text[pos + 2])))) {
+                pos += 2;
+                skipSpace();
+                localName = parseIdentifier();
+                skipSpace();
+            }
+            if (!seenLocalNames.insert(localName).second)
+                throw std::runtime_error("Duplicate imported binding '" + localName + "'.");
+            spec.symbols.push_back(exportedName);
+            spec.localSymbols.push_back(localName);
+            if (pos < text.size() && text[pos] == ',') {
+                ++pos;
+                skipSpace();
+            } else if (pos < text.size() && text[pos] != '}') {
+                syntaxError();
+            }
         }
         if (spec.symbols.empty() || pos >= text.size() || text[pos++] != '}') syntaxError();
-        skipSpace(); if (text.compare(pos, 4, "from") != 0) syntaxError(); pos += 4; skipSpace();
+        skipSpace();
+        if (text.compare(pos, 4, "from") != 0) syntaxError();
+        pos += 4;
+        skipSpace();
         if (pos >= text.size() || text[pos++] != '"') syntaxError();
         const std::size_t pathBegin = pos;
-        while (pos < text.size() && text[pos] != '"') { if (text[pos] == '\\') syntaxError(); ++pos; }
+        while (pos < text.size() && text[pos] != '"') {
+            if (text[pos] == '\\') syntaxError();
+            ++pos;
+        }
         if (pos >= text.size()) syntaxError();
-        spec.name = text.substr(pathBegin, pos - pathBegin); ++pos; skipSpace();
-        if (pos >= text.size() || text[pos++] != ';') syntaxError(); skipSpace();
+        spec.name = text.substr(pathBegin, pos - pathBegin);
+        ++pos;
+        skipSpace();
+        if (pos >= text.size() || text[pos++] != ';') syntaxError();
+        skipSpace();
         if (pos != text.size() || spec.name.empty()) syntaxError();
         return true;
     }
@@ -3392,15 +3430,16 @@ struct SourceLoader {
         return prefix;
     }
 
-    static std::string rewritePrivateModuleSymbols(
+    static std::string rewriteModuleSymbols(
         const std::string& source,
-        const std::unordered_set<std::string>& privateNames,
-        const std::unordered_set<std::string>& privateClassNames,
-        const std::string& prefix) {
-        if (privateNames.empty()) return source;
+        const std::unordered_set<std::string>& moduleSymbols,
+        const std::unordered_set<std::string>& moduleClassNames,
+        const std::string& prefix,
+        const std::unordered_map<std::string, std::string>& importedBindings) {
+        if (moduleSymbols.empty() && importedBindings.empty()) return source;
 
         std::string output;
-        output.reserve(source.size() + privateNames.size() * prefix.size());
+        output.reserve(source.size() + moduleSymbols.size() * prefix.size() + importedBindings.size() * prefix.size());
         std::size_t i = 0;
         int braceDepth = 0;
         std::vector<int> classBodyDepths;
@@ -3447,7 +3486,7 @@ struct SourceLoader {
                 continue;
             }
 
-            // Ordinary string contents remain literal; interpolate private names consistently.
+            // Keep string literals unchanged while rebinding interpolated module names.
             if (c == '"') {
                 output.push_back(source[i++]);
                 bool escaped = false;
@@ -3466,8 +3505,13 @@ struct SourceLoader {
                         }
                         const std::string name = source.substr(nameBegin, close - nameBegin);
                         output.append(source, i, 2);
-                        if (privateNames.count(name)) output += prefix;
-                        output += name;
+                        const auto imported = importedBindings.find(name);
+                        if (imported != importedBindings.end()) {
+                            output += imported->second;
+                        } else {
+                            if (moduleSymbols.count(name)) output += prefix;
+                            output += name;
+                        }
                         output.push_back('}');
                         i = close + 1;
                         escaped = false;
@@ -3497,11 +3541,13 @@ struct SourceLoader {
                     previousToken == "." || previousToken == "::";
                 const bool isPrivateConstructorDeclaration =
                     inClassMemberScope && previousToken == "fn" &&
-                    privateClassNames.count(token);
-                if (privateNames.count(token) && !isMemberName &&
+                    moduleClassNames.count(token);
+                if (moduleSymbols.count(token) && !isMemberName &&
                     (!isClassMemberDeclaration || isPrivateConstructorDeclaration)) {
                     output += prefix;
                     output += token;
+                } else if (importedBindings.count(token) && !isMemberName && !isClassMemberDeclaration) {
+                    output += importedBindings.at(token);
                 } else {
                     output += token;
                 }
@@ -3588,8 +3634,9 @@ struct SourceLoader {
         // which declaration wins or producing a confusing parser error later.
         std::unordered_set<std::string> importedNames;
         std::unordered_set<std::string> localTopLevelNames;
-        std::unordered_set<std::string> privateSymbolNames;
-        std::unordered_set<std::string> privateClassNames;
+        std::unordered_set<std::string> moduleSymbolNames;
+        std::unordered_set<std::string> moduleClassNames;
+        std::unordered_map<std::string, std::string> importedBindings;
         bool importSection = true; int lineNumber = 0;
         int braceDepth = 0;
         bool inBlockComment = false;
@@ -3609,32 +3656,31 @@ struct SourceLoader {
                     const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     localTopLevelNames.insert(text.substr(0, end));
                 };
-                auto rememberPrivateName = [&](const std::string& text) {
+                auto rememberModuleName = [&](const std::string& text) {
                     if (!namedModule || text.empty() ||
                         !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
                     const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     const std::string name = text.substr(0, end);
-                    if (!name.empty() && !exportsByPath.at(key).count(name))
-                        privateSymbolNames.insert(name);
+                    if (!name.empty()) moduleSymbolNames.insert(name);
                 };
-                auto rememberPrivateClassName = [&](const std::string& text) {
+                auto rememberModuleClassName = [&](const std::string& text) {
                     if (!namedModule || text.empty() ||
                         !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
                     const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     const std::string name = text.substr(0, end);
-                    if (!name.empty() && !exportsByPath.at(key).count(name)) {
-                        privateSymbolNames.insert(name);
-                        privateClassNames.insert(name);
+                    if (!name.empty()) {
+                        moduleSymbolNames.insert(name);
+                        moduleClassNames.insert(name);
                     }
                 };
                 if (declaration.rfind("abstract class ", 0) == 0) {
                     const std::string header = trim(declaration.substr(15));
                     rememberTopLevelName(header);
-                    rememberPrivateClassName(header);
+                    rememberModuleClassName(header);
                 } else if (declaration.rfind("class ", 0) == 0) {
                     const std::string header = trim(declaration.substr(6));
                     rememberTopLevelName(header);
-                    rememberPrivateClassName(header);
+                    rememberModuleClassName(header);
                 } else if (declaration.rfind("async ", 0) == 0) {
                     std::string afterAsync = trim(declaration.substr(5));
                     if (afterAsync.rfind("fn", 0) == 0 &&
@@ -3644,7 +3690,7 @@ struct SourceLoader {
                         const auto nameEnd = header.find_first_not_of(
                             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                         const std::string functionName = header.substr(0, nameEnd);
-                        rememberPrivateName(functionName);
+                        rememberModuleName(functionName);
                     }
                 } else if (declaration.rfind("fn ", 0) == 0) {
                     const std::string header = trim(declaration.substr(3));
@@ -3652,11 +3698,11 @@ struct SourceLoader {
                     const auto nameEnd = header.find_first_not_of(
                         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     const std::string functionName = header.substr(0, nameEnd);
-                    rememberPrivateName(functionName);
+                    rememberModuleName(functionName);
                 } else if (declaration.rfind("var ", 0) == 0) {
                     const std::string header = trim(declaration.substr(4));
                     rememberTopLevelName(header);
-                    rememberPrivateName(header);
+                    rememberModuleName(header);
                 } else if (!declaration.empty() &&
                            declaration.rfind("use ", 0) != 0 &&
                            declaration.rfind("import ", 0) != 0 &&
@@ -3678,7 +3724,7 @@ struct SourceLoader {
                                 declaration[secondEnd] == '_')) ++secondEnd;
                         const std::string variableName = declaration.substr(secondStart, secondEnd - secondStart);
                         rememberTopLevelName(variableName);
-                        rememberPrivateName(variableName);
+                        rememberModuleName(variableName);
                     }
                 }
             }
@@ -3711,9 +3757,9 @@ struct SourceLoader {
                 try {
                     if (parseNamedImport(line, spec)) {
                         spec.line = lineNumber;
-                        for (const auto& symbol : spec.symbols) {
-                            if (!importedNames.insert(symbol).second)
-                                throw std::runtime_error("Imported name '" + symbol + "' is imported more than once in this module.");
+                        for (const auto& localName : spec.localSymbols) {
+                            if (!importedNames.insert(localName).second)
+                                throw std::runtime_error("Imported binding '" + localName + "' is imported more than once in this module.");
                         }
                         imports.push_back(std::move(spec));
                         continue;
@@ -3731,10 +3777,10 @@ struct SourceLoader {
         }
         for (const auto& spec : imports) {
             if (spec.legacy) continue;
-            for (const auto& symbol : spec.symbols) {
-                if (localTopLevelNames.count(symbol))
+            for (const auto& localName : spec.localSymbols) {
+                if (localTopLevelNames.count(localName))
                     throw std::runtime_error(path.string() + ":" + std::to_string(spec.line) +
-                        ": Imported name '" + symbol + "' conflicts with a local top-level declaration.");
+                        ": Imported binding '" + localName + "' conflicts with a local top-level declaration.");
             }
         }
         active.insert(key);
@@ -3752,7 +3798,12 @@ struct SourceLoader {
                         std::ifstream importedFile(importedPath); if (!importedFile) throw std::runtime_error("Could not open module: " + importedPath.string());
                         std::ostringstream importedContents; importedContents << importedFile.rdbuf(); exportsByPath[importedKey] = scanExports(importedContents.str());
                     }
-                    for (const auto& symbol : spec.symbols) if (!exportsByPath.at(importedKey).count(symbol)) throw std::runtime_error("Module '" + spec.name + "' does not export '" + symbol + "'.");
+                    for (std::size_t i = 0; i < spec.symbols.size(); ++i) {
+                        const std::string& symbol = spec.symbols[i];
+                        if (!exportsByPath.at(importedKey).count(symbol))
+                            throw std::runtime_error("Module '" + spec.name + "' does not export '" + symbol + "'.");
+                        importedBindings[spec.localSymbols[i]] = privateModulePrefix(importedKey) + symbol;
+                    }
                 }
                 // Legacy "use" libraries keep their original flat/global
                 // compatibility semantics. Relative named imports opt into private
@@ -3766,9 +3817,10 @@ struct SourceLoader {
         }
         active.erase(key);
         if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
-        const std::string moduleSource = namedModule
-            ? rewritePrivateModuleSymbols(localSource.str(), privateSymbolNames, privateClassNames, privateModulePrefix(key))
-            : localSource.str();
+        const std::string localText = localSource.str();
+        const std::string moduleSource = (namedModule || !importedBindings.empty())
+            ? rewriteModuleSymbols(localText, moduleSymbolNames, moduleClassNames, privateModulePrefix(key), importedBindings)
+            : localText;
         loaded.insert(key);
         loadedModuleModes[key] = namedModule;
         combined += moduleSource;

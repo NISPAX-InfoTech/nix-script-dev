@@ -38,20 +38,20 @@ export fn rightLabel() { return "value=${localValue}"; }
 EOF
 
 cat > "$ROOT/positive.ns" <<'EOF'
-import { leftAnswer, leftLabel, PublicBox, sharedCount, typedCount } from "./modules/left";
-import { rightAnswer, rightLabel } from "./modules/right";
+import { leftAnswer, leftLabel, PublicBox as Box, sharedCount as count, typedCount as typed } from "./modules/left";
+import { rightAnswer as computeRight, rightLabel } from "./modules/right";
 nix main() {
     println("left=", leftAnswer());
-    println("right=", rightAnswer());
+    println("right=", computeRight());
     println("left-label=", leftLabel());
     println("right-label=", rightLabel());
-    var box = PublicBox(2);
+    var box = Box(2);
     println("public-box=", box.combined());
-    println("exported-global=", sharedCount);
-    sharedCount = sharedCount + 4;
-    typedCount = typedCount + 1;
-    println("updated-exported-global=", sharedCount);
-    println("updated-typed-global=", typedCount);
+    println("exported-global=", count);
+    count = count + 4;
+    typed = typed + 1;
+    println("updated-exported-global=", count);
+    println("updated-typed-global=", typed);
 }
 EOF
 actual="$("$NIX" "$ROOT/positive.ns")"
@@ -78,6 +78,23 @@ grep -Eq "Unknown (function|variable) 'helper'" "$ROOT/private-leak.log" || {
     cat "$ROOT/private-leak.log" >&2
     exit 1
 }
+cat > "$ROOT/unimported_export.ns" <<'EOF'
+import { leftAnswer } from "./modules/left";
+import { rightAnswer as computeRight } from "./modules/right";
+nix main() {
+    println(rightAnswer());
+}
+EOF
+if "$NIX" "$ROOT/unimported_export.ns" >"$ROOT/unimported-export.log" 2>&1; then
+    echo "An exported symbol was accessible without importing that binding." >&2
+    exit 1
+fi
+grep -Eq "Unknown (variable|function) 'rightAnswer'" "$ROOT/unimported-export.log" || {
+    echo "Unimported-export rejection had an unexpected diagnostic:" >&2
+    cat "$ROOT/unimported-export.log" >&2
+    exit 1
+}
+
 cat > "$ROOT/private_global_leak.ns" <<'EOF'
 import { leftAnswer } from "./modules/left";
 nix main() {
