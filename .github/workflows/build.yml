@@ -25,9 +25,9 @@ jobs:
       - name: Run C++ runtime unit tests
         run: ctest --test-dir build --output-on-failure
 
-      - name: Run generated language regression corpus
+      - name: Run 100,000 distinct generated language regression programs
         shell: bash
-        run: python3 tests/regression_corpus.py --nix ./build/nix --small-per-feature 1200 --large-count 50
+        run: python3 tests/regression_corpus.py --nix ./build/nix --small-per-feature 3570 --large-count 40
 
       - name: Run existing example and verify output
         shell: bash
