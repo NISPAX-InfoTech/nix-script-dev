@@ -2192,7 +2192,7 @@ private:
     }
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
         if (function.isAsync) {
-            validateAsyncFunction(function, line);
+            // runAsyncFrame keeps nested block and loop cursors across suspension.
             if (args.size() != function.parameters.size())
                 runtimeError(line, "Async function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                    " argument(s), received " + std::to_string(args.size()) + ".");
