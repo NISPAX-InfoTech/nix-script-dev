@@ -31,6 +31,8 @@ struct TaskState : std::enable_shared_from_this<TaskState> {
     std::shared_ptr<TaskState> waitingOn;
     std::string label;
     bool queued = false;
+    // Failure must remain observable even if the language discards the task handle.
+    bool observed = false;
 };
 
 class TaskCancelled final : public std::runtime_error {
@@ -58,6 +60,7 @@ public:
     }
     T result() const {
         requireState();
+        state_->observed = true;
         if (state_->status == TaskStatus::Failed) std::rethrow_exception(state_->failure);
         if (state_->status == TaskStatus::Cancelled) throw TaskCancelled(state_->label);
         if (state_->status != TaskStatus::Succeeded)
@@ -85,7 +88,10 @@ public:
     bool await(const std::shared_ptr<TaskState>& dependency) {
         if (!dependency) throw std::logic_error("Cannot await an invalid task.");
         if (dependency->status == TaskStatus::Succeeded) return true;
-        if (dependency->status == TaskStatus::Failed) std::rethrow_exception(dependency->failure);
+        if (dependency->status == TaskStatus::Failed) {
+            dependency->observed = true;
+            std::rethrow_exception(dependency->failure);
+        }
         if (dependency->status == TaskStatus::Cancelled) throw TaskCancelled(dependency->label);
         // Reject direct and indirect wait cycles before adding an edge.
         for (auto cursor = dependency; cursor; cursor = cursor->waitingOn) {
@@ -247,6 +253,26 @@ public:
         while (runOne()) {}
     }
 
+    // Call at a language-runtime boundary after all currently runnable work has
+    // drained. Failures that were never awaited/read must not disappear silently.
+    void rethrowUnhandledFailures() const {
+        for (const auto& state : tasks_) {
+            if (state && state->status == TaskStatus::Failed && !state->observed) {
+                try {
+                    std::rethrow_exception(state->failure);
+                } catch (const std::exception& error) {
+                    throw std::runtime_error("Unhandled async task failure" +
+                        (state->label.empty() ? std::string{} : " in '" + state->label + "'") +
+                        ": " + error.what());
+                } catch (...) {
+                    throw std::runtime_error("Unhandled async task failure" +
+                        (state->label.empty() ? std::string{} : " in '" + state->label + "'") +
+                        ": unknown exception.");
+                }
+            }
+        }
+    }
+
     template <typename T>
     void runUntil(const Task<T>& task) {
         ensureRunning();
@@ -267,8 +293,8 @@ public:
         if (shuttingDown_) return;
         shuttingDown_ = true;
         ready_.clear();
-        for (auto& weak : tasks_) {
-            if (auto state = weak.lock()) {
+        for (auto& state : tasks_) {
+            if (state) {
                 if (state->status == TaskStatus::Pending || state->status == TaskStatus::Running)
                     state->status = TaskStatus::Cancelled;
                 // Release callback captures for terminal as well as pending
@@ -283,7 +309,8 @@ public:
 
 private:
     std::deque<std::shared_ptr<TaskState>> ready_;
-    std::vector<std::weak_ptr<TaskState>> tasks_;
+    // Keep task states alive until shutdown so discarded failed tasks remain reportable.
+    std::vector<std::shared_ptr<TaskState>> tasks_;
     bool shuttingDown_ = false;
     bool stepping_ = false;
     std::shared_ptr<TaskState> currentStep_;
