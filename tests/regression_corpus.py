@@ -509,7 +509,7 @@ def main() -> int:
             directory=Path(temp)
             for family,factory in FEATURES:
                 for index in range(args.small_per_feature):
-                    n=1+(index%37)
+                    n=index+1
                     source,expected,stdin,module=factory(index,n)
                     run_one(executable,directory,source,expected,stdin,module,
                             f"feature={family} case={index+1}",args.timeout)
