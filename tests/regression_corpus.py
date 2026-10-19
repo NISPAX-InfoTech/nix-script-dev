@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generated NixScript regression corpus: 1,200 independent samples per family + 50 integrations."""
+"""Generated NixScript regression corpus: 100,000 distinct source programs across every registered feature family."""
 from __future__ import annotations
 import argparse, math, subprocess, sys, tempfile
 from pathlib import Path
@@ -504,6 +504,11 @@ def main() -> int:
     if args.small_per_feature < 1 or args.large_count < 0:
         parser.error("small-per-feature must be positive and large-count non-negative")
     count=0
+    seen_sources=set()
+    def require_distinct(source: str, label: str):
+        if source in seen_sources:
+            raise RuntimeError(f"duplicate generated source program: {label}")
+        seen_sources.add(source)
     try:
         with tempfile.TemporaryDirectory(prefix="nixscript-regression-") as temp:
             directory=Path(temp)
@@ -511,6 +516,7 @@ def main() -> int:
                 for index in range(args.small_per_feature):
                     n=index+1
                     source,expected,stdin,module=factory(index,n)
+                    require_distinct(source, f"feature={family} case={index+1}")
                     run_one(executable,directory,source,expected,stdin,module,
                             f"feature={family} case={index+1}",args.timeout)
                     count+=1
