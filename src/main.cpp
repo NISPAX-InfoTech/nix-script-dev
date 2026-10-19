@@ -3347,12 +3347,28 @@ struct SourceLoader {
                 std::string afterAsync = trim(text.substr(5));
                 if (afterAsync.rfind("fn", 0) != 0 ||
                     (afterAsync.size() > 2 && !std::isspace(static_cast<unsigned char>(afterAsync[2]))))
-                    throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function or class declaration.");
+                    throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function, class, or global-variable declaration.");
                 text = trim(afterAsync.substr(2));
             } else if (text.rfind("fn ", 0) == 0) text = trim(text.substr(3));
             else if (text.rfind("class ", 0) == 0) text = trim(text.substr(6));
             else if (text.rfind("abstract class ", 0) == 0) text = trim(text.substr(15));
-            else throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function or class declaration.");
+            else if (text.rfind("var ", 0) == 0) text = trim(text.substr(4));
+            else {
+                // Also accept explicitly typed top-level globals, e.g. "export int count;".
+                std::size_t typeEnd = 0;
+                while (typeEnd < text.size() &&
+                       (std::isalnum(static_cast<unsigned char>(text[typeEnd])) || text[typeEnd] == '_')) ++typeEnd;
+                const std::size_t nameBegin = text.find_first_not_of(" \t\r", typeEnd);
+                if (typeEnd == 0 || nameBegin == std::string::npos ||
+                    !(std::isalpha(static_cast<unsigned char>(text[nameBegin])) || text[nameBegin] == '_')) {
+                    throw std::runtime_error("Line " + std::to_string(number) +
+                        ": 'export' must precede a top-level function, class, or global-variable declaration.");
+                }
+                std::size_t nameEnd = nameBegin + 1;
+                while (nameEnd < text.size() &&
+                       (std::isalnum(static_cast<unsigned char>(text[nameEnd])) || text[nameEnd] == '_')) ++nameEnd;
+                text = text.substr(nameBegin, nameEnd - nameBegin);
+            }
             const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
             const std::string name = text.substr(0, end);
             if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) throw std::runtime_error("Line " + std::to_string(number) + ": Expected a declaration name after 'export'.");

@@ -18,7 +18,8 @@ NixScript is a readable, multi-paradigm, general-purpose language with predictab
 - `use library_name;` remains a legacy adapter with shared-global behavior.
 - Relative named imports use `import { name, other } from "./module";`. Only explicitly exported top-level functions (including async functions) and classes can be imported.
 - Private top-level functions, classes, and globals in named-import modules receive module-specific internal names; importers cannot refer to them by their original names. A file cannot be loaded using both named imports and legacy `use` in the same program.
-- Exported globals, aliases, dedicated per-module runtime environments, dependency manifests, and package-integrity signatures are not yet supported.
+- Exported globals declared with `export var name` or `export type name` can be imported and mutated by importer code.
+- Import aliases, dedicated per-module runtime environments, dependency manifests, and package-integrity signatures are not yet supported.
 - `async fn` also works for instance and static methods. An async method returns a task, retains its receiver across suspension, and resumes cooperatively. Async constructors/destructors and async abstract methods are not supported.
 
 ```ns
