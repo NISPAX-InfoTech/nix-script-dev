@@ -1,0 +1,18 @@
+var x;
+int typedGlobal = 7;
+var initializedGlobal = 3;
+
+fn readGlobal() {
+    println(x);
+    println(typedGlobal);
+    println(initializedGlobal);
+}
+
+nix main() {
+    x = 5;
+    readGlobal();
+    x = x + 2;
+    typedGlobal = 9;
+    initializedGlobal = 4;
+    readGlobal();
+}
