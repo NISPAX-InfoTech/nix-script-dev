@@ -20,4 +20,12 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
             "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
             "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_failure.ns"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_async_failure.cmake")
+    add_test(NAME uin_class_field_initialization_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/uin_class_field.ns"
+            "-DINPUT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/uin_class_field.input"
+            "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/uin_class_field.expected"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
+    set_tests_properties(uin_class_field_initialization_test PROPERTIES TIMEOUT 10)
 endif()

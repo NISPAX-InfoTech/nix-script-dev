@@ -1,0 +1,18 @@
+class InputRecord {
+public:
+    var name;
+    int age;
+    InputRecord() {
+        uin(name);
+        uin(age);
+    }
+};
+
+nix main() {
+    var nickname;
+    uin(nickname);
+    var person = InputRecord();
+    println(nickname);
+    println(person.name);
+    println(person.age);
+}
