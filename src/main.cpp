@@ -626,24 +626,6 @@ private:
                 parseMethodTail(member);
             } else {
                 member.kind = ClassMember::Kind::Field;
-                // Fixed-size character buffers use the language's string value representation.
-                if (match(TokenKind::LeftBracket)) {
-                    if (member.typeName != "char")
-                        fail(previous(), "Only char fields may use fixed-size array syntax; use [] values for other arrays.");
-                    if (!check(TokenKind::Number))
-                        fail(peek(), "Expected a positive size inside the char field brackets.");
-                    const Token sizeToken = advance();
-                    try {
-                        if (std::stoll(sizeToken.text) <= 0)
-                            fail(sizeToken, "Character field size must be positive.");
-                    } catch (const std::invalid_argument&) {
-                        fail(sizeToken, "Invalid character field size.");
-                    } catch (const std::out_of_range&) {
-                        fail(sizeToken, "Character field size is too large.");
-                    }
-                    consume(TokenKind::RightBracket, "Expected ']' after character field size.");
-                    member.typeName = "string";
-                }
                 if (match(TokenKind::Equal)) member.initializer = expression();
                 consume(TokenKind::Semicolon, "Expected ';' after field declaration.");
             }
@@ -1474,7 +1456,7 @@ private:
                 auto thisIt = scope->find("this");
                 if (thisIt == scope->end()) continue;
                 if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
-                    ClassMember* member = findMember((*instance)->klass, name);
+                    ClassMember* member = findMemberForInstance(*instance, name, line);
                     if (member && member->kind == ClassMember::Kind::Field) {
                         Expr target; target.kind = Expr::Kind::Member; target.name = name; target.line = line;
                         target.left = std::make_unique<Expr>(); target.left->kind = Expr::Kind::Variable;
@@ -1768,10 +1750,14 @@ private:
             if (owner == classes_.end()) runtimeError(line, "Unknown class for static member.");
             auto field = owner->second->staticValues.find(name);
             if (field == owner->second->staticValues.end()) return std::monostate{};
+            if (std::holds_alternative<UninitializedValue>(field->second))
+                runtimeError(line, "Field '" + name + "' has not been initialized.");
             return field->second;
         }
         auto field = instance->fields.find(fieldStorageKey(*member));
         if (field == instance->fields.end()) return std::monostate{};
+        if (std::holds_alternative<UninitializedValue>(field->second))
+            runtimeError(line, "Field '" + name + "' has not been initialized.");
         return field->second;
     }
     Value getStaticMember(const std::shared_ptr<ClassDef>& klass, const std::string& name, int line) {
@@ -1920,10 +1906,13 @@ private:
             if (member.kind != ClassMember::Kind::Field) continue;
             if (member.isStatic) {
                 if (!klass->staticValues.count(member.name))
-                    klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) : defaultValue(member.typeName);
+                    klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) :
+                        ((member.typeName.empty() || member.typeName == "var") ? Value{UninitializedValue{}} : defaultValue(member.typeName));
                 continue;
             }
-            Value value = defaultValue(member.typeName);
+            Value value = (!member.initializer &&
+                           (member.typeName.empty() || member.typeName == "var"))
+                              ? Value{UninitializedValue{}} : defaultValue(member.typeName);
             if (member.initializer) {
                 scopes_.emplace_back();
                 scopes_.back()["this"] = instance;
@@ -2668,13 +2657,20 @@ private:
                 if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable) {
                     const std::string target = expr.items[0]->name;
                     bool targetExists = exists(target);
+                    bool targetIsField = false;
+                    Value currentFieldValue = UninitializedValue{};
                     if (!targetExists && !currentClass_.empty()) {
                         for (auto scope = scopes_.rbegin(); scope != scopes_.rend() && !targetExists; ++scope) {
                             auto thisIt = scope->find("this");
                             if (thisIt == scope->end()) continue;
                             if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
                                 ClassMember* member = findMemberForInstance(*instance, target, expr.line);
-                                targetExists = member && member->kind == ClassMember::Kind::Field;
+                                targetIsField = member && member->kind == ClassMember::Kind::Field;
+                                targetExists = targetIsField;
+                                if (targetIsField && !member->isStatic) {
+                                    auto field = (*instance)->fields.find(fieldStorageKey(*member));
+                                    if (field != (*instance)->fields.end()) currentFieldValue = field->second;
+                                }
                             }
                         }
                     }
@@ -2689,7 +2685,10 @@ private:
                                 break;
                             }
                         }
-                        if (!foundLocal) current = lookup(target, expr.line);
+                        if (!foundLocal) {
+                            if (targetIsField) current = currentFieldValue;
+                            else current = lookup(target, expr.line);
+                        }
                         if (std::holds_alternative<double>(current)) type = "number";
                         else if (std::holds_alternative<bool>(current)) type = "bool";
                         else type = "string";
@@ -2923,7 +2922,8 @@ private:
         for (auto& member : klass->members) {
             if (member.kind == ClassMember::Kind::Field && member.isStatic) {
                 klass->staticValues[member.name] = member.initializer
-                    ? evaluate(*member.initializer) : defaultValue(member.typeName);
+                    ? evaluate(*member.initializer)
+                    : ((member.typeName.empty() || member.typeName == "var") ? Value{UninitializedValue{}} : defaultValue(member.typeName));
             }
         }
     }
