@@ -525,6 +525,7 @@ def main() -> int:
                 n=1+(index%50)
                 source,_,stdin,module=build(index,n,LARGE,"",
                                             module="fn moduleValue() { return __N__ + 5; }\n")
+                require_distinct(source, f"large-integration case={index+1}")
                 expected=("pass\n"+f"large{n}\n"+f"{5*n+6}\n"+f"{2*n}\n"+
                           f"{n+1}\n"+f"{n+5}\n"+"1\n"+f"{3*n}\n"+
                           f"LARGE{n}\n"+f"{n}\n")
@@ -537,7 +538,8 @@ def main() -> int:
         return 1
     small_total=args.small_per_feature*len(FEATURES)
     print(f"ALL PASS: {small_total} small programs across {len(FEATURES)} feature families "
-          f"+ {args.large_count} large programs = {count} programs total.")
+          f"+ {args.large_count} large programs = {count} programs total; "
+          f"unique source programs verified={len(seen_sources)}.")
     return 0
 
 if __name__=="__main__":
