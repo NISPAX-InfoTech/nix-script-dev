@@ -3275,7 +3275,14 @@ struct SourceLoader {
             ++number; std::string text = trim(withoutComment(line));
             if (text.rfind("export", 0) != 0 || (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_'))) continue;
             text = trim(text.substr(6));
-            if (text.rfind("fn ", 0) == 0) text = trim(text.substr(3));
+            if (text.rfind("async", 0) == 0 &&
+                (text.size() == 5 || std::isspace(static_cast<unsigned char>(text[5])))) {
+                std::string afterAsync = trim(text.substr(5));
+                if (afterAsync.rfind("fn", 0) != 0 ||
+                    (afterAsync.size() > 2 && !std::isspace(static_cast<unsigned char>(afterAsync[2]))))
+                    throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function or class declaration.");
+                text = trim(afterAsync.substr(2));
+            } else if (text.rfind("fn ", 0) == 0) text = trim(text.substr(3));
             else if (text.rfind("class ", 0) == 0) text = trim(text.substr(6));
             else if (text.rfind("abstract class ", 0) == 0) text = trim(text.substr(15));
             else throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function or class declaration.");
@@ -3336,21 +3343,46 @@ struct SourceLoader {
             if (braceDepth == 0) {
                 std::string declaration = code;
                 if (declaration.rfind("export ", 0) == 0) declaration = trim(declaration.substr(7));
+                auto rememberTopLevelName = [&localTopLevelNames](const std::string& text) {
+                    if (text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    localTopLevelNames.insert(text.substr(0, end));
+                };
                 if (declaration.rfind("abstract class ", 0) == 0) {
-                    declaration = trim(declaration.substr(15));
-                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
-                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
-                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                    rememberTopLevelName(trim(declaration.substr(15)));
                 } else if (declaration.rfind("class ", 0) == 0) {
-                    declaration = trim(declaration.substr(6));
-                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
-                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
-                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                    rememberTopLevelName(trim(declaration.substr(6)));
+                } else if (declaration.rfind("async ", 0) == 0) {
+                    std::string afterAsync = trim(declaration.substr(5));
+                    if (afterAsync.rfind("fn", 0) == 0 &&
+                        (afterAsync.size() == 2 || std::isspace(static_cast<unsigned char>(afterAsync[2]))))
+                        rememberTopLevelName(trim(afterAsync.substr(2)));
                 } else if (declaration.rfind("fn ", 0) == 0) {
-                    declaration = trim(declaration.substr(3));
-                    const auto end = declaration.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
-                    if (end != std::string::npos) localTopLevelNames.insert(declaration.substr(0, end));
-                    else if (!declaration.empty()) localTopLevelNames.insert(declaration);
+                    rememberTopLevelName(trim(declaration.substr(3)));
+                } else if (declaration.rfind("var ", 0) == 0) {
+                    rememberTopLevelName(trim(declaration.substr(4)));
+                } else if (!declaration.empty() &&
+                           declaration.rfind("use ", 0) != 0 &&
+                           declaration.rfind("import ", 0) != 0 &&
+                           declaration.rfind("nix ", 0) != 0 &&
+                           declaration.find("::") == std::string::npos) {
+                    // A pair of identifiers at top level is an explicitly typed
+                    // variable declaration (for example, "int count;").
+                    std::size_t firstEnd = 0;
+                    while (firstEnd < declaration.size() &&
+                           (std::isalnum(static_cast<unsigned char>(declaration[firstEnd])) ||
+                            declaration[firstEnd] == '_')) ++firstEnd;
+                    std::size_t secondStart = declaration.find_first_not_of(" \t\r", firstEnd);
+                    if (firstEnd != 0 && secondStart != std::string::npos &&
+                        (std::isalpha(static_cast<unsigned char>(declaration[secondStart])) ||
+                         declaration[secondStart] == '_')) {
+                        std::size_t secondEnd = secondStart;
+                        while (secondEnd < declaration.size() &&
+                               (std::isalnum(static_cast<unsigned char>(declaration[secondEnd])) ||
+                                declaration[secondEnd] == '_')) ++secondEnd;
+                        rememberTopLevelName(declaration.substr(secondStart, secondEnd - secondStart));
+                    }
                 }
             }
             // Count braces outside strings and comments for top-level scanning.
