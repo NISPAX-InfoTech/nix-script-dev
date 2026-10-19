@@ -48,6 +48,19 @@ int main() {
     }
     CHECK(propagated);
 
+    // Unobserved task failures remain reportable even if the caller discards its handle.
+    auto unobservedFailure = scheduler.spawn<int>("unobserved-failure", []() -> int {
+        throw std::runtime_error("unobserved failure");
+    });
+    (void)unobservedFailure;
+    scheduler.runUntilIdle();
+    bool unobservedReported = false;
+    try { scheduler.rethrowUnhandledFailures(); }
+    catch (const std::runtime_error& error) {
+        unobservedReported = std::string(error.what()).find("unobserved failure") != std::string::npos;
+    }
+    CHECK(unobservedReported);
+
     Task<void> cancelled;
     cancelled = scheduler.create<void>("cancelled", [&](TaskContext&) {
         CHECK(false && "cancelled task must not run");
