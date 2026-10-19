@@ -15,6 +15,7 @@ class Hidden {
 };
 fn helper() { return Hidden(localValue).value(); }
 export fn leftAnswer() { return helper() + 2; }
+export fn leftLabel() { return "value=${localValue}"; }
 EOF
 
 cat > "$ROOT/modules/right.ns" <<'EOF'
@@ -26,18 +27,21 @@ class Hidden {
 };
 fn helper() { return Hidden(localValue).value(); }
 export fn rightAnswer() { return helper() + 1; }
+export fn rightLabel() { return "value=${localValue}"; }
 EOF
 
 cat > "$ROOT/positive.ns" <<'EOF'
-import { leftAnswer } from "./modules/left";
-import { rightAnswer } from "./modules/right";
+import { leftAnswer, leftLabel } from "./modules/left";
+import { rightAnswer, rightLabel } from "./modules/right";
 nix main() {
     println("left=", leftAnswer());
     println("right=", rightAnswer());
+    println("left-label=", leftLabel());
+    println("right-label=", rightLabel());
 }
 EOF
 actual="$("$NIX" "$ROOT/positive.ns")"
-expected="$(printf 'left=42\nright=101')"
+expected="$(printf 'left=42\nright=101\nleft-label=value=40\nright-label=value=100')"
 if [[ "$actual" != "$expected" ]]; then
     echo "Private-module helper isolation failed." >&2
     echo "Expected: [$expected]" >&2
@@ -76,6 +80,23 @@ grep -Eq "Unknown (variable|function) 'localValue'" "$ROOT/private-global-leak.l
     exit 1
 }
 
+
+cat > "$ROOT/private_class_leak.ns" <<'EOF'
+import { leftAnswer } from "./modules/left";
+nix main() {
+    var item = Hidden(1);
+    println(item.value());
+}
+EOF
+if "$NIX" "$ROOT/private_class_leak.ns" >"$ROOT/private-class-leak.log" 2>&1; then
+    echo "A module-private class was visible to the importer." >&2
+    exit 1
+fi
+grep -Eq "Unknown variable 'Hidden'|Unknown function 'Hidden'" "$ROOT/private-class-leak.log" || {
+    echo "Private-class rejection had an unexpected diagnostic:" >&2
+    cat "$ROOT/private-class-leak.log" >&2
+    exit 1
+}
 
 cat > "$ROOT/legacy_and_named.ns" <<'EOF'
 use left;
