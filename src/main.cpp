@@ -626,6 +626,24 @@ private:
                 parseMethodTail(member);
             } else {
                 member.kind = ClassMember::Kind::Field;
+                // Fixed-size character buffers use the language's string value representation.
+                if (match(TokenKind::LeftBracket)) {
+                    if (member.typeName != "char")
+                        fail(previous(), "Only char fields may use fixed-size array syntax; use [] values for other arrays.");
+                    if (!check(TokenKind::Number))
+                        fail(peek(), "Expected a positive size inside the char field brackets.");
+                    const Token sizeToken = advance();
+                    try {
+                        if (std::stoll(sizeToken.text) <= 0)
+                            fail(sizeToken, "Character field size must be positive.");
+                    } catch (const std::invalid_argument&) {
+                        fail(sizeToken, "Invalid character field size.");
+                    } catch (const std::out_of_range&) {
+                        fail(sizeToken, "Character field size is too large.");
+                    }
+                    consume(TokenKind::RightBracket, "Expected ']' after character field size.");
+                    member.typeName = "string";
+                }
                 if (match(TokenKind::Equal)) member.initializer = expression();
                 consume(TokenKind::Semicolon, "Expected ';' after field declaration.");
             }
