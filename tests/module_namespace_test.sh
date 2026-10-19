@@ -16,6 +16,11 @@ class Hidden {
 fn helper() { return Hidden(localValue).value(); }
 export fn leftAnswer() { return helper() + 2; }
 export fn leftLabel() { return "value=${localValue}"; }
+export class PublicBox {
+    var stored;
+    fn PublicBox(initial) { this.stored = initial; }
+    fn combined() { return helper() + this.stored; }
+};
 EOF
 
 cat > "$ROOT/modules/right.ns" <<'EOF'
@@ -31,17 +36,19 @@ export fn rightLabel() { return "value=${localValue}"; }
 EOF
 
 cat > "$ROOT/positive.ns" <<'EOF'
-import { leftAnswer, leftLabel } from "./modules/left";
+import { leftAnswer, leftLabel, PublicBox } from "./modules/left";
 import { rightAnswer, rightLabel } from "./modules/right";
 nix main() {
     println("left=", leftAnswer());
     println("right=", rightAnswer());
     println("left-label=", leftLabel());
     println("right-label=", rightLabel());
+    var box = PublicBox(2);
+    println("public-box=", box.combined());
 }
 EOF
 actual="$("$NIX" "$ROOT/positive.ns")"
-expected="$(printf 'left=42\nright=101\nleft-label=value=40\nright-label=value=100')"
+expected="$(printf 'left=42\nright=101\nleft-label=value=40\nright-label=value=100\npublic-box=42')"
 if [[ "$actual" != "$expected" ]]; then
     echo "Private-module helper isolation failed." >&2
     echo "Expected: [$expected]" >&2
