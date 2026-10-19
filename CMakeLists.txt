@@ -33,4 +33,11 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
             "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/uin_class_field.expected"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
     set_tests_properties(uin_class_field_initialization_test PROPERTIES TIMEOUT 10)
+    add_test(NAME global_variables_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/global_variables.ns"
+            "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/global_variables.expected"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
+    set_tests_properties(global_variables_test PROPERTIES TIMEOUT 10)
 endif()
