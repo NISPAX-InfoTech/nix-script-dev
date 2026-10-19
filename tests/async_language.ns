@@ -68,5 +68,10 @@ nix main() {
     await left;
     await right;
     println("answer=", chosen);
-    println("nested-result=", await nestedControls());
+    var nestedResult = await nestedControls();
+    if (nestedResult != 125) {
+        // Deliberately unresolved: reaching this branch must fail the regression test.
+        asyncNestedControlRegressionFailure();
+    }
+    println("nested-result=", nestedResult);
 }
