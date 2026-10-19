@@ -28,6 +28,28 @@ async fn work(value) {
     return value;
 }
 
+// Awaiting in nested blocks and both loop forms must resume at the suspended
+// statement instead of replaying earlier side effects or skipping iterations.
+async fn nestedControls() {
+    if (true) {
+        println("if-before");
+        var first = await plusOne(0);
+        println("if-after=", first);
+    }
+    repeat(2) {
+        println("repeat-before");
+        var ignored = await plusOne(0);
+        println("repeat-after=", ignored);
+    }
+    var total = 0;
+    for (var index = 0; index < 2; index++) {
+        println("for-before=", index);
+        var next = await plusOne(index);
+        total = total + next;
+    }
+    return total;
+}
+
 nix main() {
     var left = work(1);
     var right = work(2);
@@ -37,4 +59,5 @@ nix main() {
     await left;
     await right;
     println("answer=", chosen);
+    println("nested-result=", await nestedControls());
 }
