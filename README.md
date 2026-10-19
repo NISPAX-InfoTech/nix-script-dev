@@ -64,13 +64,13 @@ fn helper(value) { return value * 2; }
 export fn double(value) { return helper(value); }
 
 // main.ns
-import { double } from "./math";
+import { double as twice } from "./math";
 nix main() {
-    println(double(21));
+    println(twice(21));
 }
 ```
 
-Named imports accept exported top-level functions (including async functions), classes, and mutable global variables (both `var` and explicitly typed declarations). Unexported top-level functions, classes, and globals are assigned module-specific internal names, so different named modules can use the same private helper/global/class name and importing code cannot refer to those private names directly. A named import of a non-exported symbol is rejected. A source file cannot be loaded through both named imports and legacy `use` in the same program. The current loader compiles modules into one program namespace and gives private declarations path-specific internal names. Import aliases, separate per-module runtime environments, dependency manifests, and package integrity signatures remain future work.
+Named imports accept exported top-level functions (including async functions), classes, and mutable global variables (both `var` and explicitly typed declarations). Unexported top-level functions, classes, and globals are assigned module-specific internal names, so different named modules can use the same private helper/global/class name and importing code cannot refer to those private names directly. A named import of a non-exported symbol is rejected. A source file cannot be loaded through both named imports and legacy `use` in the same program. Every top-level declaration in a named module receives a path-specific internal name; explicit imports expose only the selected exports, including aliases. Import aliases using `as` are supported. Modules currently lower to one compilation unit rather than separate runtime environments; dependency manifests and package integrity signatures remain future work.
 
 **Standard installed-library directory:**
 - Linux: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when `XDG_DATA_HOME` is set)
