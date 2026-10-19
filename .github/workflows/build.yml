@@ -414,6 +414,19 @@ jobs:
           actual="$(./build/nix module-test/nested.ns)"
           [[ "$actual" == "3" ]] || { echo "Explicit .ns module path failed: $actual" >&2; exit 1; }
 
+          cat > module-test/async_math.ns <<'EOF'
+          export async fn double(value) { return value * 2; }
+          EOF
+          cat > module-test/async_main.ns <<'EOF'
+          import { double } from "./async_math";
+          nix main() {
+              var answer = await double(21);
+              println("async-export=", answer);
+          }
+          EOF
+          actual="$(./build/nix module-test/async_main.ns)"
+          [[ "$actual" == "async-export=42" ]] || { echo "Named async module import failed: $actual" >&2; exit 1; }
+
       - name: Run broad language stress and negative regression suite
         shell: bash
         run: bash tests/language_stress.sh ./build/nix
