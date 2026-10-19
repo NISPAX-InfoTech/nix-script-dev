@@ -30,7 +30,7 @@ nix main() {
     println(letter);
     if (enabled) { println("enabled"); }
 }
-""","__N__\n__N__\nvalue__N__\nA\nenabled\n")
+""",f"{2*n}\n{2*n}\nvalue{n}\nA\nenabled\n")
 
 def output(i,n):
     return build(i,n,r"""
