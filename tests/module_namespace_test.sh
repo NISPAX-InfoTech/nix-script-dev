@@ -14,7 +14,12 @@ class Hidden {
     fn value() { return this.stored; }
 };
 fn helper() { return Hidden(localValue).value(); }
+async fn plusOne(value) { return value + 1; }
 export fn leftAnswer() { return helper() + 2; }
+export async fn delayedAnswer(value) {
+    var next = await plusOne(value);
+    return next + helper();
+}
 export fn leftLabel() { return "value=${localValue}"; }
 export var sharedCount = 3;
 export int typedCount = 7;
@@ -38,11 +43,13 @@ export fn rightLabel() { return "value=${localValue}"; }
 EOF
 
 cat > "$ROOT/positive.ns" <<'EOF'
-import { leftAnswer, leftLabel, PublicBox as Box, sharedCount as count, typedCount as typed } from "./modules/left";
+import { leftAnswer, leftLabel, delayedAnswer as delayed, PublicBox as Box, sharedCount as count, typedCount as typed } from "./modules/left";
 import { rightAnswer as computeRight, rightLabel } from "./modules/right";
 nix main() {
     println("left=", leftAnswer());
     println("right=", computeRight());
+    var asyncAnswer = await delayed(1);
+    println("async-left=", asyncAnswer);
     println("left-label=", leftLabel());
     println("right-label=", rightLabel());
     var box = Box(2);
@@ -55,7 +62,7 @@ nix main() {
 }
 EOF
 actual="$("$NIX" "$ROOT/positive.ns")"
-expected="$(printf 'left=42\nright=101\nleft-label=value=40\nright-label=value=100\npublic-box=42\nexported-global=3\nupdated-exported-global=7\nupdated-typed-global=8')"
+expected="$(printf 'left=42\nright=101\nasync-left=42\nleft-label=value=40\nright-label=value=100\npublic-box=42\nexported-global=3\nupdated-exported-global=7\nupdated-typed-global=8')"
 if [[ "$actual" != "$expected" ]]; then
     echo "Private-module helper isolation failed." >&2
     echo "Expected: [$expected]" >&2
