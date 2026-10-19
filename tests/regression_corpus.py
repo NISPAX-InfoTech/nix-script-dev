@@ -104,13 +104,14 @@ nix main() {
 """,f"{2*n+1}\nhello sample{n}\n")
 
 def recursion(i,n):
+    # Keep factorial values bounded while varying identifiers in each generated source.
     k=1+(i%9)
     return build(i,k,r"""
-fn factorial(int value) {
-    if (value <= 1) { return 1; }
-    return value * factorial(value - 1);
+fn factorial__CASE__(int value__CASE__) {
+    if (value__CASE__ <= 1) { return 1; }
+    return value__CASE__ * factorial__CASE__(value__CASE__ - 1);
 }
-nix main() { println(factorial(__N__)); }
+nix main() { println(factorial__CASE__(__N__)); }
 """,f"{math.factorial(k)}\n")
 
 def prototypes(i,n):
@@ -133,27 +134,27 @@ nix main() {
 def local_input(i,n):
     return build(i,n,r"""
 nix main() {
-    var name;
-    uin(name);
-    int age;
-    uin(age);
-    println(name);
-    println(age);
+    var name__CASE__;
+    uin(name__CASE__);
+    int age__CASE__;
+    uin(age__CASE__);
+    println(name__CASE__);
+    println(age__CASE__);
 }
 ""","user__N__\n__N__\n","user__N__\n__N__\n")
 
 def class_input(i,n):
     return build(i,n,r"""
-class InputRecord {
+class InputRecord__CASE__ {
 public:
-    var name;
-    int age;
-    InputRecord() { uin(name); uin(age); }
+    var name__CASE__;
+    int age__CASE__;
+    InputRecord__CASE__() { uin(name__CASE__); uin(age__CASE__); }
 };
 nix main() {
-    var record = InputRecord();
-    println(record.name);
-    println(record.age);
+    var record = InputRecord__CASE__();
+    println(record.name__CASE__);
+    println(record.age__CASE__);
 }
 ""","user__N__\n__N__\n","user__N__\n__N__\n")
 
@@ -318,8 +319,8 @@ nix main() { var both = Both(); println(both.sum()); }
 def modules(i,n):
     return build(i,n,r"""
 use corpus_mod;
-nix main() { println(moduleValue()); }
-""",f"{n+5}\n",module="fn moduleValue() { return __N__ + 5; }\n")
+nix main() { println(moduleValue__CASE__()); }
+""",f"{n+5}\n",module="fn moduleValue__CASE__() { return __N__ + 5; }\n")
 
 def async_await(i,n):
     return build(i,n,r"""
