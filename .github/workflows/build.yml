@@ -427,6 +427,10 @@ jobs:
           actual="$(./build/nix module-test/async_main.ns)"
           [[ "$actual" == "async-export=42" ]] || { echo "Named async module import failed: $actual" >&2; exit 1; }
 
+      - name: Test module-private function isolation
+        shell: bash
+        run: bash tests/module_namespace_test.sh ./build/nix
+
       - name: Run broad language stress and negative regression suite
         shell: bash
         run: bash tests/language_stress.sh ./build/nix

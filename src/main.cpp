@@ -3193,6 +3193,7 @@ namespace fs = std::filesystem;
 struct SourceLoader {
     std::unordered_set<std::string> loaded;
     std::unordered_set<std::string> active;
+    std::unordered_map<std::string, bool> loadedModuleModes;
     // Preserve import order for actionable cycle diagnostics.
     std::vector<std::string> activeStack;
     std::unordered_map<std::string, std::unordered_set<std::string>> exportsByPath;
@@ -3293,6 +3294,152 @@ struct SourceLoader {
         }
         return result;
     }
+    // Namespace private top-level functions in named modules. The source loader
+    // still emits a single parser input, so this lexical pass prevents private
+    // function declarations/references from entering that shared global symbol
+    // table under their original names. It deliberately leaves strings, comments,
+    // member names, and class-member declarations untouched.
+    static std::string privateModulePrefix(const std::string& canonicalPath) {
+        static constexpr char digits[] = "0123456789abcdef";
+        std::string prefix = "__nix_mod_";
+        for (unsigned char byte : canonicalPath) {
+            prefix.push_back(digits[(byte >> 4) & 0x0f]);
+            prefix.push_back(digits[byte & 0x0f]);
+        }
+        prefix += "_";
+        return prefix;
+    }
+
+    static std::string rewritePrivateFunctionNames(
+        const std::string& source,
+        const std::unordered_set<std::string>& privateNames,
+        const std::string& prefix) {
+        if (privateNames.empty()) return source;
+
+        std::string output;
+        output.reserve(source.size() + privateNames.size() * prefix.size());
+        std::size_t i = 0;
+        int braceDepth = 0;
+        std::vector<int> classBodyDepths;
+        bool waitingForClassBody = false;
+        std::string previousToken;
+
+        auto isIdentifierStart = [](unsigned char c) {
+            return std::isalpha(c) || c == '_';
+        };
+        auto isIdentifierPart = [](unsigned char c) {
+            return std::isalnum(c) || c == '_';
+        };
+        auto isBuiltinTypeName = [](const std::string& name) {
+            static const std::unordered_set<std::string> names = {
+                "var", "void", "int", "float", "double", "number", "string",
+                "bool", "char", "long", "short", "list", "array", "map",
+                "dict", "function", "callable"
+            };
+            return names.count(name) != 0;
+        };
+
+        while (i < source.size()) {
+            const char c = source[i];
+
+            // Preserve line and block comments byte-for-byte.
+            if (c == '/' && i + 1 < source.size() && source[i + 1] == '/') {
+                const std::size_t end = source.find('\n', i);
+                if (end == std::string::npos) {
+                    output.append(source, i, std::string::npos);
+                    break;
+                }
+                output.append(source, i, end - i);
+                i = end;
+                continue;
+            }
+            if (c == '/' && i + 1 < source.size() && source[i + 1] == '*') {
+                const std::size_t end = source.find("*/", i + 2);
+                if (end == std::string::npos) {
+                    output.append(source, i, std::string::npos);
+                    break;
+                }
+                output.append(source, i, end + 2 - i);
+                i = end + 2;
+                continue;
+            }
+
+            // Identifiers inside strings are data, never symbol references.
+            if (c == '"') {
+                output.push_back(source[i++]);
+                bool escaped = false;
+                while (i < source.size()) {
+                    const char value = source[i++];
+                    output.push_back(value);
+                    if (escaped) escaped = false;
+                    else if (value == '\\') escaped = true;
+                    else if (value == '"') break;
+                }
+                continue;
+            }
+
+            if (isIdentifierStart(static_cast<unsigned char>(c))) {
+                const std::size_t begin = i++;
+                while (i < source.size() &&
+                       isIdentifierPart(static_cast<unsigned char>(source[i]))) ++i;
+                const std::string token = source.substr(begin, i - begin);
+                const bool inClassMemberScope =
+                    !classBodyDepths.empty() && braceDepth == classBodyDepths.back();
+                const bool isClassMemberDeclaration =
+                    inClassMemberScope &&
+                    (previousToken == "fn" || previousToken == "var" ||
+                     isBuiltinTypeName(previousToken));
+                const bool isMemberName =
+                    previousToken == "." || previousToken == "::";
+                const bool isClassDeclarationName = previousToken == "class";
+
+                if (privateNames.count(token) && !isMemberName &&
+                    !isClassDeclarationName && !isClassMemberDeclaration) {
+                    output += prefix;
+                    output += token;
+                } else {
+                    output += token;
+                }
+
+                if (token == "class") waitingForClassBody = true;
+                previousToken = token;
+                continue;
+            }
+
+            if (c == '{') {
+                ++braceDepth;
+                if (waitingForClassBody) {
+                    classBodyDepths.push_back(braceDepth);
+                    waitingForClassBody = false;
+                }
+                output.push_back(c);
+                ++i;
+                continue;
+            }
+            if (c == '}') {
+                if (!classBodyDepths.empty() && classBodyDepths.back() == braceDepth)
+                    classBodyDepths.pop_back();
+                if (braceDepth > 0) --braceDepth;
+                output.push_back(c);
+                ++i;
+                previousToken = "}";
+                continue;
+            }
+            if (c == ':' && i + 1 < source.size() && source[i + 1] == ':') {
+                output += "::";
+                i += 2;
+                previousToken = "::";
+                continue;
+            }
+
+            output.push_back(c);
+            ++i;
+            if (!std::isspace(static_cast<unsigned char>(c)))
+                previousToken.assign(1, c);
+        }
+        return output;
+    }
+
     static fs::path installedLibraryRoot() {
         if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) if (*overridePath != '\0') return fs::path(overridePath);
 #ifdef _WIN32
@@ -3315,12 +3462,18 @@ struct SourceLoader {
         for (const auto& candidate : candidates) { if (candidate.empty()) continue; std::error_code ec; if (fs::is_regular_file(candidate, ec)) return candidate; }
         throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" + importer.string() + "'. Searched relative to the importer and project library folders, plus the installed-library directory.");
     }
-    std::string load(const fs::path& inputPath) {
+    std::string load(const fs::path& inputPath, bool namedModule = false) {
         std::error_code ec; fs::path path = fs::weakly_canonical(inputPath, ec);
         if (ec) path = fs::absolute(inputPath).lexically_normal();
         const std::string key = path.string();
         if (active.count(key)) throw std::runtime_error("Circular library import detected: " + cycleDescription(key) + ".");
-        if (loaded.count(key)) return {};
+        if (loaded.count(key)) {
+            const auto mode = loadedModuleModes.find(key);
+            if (mode != loadedModuleModes.end() && mode->second != namedModule)
+                throw std::runtime_error("Source file '" + key +
+                    "' is imported using both named imports and legacy 'use'; choose one import style.");
+            return {};
+        }
         std::ifstream file(path); if (!file) throw std::runtime_error("Could not open source file: " + path.string());
         std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
         exportsByPath[key] = scanExports(source);
@@ -3330,6 +3483,7 @@ struct SourceLoader {
         // which declaration wins or producing a confusing parser error later.
         std::unordered_set<std::string> importedNames;
         std::unordered_set<std::string> localTopLevelNames;
+        std::unordered_set<std::string> privateFunctionNames;
         bool importSection = true; int lineNumber = 0;
         int braceDepth = 0;
         bool inBlockComment = false;
@@ -3356,10 +3510,23 @@ struct SourceLoader {
                 } else if (declaration.rfind("async ", 0) == 0) {
                     std::string afterAsync = trim(declaration.substr(5));
                     if (afterAsync.rfind("fn", 0) == 0 &&
-                        (afterAsync.size() == 2 || std::isspace(static_cast<unsigned char>(afterAsync[2]))))
-                        rememberTopLevelName(trim(afterAsync.substr(2)));
+                        (afterAsync.size() == 2 || std::isspace(static_cast<unsigned char>(afterAsync[2])))) {
+                        const std::string header = trim(afterAsync.substr(2));
+                        rememberTopLevelName(header);
+                        const auto nameEnd = header.find_first_not_of(
+                            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                        const std::string functionName = header.substr(0, nameEnd);
+                        if (namedModule && !functionName.empty() && !exportsByPath.at(key).count(functionName))
+                            privateFunctionNames.insert(functionName);
+                    }
                 } else if (declaration.rfind("fn ", 0) == 0) {
-                    rememberTopLevelName(trim(declaration.substr(3)));
+                    const std::string header = trim(declaration.substr(3));
+                    rememberTopLevelName(header);
+                    const auto nameEnd = header.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string functionName = header.substr(0, nameEnd);
+                    if (namedModule && !functionName.empty() && !exportsByPath.at(key).count(functionName))
+                        privateFunctionNames.insert(functionName);
                 } else if (declaration.rfind("var ", 0) == 0) {
                     rememberTopLevelName(trim(declaration.substr(4)));
                 } else if (!declaration.empty() &&
@@ -3457,7 +3624,10 @@ struct SourceLoader {
                     }
                     for (const auto& symbol : spec.symbols) if (!exportsByPath.at(importedKey).count(symbol)) throw std::runtime_error("Module '" + spec.name + "' does not export '" + symbol + "'.");
                 }
-                combined += load(importedPath); combined += '\n';
+                // Legacy "use" libraries keep their original flat/global
+                // compatibility semantics. Relative named imports opt into private
+                // module-function namespacing.
+                combined += load(importedPath, !spec.legacy); combined += '\n';
             }
         } catch (const std::exception& error) {
             active.erase(key);
@@ -3466,8 +3636,12 @@ struct SourceLoader {
         }
         active.erase(key);
         if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
+        const std::string moduleSource = namedModule
+            ? rewritePrivateFunctionNames(localSource.str(), privateFunctionNames, privateModulePrefix(key))
+            : localSource.str();
         loaded.insert(key);
-        combined += localSource.str();
+        loadedModuleModes[key] = namedModule;
+        combined += moduleSource;
         return combined;
     }
 };
