@@ -3759,7 +3759,7 @@ struct SourceLoader {
                         spec.line = lineNumber;
                         for (const auto& localName : spec.localSymbols) {
                             if (!importedNames.insert(localName).second)
-                                throw std::runtime_error("Imported binding '" + localName + "' is imported more than once in this module.");
+                                throw std::runtime_error("Imported name '" + localName + "' is imported more than once in this module.");
                         }
                         imports.push_back(std::move(spec));
                         continue;
