@@ -9,18 +9,22 @@ mkdir -p "$ROOT/modules"
 cat > "$ROOT/modules/left.ns" <<'EOF'
 var localValue = 40;
 class Hidden {
-    fn value() { return localValue; }
-}
-fn helper() { return Hidden().value(); }
+    var stored;
+    fn Hidden(initial) { this.stored = initial; }
+    fn value() { return this.stored; }
+};
+fn helper() { return Hidden(localValue).value(); }
 export fn leftAnswer() { return helper() + 2; }
 EOF
 
 cat > "$ROOT/modules/right.ns" <<'EOF'
 var localValue = 100;
 class Hidden {
-    fn value() { return localValue; }
-}
-fn helper() { return Hidden().value(); }
+    var stored;
+    fn Hidden(initial) { this.stored = initial; }
+    fn value() { return this.stored; }
+};
+fn helper() { return Hidden(localValue).value(); }
 export fn rightAnswer() { return helper() + 1; }
 EOF
 

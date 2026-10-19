@@ -15,7 +15,7 @@ class Counter {
         this.value = this.value + result;
         return this.value;
     }
-}
+};
 
 nix main() {
     var counter = Counter(10);
