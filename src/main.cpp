@@ -2228,6 +2228,16 @@ private:
                         "' contains await and cannot suspend inside an async task; declare it async.");
             }
         }
+        // Async replay caches are only for suspended async statements. Synchronous
+        // recursive calls must evaluate their AST nodes independently at each depth.
+        struct AsyncExpressionCacheIsolation {
+            AsyncFrame*& slot;
+            AsyncFrame* saved;
+            explicit AsyncExpressionCacheIsolation(AsyncFrame*& active) : slot(active), saved(active) {
+                slot = nullptr;
+            }
+            ~AsyncExpressionCacheIsolation() { slot = saved; }
+        } isolateAsyncExpressionCache(activeAsyncFrame_);
         if (args.size() != function.parameters.size())
             runtimeError(line, "Function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
@@ -2277,6 +2287,15 @@ private:
                         "' contains await and cannot suspend inside an async task; declare it async.");
             }
         }
+        // A synchronous method must not reuse Expr* results cached by its async caller.
+        struct AsyncExpressionCacheIsolation {
+            AsyncFrame*& slot;
+            AsyncFrame* saved;
+            explicit AsyncExpressionCacheIsolation(AsyncFrame*& active) : slot(active), saved(active) {
+                slot = nullptr;
+            }
+            ~AsyncExpressionCacheIsolation() { slot = saved; }
+        } isolateAsyncExpressionCache(activeAsyncFrame_);
         if (args.size() != member.parameters.size())
             runtimeError(line, "Method '" + member.name + "' expects " + std::to_string(member.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");

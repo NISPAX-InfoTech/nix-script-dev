@@ -30,8 +30,17 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
             "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
             "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_sync_await_guard.ns"
             "-DEXPECTED_DIAGNOSTIC=Synchronous function 'legacyAsyncCaller' contains await"
+            "-DEXPECT_EMPTY_OUTPUT=ON"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_async_failure.cmake")
     set_tests_properties(async_sync_await_guard_test PROPERTIES TIMEOUT 10)
+    add_test(NAME async_sync_recursion_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_sync_recursion.ns"
+            "-DINPUT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_sync_recursion.input"
+            "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_sync_recursion.expected"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
+    set_tests_properties(async_sync_recursion_test PROPERTIES TIMEOUT 10)
     add_test(NAME async_failure_test
         COMMAND ${CMAKE_COMMAND}
             "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
