@@ -3418,34 +3418,8 @@ struct SourceLoader {
                 bool escaped = false;
                 while (i < source.size()) {
                     const bool legacyInterpolation =
-                        !escaped && source[i] == '{' && i + 2 < source.size() && source[i + 1] == '$';
-                    const bool dollarInterpolation =
-                        !escaped && source[i] == '$' && i + 2 < source.size() && source[i + 1] == '{';
-                    if (legacyInterpolation || dollarInterpolation) {
-                        const std::size_t nameBegin = i + 2;
-                        const std::size_t close = source.find('}', nameBegin);
-                        if (close == std::string::npos) {
-                            output.append(source, i, std::string::npos);
-                            i = source.size();
-                            break;
-                        }
-                        const std::string name = source.substr(nameBegin, close - nameBegin);
-                        output.append(source, i, 2);
-                        if (privateNames.count(name)) output += prefix;
-                        output += name;
-                        output.push_back('}');
-                        i = close + 1;
-                        escaped = false;
-                        continue;
-                    }
-                    const char value = source[i++];
-                    output.push_back(value);
-                    if (escaped) escaped = false;
-                    else if (value == '\\') escaped = true;
-                    else if (value == '"') break;
-                }
-                continue;
-            }
+                        !escaped && source[i] == '{' && i + 2 < source.size() && source[i + 1] == '
+
             if (isIdentifierStart(static_cast<unsigned char>(c))) {
                 const std::size_t begin = i++;
                 while (i < source.size() &&
@@ -4867,7 +4841,7 @@ int main(int argc, char** argv) {
                     const char value = source[i++];
                     output.push_back(value);
                     if (escaped) escaped = false;
-                    else if (value == '\\\\') escaped = true;
+                    else if (value == '\\') escaped = true;
                     else if (value == '"') break;
                 }
                 continue;
