@@ -318,8 +318,17 @@ public:
                 program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("var")) {
+                // Top-level variable declarations live in the interpreter's outer scope.
+                program.push_back(variableStatement());
+            } else if (check(TokenKind::Identifier) &&
+                       ((isTypeName(peek().text) && look(1).kind == TokenKind::Identifier) ||
+                        (classNames_.count(peek().text) != 0 && look(1).kind == TokenKind::Identifier))) {
+                // Support inferred, explicitly typed, and class-typed globals before main.
+                advance();
+                program.push_back(variableStatement());
             } else {
-                fail(peek(), "Expected a class declaration or 'nix main()'.");
+                fail(peek(), "Expected a global variable, class/function declaration, or 'nix main()'.");
             }
         }
 
