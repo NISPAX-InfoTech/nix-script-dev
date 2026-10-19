@@ -1750,14 +1750,10 @@ private:
             if (owner == classes_.end()) runtimeError(line, "Unknown class for static member.");
             auto field = owner->second->staticValues.find(name);
             if (field == owner->second->staticValues.end()) return std::monostate{};
-            if (std::holds_alternative<UninitializedValue>(field->second))
-                runtimeError(line, "Field '" + name + "' has not been initialized.");
             return field->second;
         }
         auto field = instance->fields.find(fieldStorageKey(*member));
         if (field == instance->fields.end()) return std::monostate{};
-        if (std::holds_alternative<UninitializedValue>(field->second))
-            runtimeError(line, "Field '" + name + "' has not been initialized.");
         return field->second;
     }
     Value getStaticMember(const std::shared_ptr<ClassDef>& klass, const std::string& name, int line) {
@@ -1906,13 +1902,10 @@ private:
             if (member.kind != ClassMember::Kind::Field) continue;
             if (member.isStatic) {
                 if (!klass->staticValues.count(member.name))
-                    klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) :
-                        ((member.typeName.empty() || member.typeName == "var") ? Value{UninitializedValue{}} : defaultValue(member.typeName));
+                    klass->staticValues[member.name] = member.initializer ? evaluate(*member.initializer) : defaultValue(member.typeName);
                 continue;
             }
-            Value value = (!member.initializer &&
-                           (member.typeName.empty() || member.typeName == "var"))
-                              ? Value{UninitializedValue{}} : defaultValue(member.typeName);
+            Value value = defaultValue(member.typeName);
             if (member.initializer) {
                 scopes_.emplace_back();
                 scopes_.back()["this"] = instance;
@@ -2922,8 +2915,7 @@ private:
         for (auto& member : klass->members) {
             if (member.kind == ClassMember::Kind::Field && member.isStatic) {
                 klass->staticValues[member.name] = member.initializer
-                    ? evaluate(*member.initializer)
-                    : ((member.typeName.empty() || member.typeName == "var") ? Value{UninitializedValue{}} : defaultValue(member.typeName));
+                    ? evaluate(*member.initializer) : defaultValue(member.typeName);
             }
         }
     }
