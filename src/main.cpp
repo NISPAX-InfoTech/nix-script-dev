@@ -2661,20 +2661,42 @@ private:
             if (name == "uin") {
                 std::string prompt;
                 std::string type;
-                if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable &&
-                    exists(expr.items[0]->name)) {
+                // A single variable argument means "read into this variable". In a method or
+                // constructor that variable may be an unqualified instance field rather than
+                // a local in scopes_; detect both so uin(field) never degrades into a prompt
+                // expression and silently leaves the field unchanged.
+                if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable) {
                     const std::string target = expr.items[0]->name;
-                    Value current = std::monostate{};
-                    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
-                        auto found = it->find(target);
-                        if (found != it->end()) { current = found->second; break; }
+                    bool targetExists = exists(target);
+                    if (!targetExists && !currentClass_.empty()) {
+                        for (auto scope = scopes_.rbegin(); scope != scopes_.rend() && !targetExists; ++scope) {
+                            auto thisIt = scope->find("this");
+                            if (thisIt == scope->end()) continue;
+                            if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
+                                ClassMember* member = findMemberForInstance(*instance, target, expr.line);
+                                targetExists = member && member->kind == ClassMember::Kind::Field;
+                            }
+                        }
                     }
-                    if (std::holds_alternative<double>(current)) type = "number";
-                    else if (std::holds_alternative<bool>(current)) type = "bool";
-                    else type = "string";
-                    Value value = inputValue("", type, expr.line);
-                    assignName(target, value, expr.line);
-                    return value;
+                    if (targetExists) {
+                        Value current = std::monostate{};
+                        bool foundLocal = false;
+                        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                            auto found = it->find(target);
+                            if (found != it->end()) {
+                                current = found->second;
+                                foundLocal = true;
+                                break;
+                            }
+                        }
+                        if (!foundLocal) current = lookup(target, expr.line);
+                        if (std::holds_alternative<double>(current)) type = "number";
+                        else if (std::holds_alternative<bool>(current)) type = "bool";
+                        else type = "string";
+                        Value value = inputValue("", type, expr.line);
+                        assignName(target, value, expr.line);
+                        return value;
+                    }
                 }
                 if (!expr.items.empty()) prompt = stringify(evaluate(*expr.items[0]));
                 if (expr.items.size() > 1) {
