@@ -14,7 +14,9 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
     add_test(NAME async_runtime_test COMMAND async_runtime_test)
     add_test(NAME async_language_test
         COMMAND $<TARGET_FILE:nix> ${CMAKE_CURRENT_SOURCE_DIR}/tests/async_language.ns)
-    set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42")
+    # Require both the existing async output and the nested-await visit-count
+    # assertion; the character class allows the match to cross printed lines.
+    set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42(.|[[:space:]])*nested-result=125")
     add_test(NAME async_failure_test
         COMMAND ${CMAKE_COMMAND}
             "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
