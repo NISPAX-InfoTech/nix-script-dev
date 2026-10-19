@@ -1188,12 +1188,28 @@ public:
     }
 
 private:
+    struct AsyncCursor {
+        enum class Kind { Block, Repeat, For };
+        enum class ForPhase { Initializer, Condition, Increment };
+        Kind kind = Kind::Block;
+        const std::vector<Stmt>* body = nullptr;
+        const Stmt* control = nullptr;
+        std::size_t pc = 0;
+        std::size_t remaining = 0;
+        std::size_t iterations = 0;
+        bool ownsScope = false;
+        ForPhase forPhase = ForPhase::Initializer;
+    };
     struct AsyncFrame {
         const Stmt* function = nullptr;
         std::unordered_map<std::string, Value> locals;
-        std::size_t pc = 0;
         std::unordered_map<const Expr*, Value> expressionCache;
         async::Task<Value> task;
+        // Only task-owned scopes are saved here. The interpreter's global scope
+        // stays shared while each task's locals/block scopes are isolated.
+        std::vector<std::unordered_map<std::string, Value>> savedScopes;
+        std::vector<AsyncCursor> execution;
+        bool initialized = false;
     };
     struct AsyncSuspend {};
     async::Scheduler scheduler_;
@@ -1947,6 +1963,214 @@ private:
     bool statementContainsAwaitPtr(const Stmt* stmt) const {
         return stmt && statementContainsAwait(*stmt);
     }
+    void runAsyncFrame(const std::shared_ptr<AsyncFrame>& frame, async::TaskContext& context) {
+        // Async callbacks can run after the synchronous caller's scopes have
+        // disappeared. Expose the shared global scope plus this task's saved
+        // scopes during a step, then restore the surrounding interpreter state.
+        auto surroundingScopes = std::move(scopes_);
+        if (surroundingScopes.empty()) surroundingScopes.emplace_back();
+        scopes_.clear();
+        scopes_.push_back(surroundingScopes.front());
+        for (const auto& scope : frame->savedScopes) scopes_.push_back(scope);
+
+        AsyncFrame* previousFrame = activeAsyncFrame_;
+        async::TaskContext* previousContext = activeTaskContext_;
+        const std::string previousClass = currentClass_;
+        activeAsyncFrame_ = frame.get();
+        activeTaskContext_ = &context;
+        currentClass_.clear();
+
+        bool suspended = false;
+        bool completed = false;
+        Value completionValue = std::monostate{};
+        std::exception_ptr failure;
+
+        try {
+            if (!frame->initialized) {
+                scopes_.emplace_back(frame->locals);
+                frame->initialized = true;
+                AsyncCursor root;
+                root.kind = AsyncCursor::Kind::Block;
+                root.body = &frame->function->body;
+                frame->execution.push_back(std::move(root));
+            }
+
+            bool didWork = false;
+            while (!frame->execution.empty() && !didWork) {
+                const auto kind = frame->execution.back().kind;
+                if (kind == AsyncCursor::Kind::Block) {
+                    AsyncCursor& cursor = frame->execution.back();
+                    if (cursor.pc >= cursor.body->size()) {
+                        const bool ownsScope = cursor.ownsScope;
+                        frame->execution.pop_back();
+                        if (ownsScope) popScope();
+                        continue;
+                    }
+
+                    const Stmt& statement = (*cursor.body)[cursor.pc];
+                    if (statement.kind == Stmt::Kind::If) {
+                        const bool takeThen = truthy(evaluate(*statement.expression));
+                        const std::vector<Stmt>* branch = takeThen
+                            ? &statement.body : &statement.elseBody;
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        if (!branch->empty()) {
+                            scopes_.emplace_back();
+                            AsyncCursor child;
+                            child.kind = AsyncCursor::Kind::Block;
+                            child.body = branch;
+                            child.ownsScope = true;
+                            frame->execution.push_back(std::move(child));
+                        }
+                        continue;
+                    }
+                    if (statement.kind == Stmt::Kind::Repeat) {
+                        Value countValue = evaluate(*statement.expression);
+                        if (!isNumber(countValue) || std::get<double>(countValue) < 0 ||
+                            std::floor(std::get<double>(countValue)) != std::get<double>(countValue))
+                            runtimeError(statement.line, "repeat() expects a non-negative whole number.");
+                        const auto count = static_cast<std::size_t>(std::get<double>(countValue));
+                        if (count > 1000000)
+                            runtimeError(statement.line, "repeat() limit is 1,000,000 iterations.");
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        if (count != 0) {
+                            AsyncCursor loop;
+                            loop.kind = AsyncCursor::Kind::Repeat;
+                            loop.control = &statement;
+                            loop.remaining = count;
+                            frame->execution.push_back(std::move(loop));
+                        }
+                        continue;
+                    }
+                    if (statement.kind == Stmt::Kind::For) {
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        scopes_.emplace_back();
+                        AsyncCursor loop;
+                        loop.kind = AsyncCursor::Kind::For;
+                        loop.control = &statement;
+                        loop.forPhase = AsyncCursor::ForPhase::Initializer;
+                        frame->execution.push_back(std::move(loop));
+                        continue;
+                    }
+
+                    // Leaf statements are executed once. If their expression
+                    // suspends, their cursor is not advanced and its completed
+                    // subexpressions stay cached until the statement completes.
+                    execute(statement);
+                    ++frame->execution.back().pc;
+                    frame->expressionCache.clear();
+                    didWork = true;
+                    continue;
+                }
+
+                if (kind == AsyncCursor::Kind::Repeat) {
+                    AsyncCursor& loop = frame->execution.back();
+                    if (loop.remaining == 0) {
+                        frame->execution.pop_back();
+                        continue;
+                    }
+                    --frame->execution.back().remaining;
+                    scopes_.emplace_back();
+                    AsyncCursor body;
+                    body.kind = AsyncCursor::Kind::Block;
+                    body.body = &loop.control->body;
+                    body.ownsScope = true;
+                    frame->execution.push_back(std::move(body));
+                    continue;
+                }
+
+                AsyncCursor& loop = frame->execution.back();
+                const Stmt& control = *loop.control;
+                if (loop.forPhase == AsyncCursor::ForPhase::Initializer) {
+                    if (control.initializer) {
+                        execute(*control.initializer);
+                        frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                        frame->expressionCache.clear();
+                        didWork = true;
+                    } else {
+                        frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                        frame->expressionCache.clear();
+                    }
+                    continue;
+                }
+                if (loop.forPhase == AsyncCursor::ForPhase::Condition) {
+                    if (!truthy(evaluate(*control.expression))) {
+                        popScope();
+                        frame->execution.pop_back();
+                        frame->expressionCache.clear();
+                        continue;
+                    }
+                    if (++frame->execution.back().iterations > 1000000)
+                        runtimeError(control.line, "for loop limit is 1,000,000 iterations.");
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Increment;
+                    frame->expressionCache.clear();
+                    scopes_.emplace_back();
+                    AsyncCursor body;
+                    body.kind = AsyncCursor::Kind::Block;
+                    body.body = &control.body;
+                    body.ownsScope = true;
+                    frame->execution.push_back(std::move(body));
+                    continue;
+                }
+
+                // The for-body has completed. The increment is another
+                // resumable statement and therefore may itself contain await.
+                if (control.increment) {
+                    execute(*control.increment);
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                    frame->expressionCache.clear();
+                    didWork = true;
+                } else {
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                    frame->expressionCache.clear();
+                }
+            }
+
+            if (frame->execution.empty()) {
+                while (scopes_.size() > 1) popScope();
+                frame->savedScopes.clear();
+                frame->locals.clear();
+                completionValue = std::monostate{};
+                completed = true;
+            }
+        } catch (const AsyncSuspend&) {
+            suspended = true;
+        } catch (const ReturnSignal& returned) {
+            completionValue = returned.value;
+            while (scopes_.size() > 1) popScope(true, &completionValue);
+            frame->savedScopes.clear();
+            frame->locals.clear();
+            frame->execution.clear();
+            frame->expressionCache.clear();
+            completed = true;
+        } catch (...) {
+            failure = std::current_exception();
+            while (scopes_.size() > 1) popScope();
+            frame->savedScopes.clear();
+            frame->locals.clear();
+            frame->execution.clear();
+            frame->expressionCache.clear();
+        }
+
+        if (!completed && !failure) {
+            frame->savedScopes.assign(scopes_.begin() + 1, scopes_.end());
+            if (!frame->savedScopes.empty()) frame->locals = frame->savedScopes.front();
+        }
+
+        const auto updatedGlobalScope = scopes_.front();
+        activeAsyncFrame_ = previousFrame;
+        activeTaskContext_ = previousContext;
+        currentClass_ = previousClass;
+        surroundingScopes.front() = updatedGlobalScope;
+        scopes_ = std::move(surroundingScopes);
+
+        if (failure) std::rethrow_exception(failure);
+        if (completed) context.complete(frame->task, std::move(completionValue));
+        else if (!suspended) context.yield();
+    }
+
     void validateAsyncFunction(const Stmt& function, int line) const {
         for (const auto& stmt : function.body) {
             if (stmt.kind == Stmt::Kind::For && statementContainsAwait(stmt))
@@ -1976,41 +2200,7 @@ private:
             frame->function = &function;
             for (std::size_t i = 0; i < args.size(); ++i) frame->locals[function.parameters[i]] = args[i];
             frame->task = scheduler_.create<Value>(function.name, [this, frame](async::TaskContext& context) {
-                if (frame->pc >= frame->function->body.size()) {
-                    context.complete(frame->task, Value{std::monostate{}});
-                    return;
-                }
-                scopes_.push_back(frame->locals);
-                AsyncFrame* previousFrame = activeAsyncFrame_;
-                async::TaskContext* previousContext = activeTaskContext_;
-                activeAsyncFrame_ = frame.get();
-                activeTaskContext_ = &context;
-                bool suspended = false;
-                try {
-                    execute(frame->function->body[frame->pc]);
-                    ++frame->pc;
-                    frame->expressionCache.clear();
-                } catch (const AsyncSuspend&) {
-                    suspended = true;
-                } catch (const ReturnSignal& returned) {
-                    frame->locals = scopes_.back();
-                    scopes_.pop_back();
-                    activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
-                    context.complete(frame->task, returned.value);
-                    return;
-                } catch (...) {
-                    frame->locals = scopes_.back();
-                    scopes_.pop_back();
-                    activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
-                    throw;
-                }
-                frame->locals = scopes_.back();
-                scopes_.pop_back();
-                activeAsyncFrame_ = previousFrame; activeTaskContext_ = previousContext;
-                if (!suspended && frame->pc >= frame->function->body.size())
-                    context.complete(frame->task, Value{std::monostate{}});
-                else if (!suspended)
-                    context.yield(); // Resume the next statement on a later scheduler turn.
+                runAsyncFrame(frame, context);
             });
             auto value = std::make_shared<AsyncTaskValue>(); value->task = frame->task;
             return value;
