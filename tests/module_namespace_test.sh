@@ -7,12 +7,20 @@ trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/modules"
 
 cat > "$ROOT/modules/left.ns" <<'EOF'
-fn helper() { return 40; }
+var localValue = 40;
+class Hidden {
+    fn value() { return localValue; }
+}
+fn helper() { return Hidden().value(); }
 export fn leftAnswer() { return helper() + 2; }
 EOF
 
 cat > "$ROOT/modules/right.ns" <<'EOF'
-fn helper() { return 100; }
+var localValue = 100;
+class Hidden {
+    fn value() { return localValue; }
+}
+fn helper() { return Hidden().value(); }
 export fn rightAnswer() { return helper() + 1; }
 EOF
 
@@ -43,11 +51,27 @@ if "$NIX" "$ROOT/private_leak.ns" >"$ROOT/private-leak.log" 2>&1; then
     echo "A module-private helper was callable from the importer." >&2
     exit 1
 fi
-grep -q "Unknown variable 'helper'" "$ROOT/private-leak.log" || {
+grep -Eq "Unknown (function|variable) 'helper'" "$ROOT/private-leak.log" || {
     echo "Private-helper rejection had an unexpected diagnostic:" >&2
     cat "$ROOT/private-leak.log" >&2
     exit 1
 }
+cat > "$ROOT/private_global_leak.ns" <<'EOF'
+import { leftAnswer } from "./modules/left";
+nix main() {
+    println(localValue);
+}
+EOF
+if "$NIX" "$ROOT/private_global_leak.ns" >"$ROOT/private-global-leak.log" 2>&1; then
+    echo "A module-private global was visible to the importer." >&2
+    exit 1
+fi
+grep -Eq "Unknown (variable|function) 'localValue'" "$ROOT/private-global-leak.log" || {
+    echo "Private-global rejection had an unexpected diagnostic:" >&2
+    cat "$ROOT/private-global-leak.log" >&2
+    exit 1
+}
+
 
 cat > "$ROOT/legacy_and_named.ns" <<'EOF'
 use left;

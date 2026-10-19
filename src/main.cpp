@@ -3391,10 +3391,7 @@ struct SourceLoader {
                      isBuiltinTypeName(previousToken));
                 const bool isMemberName =
                     previousToken == "." || previousToken == "::";
-                const bool isClassDeclarationName = previousToken == "class";
-
-                if (privateNames.count(token) && !isMemberName &&
-                    !isClassDeclarationName && !isClassMemberDeclaration) {
+                if (privateNames.count(token) && !isMemberName && !isClassMemberDeclaration) {
                     output += prefix;
                     output += token;
                 } else {
@@ -3483,7 +3480,7 @@ struct SourceLoader {
         // which declaration wins or producing a confusing parser error later.
         std::unordered_set<std::string> importedNames;
         std::unordered_set<std::string> localTopLevelNames;
-        std::unordered_set<std::string> privateFunctionNames;
+        std::unordered_set<std::string> privateSymbolNames;
         bool importSection = true; int lineNumber = 0;
         int braceDepth = 0;
         bool inBlockComment = false;
@@ -3503,10 +3500,22 @@ struct SourceLoader {
                     const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     localTopLevelNames.insert(text.substr(0, end));
                 };
+                auto rememberPrivateName = [&](const std::string& text) {
+                    if (!namedModule || text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string name = text.substr(0, end);
+                    if (!name.empty() && !exportsByPath.at(key).count(name))
+                        privateSymbolNames.insert(name);
+                };
                 if (declaration.rfind("abstract class ", 0) == 0) {
-                    rememberTopLevelName(trim(declaration.substr(15)));
+                    const std::string header = trim(declaration.substr(15));
+                    rememberTopLevelName(header);
+                    rememberPrivateName(header);
                 } else if (declaration.rfind("class ", 0) == 0) {
-                    rememberTopLevelName(trim(declaration.substr(6)));
+                    const std::string header = trim(declaration.substr(6));
+                    rememberTopLevelName(header);
+                    rememberPrivateName(header);
                 } else if (declaration.rfind("async ", 0) == 0) {
                     std::string afterAsync = trim(declaration.substr(5));
                     if (afterAsync.rfind("fn", 0) == 0 &&
@@ -3516,8 +3525,7 @@ struct SourceLoader {
                         const auto nameEnd = header.find_first_not_of(
                             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                         const std::string functionName = header.substr(0, nameEnd);
-                        if (namedModule && !functionName.empty() && !exportsByPath.at(key).count(functionName))
-                            privateFunctionNames.insert(functionName);
+                        rememberPrivateName(functionName);
                     }
                 } else if (declaration.rfind("fn ", 0) == 0) {
                     const std::string header = trim(declaration.substr(3));
@@ -3525,10 +3533,11 @@ struct SourceLoader {
                     const auto nameEnd = header.find_first_not_of(
                         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
                     const std::string functionName = header.substr(0, nameEnd);
-                    if (namedModule && !functionName.empty() && !exportsByPath.at(key).count(functionName))
-                        privateFunctionNames.insert(functionName);
+                    rememberPrivateName(functionName);
                 } else if (declaration.rfind("var ", 0) == 0) {
-                    rememberTopLevelName(trim(declaration.substr(4)));
+                    const std::string header = trim(declaration.substr(4));
+                    rememberTopLevelName(header);
+                    rememberPrivateName(header);
                 } else if (!declaration.empty() &&
                            declaration.rfind("use ", 0) != 0 &&
                            declaration.rfind("import ", 0) != 0 &&
@@ -3548,7 +3557,9 @@ struct SourceLoader {
                         while (secondEnd < declaration.size() &&
                                (std::isalnum(static_cast<unsigned char>(declaration[secondEnd])) ||
                                 declaration[secondEnd] == '_')) ++secondEnd;
-                        rememberTopLevelName(declaration.substr(secondStart, secondEnd - secondStart));
+                        const std::string variableName = declaration.substr(secondStart, secondEnd - secondStart);
+                        rememberTopLevelName(variableName);
+                        rememberPrivateName(variableName);
                     }
                 }
             }
@@ -3637,7 +3648,7 @@ struct SourceLoader {
         active.erase(key);
         if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
         const std::string moduleSource = namedModule
-            ? rewritePrivateFunctionNames(localSource.str(), privateFunctionNames, privateModulePrefix(key))
+            ? rewritePrivateFunctionNames(localSource.str(), privateSymbolNames, privateModulePrefix(key))
             : localSource.str();
         loaded.insert(key);
         loadedModuleModes[key] = namedModule;
