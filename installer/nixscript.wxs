@@ -1,19 +1,67 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="NixScript" Manufacturer="NISPAX" Version="1.0.0.1" UpgradeCode="9e07a4ef-0ac1-4a5c-9a0d-2f57e95f16b8" Language="1033" Scope="perMachine">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="NixScript" Manufacturer="NISPAX InfoTech" Version="$(var.ProductVersion)" UpgradeCode="9e07a4ef-0ac1-4a5c-9a0d-2f57e95f16b8" Language="1033" Scope="perMachine" InstallerVersion="500">
     <MajorUpgrade DowngradeErrorMessage="A newer NixScript version is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="NixScriptIcon" SourceFile="$(var.BrandDir)\nixscript.ico" />
+    <Property Id="ARPPRODUCTICON" Value="NixScriptIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/NISPAX-InfoTech/nix-script-dev" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BrandDir)\nixscript-banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.BrandDir)\nixscript-dialog.bmp" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.BrandDir)\preview-license.rtf" />
+    <UI><ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" /></UI>
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="NixScript">
+        <Directory Id="EXAMPLESDIR" Name="examples">
+          <Component Id="NixScriptHelloExample" Guid="*">
+            <File Id="HelloExample" Source="$(var.BuildDir)\examples\hello.ns" KeyPath="yes" />
+          </Component>
+        </Directory>
         <Component Id="NixScriptFiles" Guid="*">
           <File Id="NixExe" Source="$(var.BuildDir)\nix.exe" KeyPath="yes" />
           <File Id="Readme" Source="$(var.BuildDir)\README.md" />
-          <File Id="LanguageRef" Source="$(var.BuildDir)\LANGUAGE.md" />
+          <File Id="LanguageReference" Source="$(var.BuildDir)\LANGUAGE.md" />
+        </Component>
+        <Component Id="NixScriptMachineEnvironment" Guid="*">
+          <Environment Id="NixScriptPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" />
+          <Environment Id="NixScriptHome" Name="NIXSCRIPT_HOME" Value="[NIXDATADIR]" Action="set" System="yes" />
+          <Environment Id="NixScriptLib" Name="NIXSCRIPT_LIB" Value="[NIXLIBDIR]" Action="set" System="yes" />
+          <Environment Id="NixScriptInclude" Name="NIXSCRIPT_INCLUDE" Value="[NIXINCLUDEDIR]" Action="set" System="yes" />
+          <Environment Id="NixScriptPackages" Name="NIXSCRIPT_PACKAGES" Value="[NIXPACKAGESDIR]" Action="set" System="yes" />
+          <RegistryValue Root="HKLM" Key="Software\NISPAX\NixScript" Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
-    <Feature Id="MainFeature" Title="NixScript CLI" Level="1">
-      <ComponentRef Id="NixScriptFiles" />
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="NIXDATADIR" Name="NixScript">
+        <Component Id="NixScriptDataRoot" Guid="*">
+          <CreateFolder><util:PermissionEx User="S-1-5-32-545" GenericRead="yes" GenericExecute="yes" /></CreateFolder>
+          <RegistryValue Root="HKLM" Key="Software\NISPAX\NixScript\Directories" Name="Home" Type="string" Value="[NIXDATADIR]" KeyPath="yes" />
+        </Component>
+        <Directory Id="NIXLIBDIR" Name="lib">
+          <Component Id="NixScriptLibDirectory" Guid="*">
+            <CreateFolder><util:PermissionEx User="S-1-5-32-545" GenericAll="yes" /></CreateFolder>
+            <RegistryValue Root="HKLM" Key="Software\NISPAX\NixScript\Directories" Name="Lib" Type="string" Value="[NIXLIBDIR]" KeyPath="yes" />
+          </Component>
+        </Directory>
+        <Directory Id="NIXINCLUDEDIR" Name="include">
+          <Component Id="NixScriptIncludeDirectory" Guid="*">
+            <CreateFolder><util:PermissionEx User="S-1-5-32-545" GenericAll="yes" /></CreateFolder>
+            <RegistryValue Root="HKLM" Key="Software\NISPAX\NixScript\Directories" Name="Include" Type="string" Value="[NIXINCLUDEDIR]" KeyPath="yes" />
+          </Component>
+        </Directory>
+        <Directory Id="NIXPACKAGESDIR" Name="packages">
+          <Component Id="NixScriptPackagesDirectory" Guid="*">
+            <CreateFolder><util:PermissionEx User="S-1-5-32-545" GenericAll="yes" /></CreateFolder>
+            <RegistryValue Root="HKLM" Key="Software\NISPAX\NixScript\Directories" Name="Packages" Type="string" Value="[NIXPACKAGESDIR]" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="NixScript" Level="1">
+      <ComponentRef Id="NixScriptFiles" /><ComponentRef Id="NixScriptHelloExample" />
+      <ComponentRef Id="NixScriptMachineEnvironment" /><ComponentRef Id="NixScriptDataRoot" />
+      <ComponentRef Id="NixScriptLibDirectory" /><ComponentRef Id="NixScriptIncludeDirectory" />
+      <ComponentRef Id="NixScriptPackagesDirectory" />
     </Feature>
   </Package>
 </Wix>

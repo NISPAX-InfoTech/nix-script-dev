@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+install -d -m 0755 /usr/local/share/nixscript /usr/local/share/nixscript/lib /usr/local/share/nixscript/include /usr/local/share/nixscript/packages
+chmod 0755 /usr/local/bin/nix
+exit 0
