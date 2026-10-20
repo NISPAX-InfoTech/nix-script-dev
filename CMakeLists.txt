@@ -22,6 +22,14 @@ if(NOT ANDROID AND NOT NIX_ANDROID)
             "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_control_flow.expected"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
     set_tests_properties(async_control_flow_test PROPERTIES TIMEOUT 10)
+    add_test(NAME async_concurrent_frames_test
+        COMMAND ${CMAKE_COMMAND}
+            "-DNIX_EXECUTABLE=$<TARGET_FILE:nix>"
+            "-DSCRIPT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_concurrent_frames.ns"
+            "-DINPUT_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_concurrent_frames.input"
+            "-DEXPECTED_PATH=${CMAKE_CURRENT_SOURCE_DIR}/tests/async_concurrent_frames.expected"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/expect_output.cmake")
+    set_tests_properties(async_concurrent_frames_test PROPERTIES TIMEOUT 10)
     # Require both the existing async output and the nested-await visit-count
     # assertion; the character class allows the match to cross printed lines.
     set_tests_properties(async_language_test PROPERTIES PASS_REGULAR_EXPRESSION "s1s2e1e2answer=42(.|[[:space:]])*nested-result=125")
