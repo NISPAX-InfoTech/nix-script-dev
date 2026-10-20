@@ -1,0 +1,36 @@
+async fn lessThan(left, right) {
+    return left < right;
+}
+
+async fn increment(value) {
+    return value + 1;
+}
+
+async fn countTwice() {
+    return 2;
+}
+
+async fn exerciseAwaitedControlFlow() {
+    var total = 0;
+
+    // Await in the for condition and increment must preserve the loop phase.
+    for (var index = 0; await lessThan(index, 3); index = await increment(index)) {
+        if (await lessThan(index, 2)) {
+            total = total + await increment(index);
+        } else {
+            total = total + 10;
+        }
+    }
+
+    // The repeat count itself is awaited, then each body resumes independently.
+    repeat(await countTwice()) {
+        total = total + await increment(0);
+    }
+
+    return total;
+}
+
+nix main() {
+    var result = await exerciseAwaitedControlFlow();
+    println("awaited-control-flow=", result);
+}
