@@ -89,7 +89,7 @@ jobs:
           wix extension add --global WixToolset.Util.wixext/4.0.5
           $msiVersion = "1.0.0"
           if ($env:VERSION -match '^v?([0-9]+\.[0-9]+\.[0-9]+)') { $msiVersion = $Matches[1] }
-          wix build .\installer\nixscript.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext "-d BuildDir=$env:GITHUB_WORKSPACE\dist\root" "-d BrandDir=$env:GITHUB_WORKSPACE\installer\brand-output" "-d ProductVersion=$msiVersion" -o .\nixscript-windows-x64.msi
+          wix build .\installer\nixscript.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d "BuildDir=$env:GITHUB_WORKSPACE\dist\root" -d "BrandDir=$env:GITHUB_WORKSPACE\installer\brand-output" -d "ProductVersion=$msiVersion" -o .\nixscript-windows-x64.msi
           Move-Item .\nixscript-windows-x64.msi .\dist\nixscript-windows-x64.msi
       - name: Package Linux DEB and RPM
         if: runner.os == 'Linux'
