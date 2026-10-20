@@ -1,0 +1,77 @@
+var nestedIfVisits = 0;
+var nestedRepeatVisits = 0;
+var nestedForVisits = 0;
+
+async fn plusOne(value);
+
+async fn plusOne(value) {
+    return value + 1;
+}
+
+async fn isPositive(value) {
+    return value > 0;
+}
+
+async fn nested(value) {
+    var first = await plusOne(value);
+    var second = await plusOne(first);
+    return second;
+}
+
+async fn choose(value) {
+    if (await isPositive(value)) {
+        return value;
+    } else {
+        return 0;
+    }
+}
+
+async fn work(value) {
+    print("s", value);
+    print("e", value);
+    return value;
+}
+
+// Awaiting in nested blocks and both loop forms must resume at the suspended
+// statement instead of replaying earlier side effects or skipping iterations.
+async fn nestedControls() {
+    if (true) {
+        nestedIfVisits++;
+        println("if-before");
+        var first = await plusOne(0);
+        println("if-after=", first);
+    }
+    repeat(2) {
+        nestedRepeatVisits++;
+        println("repeat-before");
+        var ignored = await plusOne(0);
+        println("repeat-after=", ignored);
+    }
+    var total = 0;
+    for (var index = 0; index < 2; index++) {
+        nestedForVisits++;
+        println("for-before=", index);
+        var next = await plusOne(index);
+        total = total + next;
+    }
+    // 100 + 20 + 2 visit-count points plus the expected computed total (3).
+    // Replaying a pre-await statement makes the result differ from 125.
+    return total + nestedIfVisits * 100 + nestedRepeatVisits * 10 + nestedForVisits;
+}
+
+nix main() {
+    var left = work(1);
+    var right = work(2);
+    var task = nested(40);
+    var result = await task;
+    var chosen = await choose(result);
+    await left;
+    await right;
+    println("answer=", chosen);
+    var nestedResult = await nestedControls();
+    if (nestedResult != 125) {
+        // Deliberately unresolved: reaching this branch must fail the regression test.
+        asyncNestedControlRegressionFailure();
+    }
+    println("nested-result=", nestedResult);
+}

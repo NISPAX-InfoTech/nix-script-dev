@@ -1,0 +1,8 @@
+async fn broken() {
+    return missing;
+}
+
+nix main() {
+    var result = await broken();
+    println(result);
+}

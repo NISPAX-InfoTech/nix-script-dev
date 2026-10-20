@@ -1,0 +1,29 @@
+fn factorial(n) {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+class Recurser {
+    fn factorial(n) {
+        if (n <= 1) {
+            return 1;
+        } else {
+            return n * this.factorial(n - 1);
+        }
+    }
+};
+
+async fn calculate() {
+    var ordinaryResult = factorial(5);
+    var object = Recurser();
+    var methodResult = object.factorial(5);
+    return ordinaryResult + methodResult;
+}
+
+nix main() {
+    var answer = await calculate();
+    println("recursive=", answer);
+}

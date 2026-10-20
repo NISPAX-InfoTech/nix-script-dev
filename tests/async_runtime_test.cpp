@@ -1,0 +1,211 @@
+#include "async_runtime.hpp"
+
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using namespace nix::async;
+
+[[noreturn]] static void checkFailed(const char* expression, int line) {
+    std::cerr << "async_runtime_test:" << line << ": CHECK failed: " << expression << std::endl;
+    std::exit(1);
+}
+#define CHECK(expression) do { if (!(expression)) checkFailed(#expression, __LINE__); } while (false)
+
+int main() {
+    Scheduler scheduler;
+    std::vector<int> order;
+    Task<int> dependency;
+    int dependencySteps = 0;
+    dependency = scheduler.create<int>("dependency", [&](TaskContext& ctx) {
+        order.push_back(1);
+        if (++dependencySteps == 1) { ctx.yield(); return; }
+        ctx.complete(dependency, 21);
+    });
+    Task<int> parent;
+    parent = scheduler.create<int>("parent", [&](TaskContext& ctx) {
+        order.push_back(2);
+        if (!ctx.await(dependency)) return;
+        ctx.complete(parent, dependency.result() * 2);
+    });
+    scheduler.runUntil(parent);
+    CHECK((order == std::vector<int>{1, 2, 1, 2}));
+    CHECK(parent.status() == TaskStatus::Succeeded);
+    CHECK(parent.result() == 42);
+
+    Task<int> failed;
+    failed = scheduler.create<int>("failure", [&](TaskContext& ctx) {
+        ctx.fail(failed, std::runtime_error("expected failure"));
+    });
+    scheduler.runUntilIdle();
+    bool propagated = false;
+    try { (void)failed.result(); }
+    catch (const std::runtime_error& error) {
+        propagated = std::string(error.what()) == "expected failure";
+    }
+    CHECK(propagated);
+
+    // Unobserved task failures remain reportable even if the caller discards its handle.
+    auto unobservedFailure = scheduler.spawn<int>("unobserved-failure", []() -> int {
+        throw std::runtime_error("unobserved failure");
+    });
+    (void)unobservedFailure;
+    scheduler.runUntilIdle();
+    bool unobservedReported = false;
+    try { scheduler.rethrowUnhandledFailures(); }
+    catch (const std::runtime_error& error) {
+        unobservedReported = std::string(error.what()).find("unobserved failure") != std::string::npos;
+    }
+    CHECK(unobservedReported);
+
+    Task<void> cancelled;
+    cancelled = scheduler.create<void>("cancelled", [&](TaskContext&) {
+        CHECK(false && "cancelled task must not run");
+    });
+    scheduler.cancel(cancelled);
+    scheduler.runUntilIdle();
+    CHECK(cancelled.status() == TaskStatus::Cancelled);
+    bool cancellationReported = false;
+    try { cancelled.result(); }
+    catch (const TaskCancelled&) { cancellationReported = true; }
+    CHECK(cancellationReported);
+
+    Task<void> cancelledDependency, cancellationConsumer;
+    cancelledDependency = scheduler.create<void>("cancelled-dependency", [&](TaskContext& ctx) {
+        ctx.complete(cancelledDependency);
+    });
+    cancellationConsumer = scheduler.create<void>("cancellation-consumer", [&](TaskContext& ctx) {
+        if (!ctx.await(cancelledDependency)) return;
+        ctx.complete(cancellationConsumer);
+    });
+    scheduler.cancel(cancelledDependency);
+    scheduler.runUntilIdle();
+    CHECK(cancellationConsumer.status() == TaskStatus::Cancelled);
+
+    // Multiple consumers of one task must all resume when it completes.
+    Task<int> shared;
+    shared = scheduler.create<int>("shared", [&](TaskContext& ctx) {
+        ctx.complete(shared, 7);
+    });
+    Task<int> consumerA, consumerB;
+    consumerA = scheduler.create<int>("consumer-a", [&](TaskContext& ctx) {
+        if (!ctx.await(shared)) return;
+        ctx.complete(consumerA, shared.result() + 1);
+    });
+    consumerB = scheduler.create<int>("consumer-b", [&](TaskContext& ctx) {
+        if (!ctx.await(shared)) return;
+        ctx.complete(consumerB, shared.result() + 2);
+    });
+    scheduler.runUntilIdle();
+    CHECK(consumerA.result() == 8);
+    CHECK(consumerB.result() == 9);
+
+    // Indirect wait cycles fail deterministically instead of deadlocking.
+    Task<void> cycleA, cycleB;
+    cycleA = scheduler.create<void>("cycle-a", [&](TaskContext& ctx) {
+        if (!ctx.await(cycleB)) return;
+        ctx.complete(cycleA);
+    });
+    cycleB = scheduler.create<void>("cycle-b", [&](TaskContext& ctx) {
+        if (!ctx.await(cycleA)) return;
+        ctx.complete(cycleB);
+    });
+    scheduler.runUntilIdle();
+    CHECK(cycleA.status() == TaskStatus::Failed);
+    CHECK(cycleB.status() == TaskStatus::Failed);
+
+    // A pending dependency with no runnable producer is diagnosed, not spun on.
+    Task<void> never, blocked;
+    never = scheduler.create<void>("never-completes", [&](TaskContext&) {});
+    blocked = scheduler.create<void>("blocked", [&](TaskContext& ctx) {
+        if (!ctx.await(never)) return;
+        ctx.complete(blocked);
+    });
+    bool deadlockReported = false;
+    try { scheduler.runUntil(blocked); }
+    catch (const std::runtime_error& error) {
+        deadlockReported = std::string(error.what()).find("cannot make progress") != std::string::npos;
+    }
+    CHECK(deadlockReported);
+
+    // Exceptions after a terminal transition must not corrupt the scheduler.
+    Task<int> completedThenThrows;
+    completedThenThrows = scheduler.create<int>("completed-then-throws", [&](TaskContext& ctx) {
+        ctx.complete(completedThenThrows, 123);
+        throw std::runtime_error("cleanup failure after completion");
+    });
+    scheduler.runUntilIdle();
+    CHECK(completedThenThrows.status() == TaskStatus::Succeeded);
+    CHECK(completedThenThrows.result() == 123);
+
+    auto spawned = scheduler.spawn<int>("spawned-value", [] { return 42; });
+    scheduler.runUntil(spawned);
+    CHECK(spawned.result() == 42);
+    auto spawnedVoid = scheduler.spawn<void>("spawned-void", [] {});
+    scheduler.runUntil(spawnedVoid);
+    CHECK(spawnedVoid.status() == TaskStatus::Succeeded);
+    auto spawnedFailure = scheduler.spawn<int>("spawned-failure", []() -> int {
+        throw std::runtime_error("spawn failure");
+    });
+    bool spawnFailureReported = false;
+    try { scheduler.runUntil(spawnedFailure); }
+    catch (const std::runtime_error& error) {
+        spawnFailureReported = std::string(error.what()) == "spawn failure";
+    }
+    CHECK(spawnFailureReported);
+
+    auto rejectedDependency = scheduler.spawn<int>("rejected-dependency", []() -> int {
+        throw std::runtime_error("dependency rejection");
+    });
+    Task<int> rejectionConsumer;
+    rejectionConsumer = scheduler.create<int>("rejection-consumer", [&](TaskContext& ctx) {
+        if (!ctx.await(rejectedDependency)) return;
+        ctx.complete(rejectionConsumer, rejectedDependency.result());
+    });
+    bool awaitFailurePropagated = false;
+    try { scheduler.runUntil(rejectionConsumer); }
+    catch (const std::runtime_error& error) {
+        awaitFailurePropagated = std::string(error.what()) == "dependency rejection";
+    }
+    CHECK(awaitFailurePropagated);
+    CHECK(rejectionConsumer.status() == TaskStatus::Failed);
+
+    // Completion releases callback captures instead of retaining user state.
+    auto resource = std::make_shared<int>(9);
+    std::weak_ptr<int> resourceWeak = resource;
+    Task<void> releaseTask;
+    releaseTask = scheduler.create<void>("release-capture", [&, resource](TaskContext& ctx) {
+        ctx.complete(releaseTask);
+    });
+    resource.reset();
+    scheduler.runUntil(releaseTask);
+    CHECK(resourceWeak.expired());
+
+    Task<void> reentrant;
+    bool reentrancyRejected = false;
+    reentrant = scheduler.create<void>("reentrant-pump", [&](TaskContext& ctx) {
+        try { (void)scheduler.runOne(); }
+        catch (const std::logic_error&) { reentrancyRejected = true; }
+        ctx.complete(reentrant);
+    });
+    scheduler.runUntil(reentrant);
+    CHECK(reentrancyRejected);
+
+    Task<void> selfCancelled;
+    selfCancelled = scheduler.create<void>("self-cancel", [&](TaskContext&) {
+        scheduler.cancel(selfCancelled);
+    });
+    scheduler.runUntilIdle();
+    CHECK(selfCancelled.status() == TaskStatus::Cancelled);
+
+    scheduler.shutdown();
+    bool rejected = false;
+    try {
+        (void)scheduler.create<void>("late", [](TaskContext&) {});
+    } catch (const std::logic_error&) { rejected = true; }
+    CHECK(rejected);
+    return 0;
+}

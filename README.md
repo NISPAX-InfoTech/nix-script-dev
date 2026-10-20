@@ -48,15 +48,29 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 ## Still planned
 
 - Fixed-size typed arrays, array type enforcement, and fixed-size declaration syntax
-- Export/visibility rules for modules and package dependency management
+- Exported global variables, import aliases, and dedicated module environments
 
 Try output behavior with `./build/nix examples/output.ns`. Try the expanded features with `./build/nix examples/features.ns`. For functions, run `./build/nix examples/functions.ns` or `./build/nix examples/prototypes.ns`. For mutable arrays, maps, and callbacks, run `./build/nix examples/collections.ns`, `./build/nix examples/maps.ns`, and `./build/nix examples/callbacks.ns`. For input, run `./build/nix examples/input.ns`. Input reads from standard input in the command-line interpreter.
 
-The interpreter is still an evolving prototype. Fixed-size typed arrays, full assignment/return type enforcement, closures/lambdas, module export/visibility rules, package dependency management, and package integrity signatures remain future work. Arrays are dynamic lists with bounds-checked non-negative integer indexes. Maps preserve insertion order and normalize primitive keys to strings; missing keys return `null`. Function values refer to top-level overload groups or bound methods (not closures/lambdas yet). String case conversion currently operates on ASCII characters.
+The interpreter is still an evolving prototype. Fixed-size typed arrays, full assignment/return type enforcement, closures/lambdas, import aliases, package dependency management, and package integrity signatures remain future work. Arrays are dynamic lists with bounds-checked non-negative integer indexes. Maps preserve insertion order and normalize primitive keys to strings; missing keys return `null`. Function values refer to top-level overload groups or bound methods (not closures/lambdas yet). String case conversion currently operates on ASCII characters. Async tasks use a cooperative single-threaded scheduler; there is no built-in event-driven network or file-I/O layer yet.
 
 ## Libraries
 
-`use name;` loads `name.ns` from the project's `lib/` or `libraries/` folder, or from the standard installed-library directory. Imports can be nested; a file is loaded once, and circular imports are reported. Library files contain declarations (such as `fn` functions and `class` definitions), not `nix main()`. Imported declarations currently share the program's global namespace; explicit exports and aliases are not implemented yet.
+`use name;` remains supported for installed and project-local libraries and retains its legacy shared-global namespace behavior. For relative project modules, use named imports:
+
+```ns
+// math.ns
+fn helper(value) { return value * 2; }
+export fn double(value) { return helper(value); }
+
+// main.ns
+import { double as twice } from "./math";
+nix main() {
+    println(twice(21));
+}
+```
+
+Named imports accept exported top-level functions (including async functions), classes, and mutable global variables (both `var` and explicitly typed declarations). Unexported top-level functions, classes, and globals are assigned module-specific internal names, so different named modules can use the same private helper/global/class name and importing code cannot refer to those private names directly. A named import of a non-exported symbol is rejected. A source file cannot be loaded through both named imports and legacy `use` in the same program. Every top-level declaration in a named module receives a path-specific internal name; explicit imports expose only the selected exports, including aliases. Import aliases using `as` are supported. Modules currently lower to one compilation unit rather than separate runtime environments; dependency manifests and package integrity signatures remain future work.
 
 **Standard installed-library directory:**
 - Linux: `~/.local/share/nixscript/libraries/` (or `$XDG_DATA_HOME/nixscript/libraries/` when `XDG_DATA_HOME` is set)

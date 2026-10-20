@@ -1,0 +1,32 @@
+async fn plusOne(value) {
+    return value + 1;
+}
+
+class Counter {
+    var value;
+
+    fn Counter(initial) {
+        this.value = initial;
+    }
+
+    async fn addLater(delta) {
+        this.value = this.value + 1;
+        var result = await plusOne(delta);
+        this.value = this.value + result;
+        return this.value;
+    }
+
+    static async fn timesThreeLater(value) {
+        var incremented = await plusOne(value);
+        return incremented * 3;
+    }
+};
+
+nix main() {
+    var counter = Counter(10);
+    var result = await counter.addLater(5);
+    println("async-method=", result);
+    var staticResult = await Counter::timesThreeLater(5);
+    println("static-method=", staticResult);
+    println("final=", counter.value);
+}

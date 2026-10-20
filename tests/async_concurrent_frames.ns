@@ -1,0 +1,20 @@
+async fn increment(value) {
+    return value + 1;
+}
+
+async fn accumulate(count) {
+    var total = 0;
+    for (var index = 0; index < count; index = index + 1) {
+        total = total + await increment(index);
+    }
+    return total;
+}
+
+nix main() {
+    var first = accumulate(3);
+    var second = accumulate(4);
+    println("first=", await first);
+    println("second=", await second);
+    // Awaiting a completed task again must return the same result.
+    println("first-again=", await first);
+}

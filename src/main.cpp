@@ -1,3 +1,4 @@
+#include "async_runtime.hpp"
 #include <algorithm>
 #include <map>
 #include <chrono>
@@ -181,17 +182,20 @@ struct UninitializedValue {};
 struct ArrayValue;
 struct MapValue;
 struct FunctionValue;
+struct AsyncTaskValue;
 using Value = std::variant<UninitializedValue, std::monostate, double, std::string, bool,
                            std::shared_ptr<Instance>, std::shared_ptr<ClassDef>,
                            std::shared_ptr<BoundMethod>, std::shared_ptr<ArrayValue>,
-                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>>;
+                           std::shared_ptr<MapValue>, std::shared_ptr<FunctionValue>,
+                           std::shared_ptr<AsyncTaskValue>>;
 
 struct ArrayValue { std::vector<Value> elements; };
 struct MapValue { std::vector<std::pair<std::string, Value>> entries; };
 struct FunctionValue { std::string name; };
+struct AsyncTaskValue { async::Task<Value> task; };
 
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, Member, StaticMember, ArrayLiteral, MapLiteral, Index, List, Await };
     Kind kind = Kind::Literal;
     Value value{};
     std::string name;
@@ -216,6 +220,7 @@ struct Stmt {
     std::vector<std::string> parameters;
     std::vector<std::string> parameterTypes;
     bool functionDefined = false;
+    bool isAsync = false;
     bool printNewline = false;
     std::unique_ptr<Expr> target;
     std::unique_ptr<Expr> expression;
@@ -237,6 +242,7 @@ struct ClassMember {
     std::string typeName;
     std::string owner;
     bool isStatic = false;
+    bool isAsync = false;
     bool isConstructor = false;
     bool isDestructor = false;
     bool defined = true;
@@ -304,13 +310,26 @@ public:
                        look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
                 advance(); // fn
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("async")) {
+                consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
+                Stmt function = parseFunction(true);
+                program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
             } else if (looksLikeOutOfClassDefinition()) {
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("var")) {
+                // Top-level variable declarations live in the interpreter's outer scope.
+                program.push_back(variableStatement());
+            } else if (check(TokenKind::Identifier) &&
+                       ((isTypeName(peek().text) && look(1).kind == TokenKind::Identifier) ||
+                        (classNames_.count(peek().text) != 0 && look(1).kind == TokenKind::Identifier))) {
+                // Support inferred, explicitly typed, and class-typed globals before main.
+                advance();
+                program.push_back(variableStatement());
             } else {
-                fail(peek(), "Expected a class declaration or 'nix main()'.");
+                fail(peek(), "Expected a global variable, class/function declaration, or 'nix main()'.");
             }
         }
 
@@ -327,6 +346,10 @@ public:
                 look(1).kind == TokenKind::Identifier && look(2).kind == TokenKind::Scope) {
                 advance(); // fn
                 parseOutOfClassDefinition();
+            } else if (matchIdentifier("async")) {
+                consumeIdentifierExact("fn", "Expected 'fn' after 'async'.");
+                Stmt function = parseFunction(true);
+                program.push_back(std::move(function));
             } else if (matchIdentifier("fn")) {
                 Stmt function = parseFunction();
                 program.push_back(std::move(function));
@@ -348,6 +371,7 @@ private:
     std::unordered_map<std::string, bool> functionNames_;
     std::unordered_map<std::string, std::size_t> functionParameterCounts_;
     std::unordered_map<std::string, int> functionDefinitionLines_;
+    std::unordered_map<std::string, bool> functionAsyncBySignature_;
 
     const Token& peek() const { return tokens_[current_]; }
     const Token& previous() const { return tokens_[current_ - 1]; }
@@ -386,7 +410,7 @@ private:
     }
     bool isReservedFunctionName(const std::string& name) const {
         static const std::vector<std::string> reserved = {
-            "main", "nix", "fn", "class", "use", "print", "println", "repeat", "if", "elif",
+            "main", "nix", "fn", "async", "await", "class", "use", "print", "println", "repeat", "if", "elif",
             "else", "for", "return", "true", "false", "null", "and", "or", "not",
             "this", "public", "private", "protected", "secured", "static", "abstract", "uin", "sqrt", "sq",
             "pow", "abs", "floor", "ceil", "round", "isUpper", "isLower", "isSpace",
@@ -441,7 +465,7 @@ private:
         } while (match(TokenKind::Comma));
         return initializers;
     }
-    Stmt parseFunction() {
+    Stmt parseFunction(bool isAsync = false) {
         const Token fnToken = previous();
         const std::string name = consumeName("Expected a function name after 'fn'.");
         if (isReservedFunctionName(name))
@@ -452,6 +476,10 @@ private:
         std::vector<std::string> parameterTypes;
         auto params = parameters(true, &parameterTypes);
         const std::string signature = overloadSignatureKey(name, parameterTypes);
+        auto asyncSignature = functionAsyncBySignature_.find(signature);
+        if (asyncSignature != functionAsyncBySignature_.end() && asyncSignature->second != isAsync)
+            fail(fnToken, "Function overload '" + signature + "' cannot be declared both async and synchronous.");
+        functionAsyncBySignature_[signature] = isAsync;
         std::unordered_map<std::string, bool> seenParameters;
         for (const auto& param : params) {
             if (seenParameters.count(param))
@@ -476,6 +504,7 @@ private:
         function.parameterTypes = std::move(parameterTypes);
         function.line = fnToken.line;
         function.functionDefined = defined;
+        function.isAsync = isAsync;
 
         if (defined) {
             consume(TokenKind::LeftBrace, "Expected '{' before function body.");
@@ -558,6 +587,13 @@ private:
             member.access = access;
             member.isAbstract = matchIdentifier("abstract");
             member.isStatic = matchIdentifier("static");
+            member.isAsync = matchIdentifier("async");
+            if (member.isAsync &&
+                !(check(TokenKind::Identifier) && peek().text == "fn")) {
+                fail(peek(), "'async' must precede a method declaration using 'fn'.");
+            }
+            if (member.isAsync && member.isAbstract)
+                fail(peek(), "Async abstract methods are not supported yet.");
             if (member.isAbstract && !klass->isAbstract) {
                 fail(peek(), "Abstract methods can only be declared inside an abstract class.");
             }
@@ -566,7 +602,11 @@ private:
                 member.typeName = "var";
                 member.kind = ClassMember::Kind::Method;
                 member.isConstructor = member.name == klass->name;
+                if (member.isAsync && member.isConstructor)
+                    fail(classToken, "Constructors cannot be async.");
                 parseMethodTail(member);
+                if (member.isAsync && !member.defined)
+                    fail(previous(), "Async methods must have an inline body.");
                 if (member.isAbstract && member.defined)
                     fail(previous(), "An abstract method must end with ';' and have no body.");
                 appendMember(std::move(member));
@@ -977,6 +1017,11 @@ private:
         return expr;
     }
     std::unique_ptr<Expr> unary() {
+        if (matchIdentifier("await")) {
+            const Token op = previous();
+            auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Await;
+            expr->right = unary(); expr->line = op.line; return expr;
+        }
         if (match(TokenKind::Minus) || match(TokenKind::Bang) || matchIdentifier("not")) {
             Token op = previous();
             auto expr = std::make_unique<Expr>(); expr->kind = Expr::Kind::Unary; expr->op = op.kind;
@@ -1103,7 +1148,7 @@ struct ReturnSignal { Value value; int line; };
 class Interpreter {
 public:
     Interpreter() { scopes_.emplace_back(); }
-    ~Interpreter() { breakContainerReferenceCycles(); }
+    ~Interpreter() { scheduler_.shutdown(); breakContainerReferenceCycles(); }
 
     std::shared_ptr<ArrayValue> makeArray() const {
         auto array = std::make_shared<ArrayValue>();
@@ -1149,10 +1194,41 @@ public:
             popScope();
             runtimeError(returned.line, "'return' can only be used inside a function or method.");
         }
+        scheduler_.runUntilIdle();
+        scheduler_.rethrowUnhandledFailures();
         popScope();
     }
 
 private:
+    struct AsyncCursor {
+        enum class Kind { Block, Repeat, For };
+        enum class ForPhase { Initializer, Condition, Increment };
+        Kind kind = Kind::Block;
+        const std::vector<Stmt>* body = nullptr;
+        const Stmt* control = nullptr;
+        std::size_t pc = 0;
+        std::size_t remaining = 0;
+        std::size_t iterations = 0;
+        bool ownsScope = false;
+        ForPhase forPhase = ForPhase::Initializer;
+    };
+    struct AsyncFrame {
+        const Stmt* function = nullptr;
+        const ClassMember* method = nullptr;
+        std::shared_ptr<Instance> thisInstance;
+        std::unordered_map<std::string, Value> locals;
+        std::unordered_map<const Expr*, Value> expressionCache;
+        async::Task<Value> task;
+        // Only task-owned scopes are saved here. The interpreter's global scope
+        // stays shared while each task's locals/block scopes are isolated.
+        std::vector<std::unordered_map<std::string, Value>> savedScopes;
+        std::vector<AsyncCursor> execution;
+        bool initialized = false;
+    };
+    struct AsyncSuspend {};
+    async::Scheduler scheduler_;
+    AsyncFrame* activeAsyncFrame_ = nullptr;
+    async::TaskContext* activeTaskContext_ = nullptr;
     std::vector<std::unordered_map<std::string, Value>> scopes_;
     mutable std::vector<std::weak_ptr<ArrayValue>> arrays_;
     mutable std::vector<std::weak_ptr<MapValue>> maps_;
@@ -1329,6 +1405,15 @@ private:
         }
         if (const auto* function = std::get_if<std::shared_ptr<FunctionValue>>(&value))
             return *function ? "<function " + (*function)->name + ">" : "<function>";
+        if (const auto* task = std::get_if<std::shared_ptr<AsyncTaskValue>>(&value)) {
+            if (!*task) return "<task invalid>";
+            const auto status = (*task)->task.status();
+            const char* name = status == async::TaskStatus::Pending ? "pending" :
+                status == async::TaskStatus::Running ? "running" :
+                status == async::TaskStatus::Succeeded ? "succeeded" :
+                status == async::TaskStatus::Failed ? "failed" : "cancelled";
+            return std::string("<task ") + name + ">";
+        }
         return "<method>";
     }
     static std::string stringify(const Value& value) {
@@ -1411,7 +1496,7 @@ private:
                 auto thisIt = scope->find("this");
                 if (thisIt == scope->end()) continue;
                 if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
-                    ClassMember* member = findMember((*instance)->klass, name);
+                    ClassMember* member = findMemberForInstance(*instance, name, line);
                     if (member && member->kind == ClassMember::Kind::Field) {
                         Expr target; target.kind = Expr::Kind::Member; target.name = name; target.line = line;
                         target.left = std::make_unique<Expr>(); target.left->kind = Expr::Kind::Variable;
@@ -1450,7 +1535,30 @@ private:
         return output;
     }
     Value evaluate(const Expr& expr) {
+        if (activeAsyncFrame_) {
+            auto found = activeAsyncFrame_->expressionCache.find(&expr);
+            if (found != activeAsyncFrame_->expressionCache.end()) return found->second;
+            Value value = evaluateUncached(expr);
+            activeAsyncFrame_->expressionCache.emplace(&expr, value);
+            return value;
+        }
+        return evaluateUncached(expr);
+    }
+    Value evaluateUncached(const Expr& expr) {
         switch (expr.kind) {
+            case Expr::Kind::Await: {
+                Value awaited = evaluate(*expr.right);
+                auto* taskValue = std::get_if<std::shared_ptr<AsyncTaskValue>>(&awaited);
+                if (!taskValue || !*taskValue) runtimeError(expr.line, "await expects an async task; call an async function first.");
+                auto& task = (*taskValue)->task;
+                if (activeTaskContext_) {
+                    if (!activeTaskContext_->await(task)) throw AsyncSuspend{};
+                } else {
+                    scheduler_.runUntil(task);
+                }
+                try { return task.result(); }
+                catch (const std::exception& error) { runtimeError(expr.line, std::string("Awaited task failed: ") + error.what()); }
+            }
             case Expr::Kind::Literal:
                 if (const auto* text = std::get_if<std::string>(&expr.value)) return interpolate(*text, expr.line);
                 return expr.value;
@@ -1850,7 +1958,268 @@ private:
             instance->fields[fieldStorageKey(member)] = std::move(value);
         }
     }
+    bool expressionContainsAwait(const Expr* expr) const {
+        if (!expr) return false;
+        if (expr->kind == Expr::Kind::Await) return true;
+        if (expressionContainsAwait(expr->left.get()) || expressionContainsAwait(expr->right.get())) return true;
+        for (const auto& item : expr->items)
+            if (expressionContainsAwait(item.get())) return true;
+        return false;
+    }
+    bool statementContainsAwait(const Stmt& stmt) const {
+        if (expressionContainsAwait(stmt.target.get()) || expressionContainsAwait(stmt.expression.get()) ||
+            statementContainsAwaitPtr(stmt.initializer.get()) || statementContainsAwaitPtr(stmt.increment.get()))
+            return true;
+        for (const auto& child : stmt.body) if (statementContainsAwait(child)) return true;
+        for (const auto& child : stmt.elseBody) if (statementContainsAwait(child)) return true;
+        return false;
+    }
+    bool statementContainsAwaitPtr(const Stmt* stmt) const {
+        return stmt && statementContainsAwait(*stmt);
+    }
+    void runAsyncFrame(const std::shared_ptr<AsyncFrame>& frame, async::TaskContext& context) {
+        // Async callbacks can run after the synchronous caller's scopes have
+        // disappeared. Expose the shared global scope plus this task's saved
+        // scopes during a step, then restore the surrounding interpreter state.
+        auto surroundingScopes = std::move(scopes_);
+        if (surroundingScopes.empty()) surroundingScopes.emplace_back();
+        scopes_.clear();
+        scopes_.push_back(surroundingScopes.front());
+        for (const auto& scope : frame->savedScopes) scopes_.push_back(scope);
+
+        AsyncFrame* previousFrame = activeAsyncFrame_;
+        async::TaskContext* previousContext = activeTaskContext_;
+        const std::string previousClass = currentClass_;
+        activeAsyncFrame_ = frame.get();
+        activeTaskContext_ = &context;
+        currentClass_ = frame->method ? frame->method->owner : std::string{};
+
+        bool suspended = false;
+        bool completed = false;
+        Value completionValue = std::monostate{};
+        std::exception_ptr failure;
+
+        try {
+            if (!frame->initialized) {
+                scopes_.emplace_back(frame->locals);
+                if (frame->method && frame->thisInstance)
+                    scopes_.back()["this"] = frame->thisInstance;
+                frame->initialized = true;
+                AsyncCursor root;
+                root.kind = AsyncCursor::Kind::Block;
+                root.body = frame->function ? &frame->function->body : &frame->method->body;
+                frame->execution.push_back(std::move(root));
+            }
+
+            bool didWork = false;
+            while (!frame->execution.empty() && !didWork) {
+                const auto kind = frame->execution.back().kind;
+                if (kind == AsyncCursor::Kind::Block) {
+                    AsyncCursor& cursor = frame->execution.back();
+                    if (cursor.pc >= cursor.body->size()) {
+                        const bool ownsScope = cursor.ownsScope;
+                        frame->execution.pop_back();
+                        if (ownsScope) popScope();
+                        continue;
+                    }
+
+                    const Stmt& statement = (*cursor.body)[cursor.pc];
+                    if (statement.kind == Stmt::Kind::If) {
+                        const bool takeThen = truthy(evaluate(*statement.expression));
+                        const std::vector<Stmt>* branch = takeThen
+                            ? &statement.body : &statement.elseBody;
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        if (!branch->empty()) {
+                            scopes_.emplace_back();
+                            AsyncCursor child;
+                            child.kind = AsyncCursor::Kind::Block;
+                            child.body = branch;
+                            child.ownsScope = true;
+                            frame->execution.push_back(std::move(child));
+                        }
+                        continue;
+                    }
+                    if (statement.kind == Stmt::Kind::Repeat) {
+                        Value countValue = evaluate(*statement.expression);
+                        if (!isNumber(countValue) || std::get<double>(countValue) < 0 ||
+                            std::floor(std::get<double>(countValue)) != std::get<double>(countValue))
+                            runtimeError(statement.line, "repeat() expects a non-negative whole number.");
+                        const auto count = static_cast<std::size_t>(std::get<double>(countValue));
+                        if (count > 1000000)
+                            runtimeError(statement.line, "repeat() limit is 1,000,000 iterations.");
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        if (count != 0) {
+                            AsyncCursor loop;
+                            loop.kind = AsyncCursor::Kind::Repeat;
+                            loop.control = &statement;
+                            loop.remaining = count;
+                            frame->execution.push_back(std::move(loop));
+                        }
+                        continue;
+                    }
+                    if (statement.kind == Stmt::Kind::For) {
+                        ++frame->execution.back().pc;
+                        frame->expressionCache.clear();
+                        scopes_.emplace_back();
+                        AsyncCursor loop;
+                        loop.kind = AsyncCursor::Kind::For;
+                        loop.control = &statement;
+                        loop.forPhase = AsyncCursor::ForPhase::Initializer;
+                        frame->execution.push_back(std::move(loop));
+                        continue;
+                    }
+
+                    // Leaf statements are executed once. If their expression
+                    // suspends, their cursor is not advanced and its completed
+                    // subexpressions stay cached until the statement completes.
+                    execute(statement);
+                    ++frame->execution.back().pc;
+                    frame->expressionCache.clear();
+                    didWork = true;
+                    continue;
+                }
+
+                if (kind == AsyncCursor::Kind::Repeat) {
+                    AsyncCursor& loop = frame->execution.back();
+                    if (loop.remaining == 0) {
+                        frame->execution.pop_back();
+                        continue;
+                    }
+                    --frame->execution.back().remaining;
+                    scopes_.emplace_back();
+                    AsyncCursor body;
+                    body.kind = AsyncCursor::Kind::Block;
+                    body.body = &loop.control->body;
+                    body.ownsScope = true;
+                    frame->execution.push_back(std::move(body));
+                    continue;
+                }
+
+                AsyncCursor& loop = frame->execution.back();
+                const Stmt& control = *loop.control;
+                if (loop.forPhase == AsyncCursor::ForPhase::Initializer) {
+                    if (control.initializer) {
+                        execute(*control.initializer);
+                        frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                        frame->expressionCache.clear();
+                        didWork = true;
+                    } else {
+                        frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                        frame->expressionCache.clear();
+                    }
+                    continue;
+                }
+                if (loop.forPhase == AsyncCursor::ForPhase::Condition) {
+                    if (!truthy(evaluate(*control.expression))) {
+                        popScope();
+                        frame->execution.pop_back();
+                        frame->expressionCache.clear();
+                        continue;
+                    }
+                    if (++frame->execution.back().iterations > 1000000)
+                        runtimeError(control.line, "for loop limit is 1,000,000 iterations.");
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Increment;
+                    frame->expressionCache.clear();
+                    scopes_.emplace_back();
+                    AsyncCursor body;
+                    body.kind = AsyncCursor::Kind::Block;
+                    body.body = &control.body;
+                    body.ownsScope = true;
+                    frame->execution.push_back(std::move(body));
+                    continue;
+                }
+
+                // The for-body has completed. The increment is another
+                // resumable statement and therefore may itself contain await.
+                if (control.increment) {
+                    execute(*control.increment);
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                    frame->expressionCache.clear();
+                    didWork = true;
+                } else {
+                    frame->execution.back().forPhase = AsyncCursor::ForPhase::Condition;
+                    frame->expressionCache.clear();
+                }
+            }
+
+            if (frame->execution.empty()) {
+                while (scopes_.size() > 1) popScope();
+                frame->savedScopes.clear();
+                frame->locals.clear();
+                completionValue = std::monostate{};
+                completed = true;
+            }
+        } catch (const AsyncSuspend&) {
+            suspended = true;
+        } catch (const ReturnSignal& returned) {
+            completionValue = returned.value;
+            while (scopes_.size() > 1) popScope(true, &completionValue);
+            frame->savedScopes.clear();
+            frame->locals.clear();
+            frame->execution.clear();
+            frame->expressionCache.clear();
+            completed = true;
+        } catch (...) {
+            failure = std::current_exception();
+            while (scopes_.size() > 1) popScope();
+            frame->savedScopes.clear();
+            frame->locals.clear();
+            frame->execution.clear();
+            frame->expressionCache.clear();
+        }
+
+        if (!completed && !failure) {
+            frame->savedScopes.assign(scopes_.begin() + 1, scopes_.end());
+            if (!frame->savedScopes.empty()) frame->locals = frame->savedScopes.front();
+        }
+
+        const auto updatedGlobalScope = scopes_.front();
+        activeAsyncFrame_ = previousFrame;
+        activeTaskContext_ = previousContext;
+        currentClass_ = previousClass;
+        surroundingScopes.front() = updatedGlobalScope;
+        scopes_ = std::move(surroundingScopes);
+
+        if (failure) std::rethrow_exception(failure);
+        if (completed) context.complete(frame->task, std::move(completionValue));
+        else if (!suspended) context.yield();
+    }
+
+    // Async control flow is handled by the resumable cursor machine above.
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
+        if (function.isAsync) {
+            // runAsyncFrame keeps nested block and loop cursors across suspension.
+            if (args.size() != function.parameters.size())
+                runtimeError(line, "Async function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
+                                   " argument(s), received " + std::to_string(args.size()) + ".");
+            auto frame = std::make_shared<AsyncFrame>();
+            frame->function = &function;
+            for (std::size_t i = 0; i < args.size(); ++i) frame->locals[function.parameters[i]] = args[i];
+            frame->task = scheduler_.create<Value>(function.name, [this, frame](async::TaskContext& context) {
+                runAsyncFrame(frame, context);
+            });
+            auto value = std::make_shared<AsyncTaskValue>(); value->task = frame->task;
+            return value;
+        }
+        if (activeTaskContext_) {
+            for (const auto& statement : function.body) {
+                if (statementContainsAwait(statement))
+                    runtimeError(line, "Synchronous function '" + function.name +
+                        "' contains await and cannot suspend inside an async task; declare it async.");
+            }
+        }
+        // Async replay caches are only for suspended async statements. Synchronous
+        // recursive calls must evaluate their AST nodes independently at each depth.
+        struct AsyncExpressionCacheIsolation {
+            AsyncFrame*& slot;
+            AsyncFrame* saved;
+            explicit AsyncExpressionCacheIsolation(AsyncFrame*& active) : slot(active), saved(active) {
+                slot = nullptr;
+            }
+            ~AsyncExpressionCacheIsolation() { slot = saved; }
+        } isolateAsyncExpressionCache(activeAsyncFrame_);
         if (args.size() != function.parameters.size())
             runtimeError(line, "Function '" + function.name + "' expects " + std::to_string(function.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
@@ -1876,6 +2245,39 @@ private:
     Value callMethod(const std::shared_ptr<BoundMethod>& bound, const std::vector<Value>& args, int line) {
         ClassMember& member = *bound->member;
         if (!member.defined) runtimeError(line, "Method '" + member.name + "' is declared but has no definition.");
+        if (member.isAsync) {
+            if (member.isConstructor || member.isDestructor)
+                runtimeError(line, "Constructors and destructors cannot be async.");
+            if (args.size() != member.parameters.size())
+                runtimeError(line, "Async method '" + member.name + "' expects " + std::to_string(member.parameters.size()) +
+                                   " argument(s), received " + std::to_string(args.size()) + ".");
+            auto frame = std::make_shared<AsyncFrame>();
+            frame->method = &member;
+            frame->thisInstance = bound->instance;
+            for (std::size_t i = 0; i < args.size(); ++i)
+                frame->locals[member.parameters[i]] = args[i];
+            frame->task = scheduler_.create<Value>(member.owner + "::" + member.name,
+                [this, frame](async::TaskContext& context) { runAsyncFrame(frame, context); });
+            auto value = std::make_shared<AsyncTaskValue>();
+            value->task = frame->task;
+            return value;
+        }
+        if (activeTaskContext_) {
+            for (const auto& statement : member.body) {
+                if (statementContainsAwait(statement))
+                    runtimeError(line, "Synchronous method '" + member.name +
+                        "' contains await and cannot suspend inside an async task; declare it async.");
+            }
+        }
+        // A synchronous method must not reuse Expr* results cached by its async caller.
+        struct AsyncExpressionCacheIsolation {
+            AsyncFrame*& slot;
+            AsyncFrame* saved;
+            explicit AsyncExpressionCacheIsolation(AsyncFrame*& active) : slot(active), saved(active) {
+                slot = nullptr;
+            }
+            ~AsyncExpressionCacheIsolation() { slot = saved; }
+        } isolateAsyncExpressionCache(activeAsyncFrame_);
         if (args.size() != member.parameters.size())
             runtimeError(line, "Method '" + member.name + "' expects " + std::to_string(member.parameters.size()) +
                                " argument(s), received " + std::to_string(args.size()) + ".");
@@ -2489,20 +2891,52 @@ private:
             if (name == "uin") {
                 std::string prompt;
                 std::string type;
-                if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable &&
-                    exists(expr.items[0]->name)) {
+                // A single variable argument means "read into this variable". In a method or
+                // constructor that variable may be an unqualified instance field rather than
+                // a local in scopes_; detect both so uin(field) never degrades into a prompt
+                // expression and silently leaves the field unchanged.
+                if (expr.items.size() == 1 && expr.items[0]->kind == Expr::Kind::Variable) {
                     const std::string target = expr.items[0]->name;
-                    Value current = std::monostate{};
-                    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
-                        auto found = it->find(target);
-                        if (found != it->end()) { current = found->second; break; }
+                    bool targetExists = exists(target);
+                    bool targetIsField = false;
+                    Value currentFieldValue = UninitializedValue{};
+                    if (!targetExists && !currentClass_.empty()) {
+                        for (auto scope = scopes_.rbegin(); scope != scopes_.rend() && !targetExists; ++scope) {
+                            auto thisIt = scope->find("this");
+                            if (thisIt == scope->end()) continue;
+                            if (auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second)) {
+                                ClassMember* member = findMemberForInstance(*instance, target, expr.line);
+                                targetIsField = member && member->kind == ClassMember::Kind::Field;
+                                targetExists = targetIsField;
+                                if (targetIsField && !member->isStatic) {
+                                    auto field = (*instance)->fields.find(fieldStorageKey(*member));
+                                    if (field != (*instance)->fields.end()) currentFieldValue = field->second;
+                                }
+                            }
+                        }
                     }
-                    if (std::holds_alternative<double>(current)) type = "number";
-                    else if (std::holds_alternative<bool>(current)) type = "bool";
-                    else type = "string";
-                    Value value = inputValue("", type, expr.line);
-                    assignName(target, value, expr.line);
-                    return value;
+                    if (targetExists) {
+                        Value current = std::monostate{};
+                        bool foundLocal = false;
+                        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                            auto found = it->find(target);
+                            if (found != it->end()) {
+                                current = found->second;
+                                foundLocal = true;
+                                break;
+                            }
+                        }
+                        if (!foundLocal) {
+                            if (targetIsField) current = currentFieldValue;
+                            else current = lookup(target, expr.line);
+                        }
+                        if (std::holds_alternative<double>(current)) type = "number";
+                        else if (std::holds_alternative<bool>(current)) type = "bool";
+                        else type = "string";
+                        Value value = inputValue("", type, expr.line);
+                        assignName(target, value, expr.line);
+                        return value;
+                    }
                 }
                 if (!expr.items.empty()) prompt = stringify(evaluate(*expr.items[0]));
                 if (expr.items.size() > 1) {
@@ -2749,10 +3183,14 @@ private:
             case Stmt::Kind::Assign:
                 setTarget(*stmt.target, evaluate(*stmt.expression), stmt.line);
                 break;
-            case Stmt::Kind::Print:
-                for (const auto& item : stmt.expression->items) std::cout << stringify(evaluate(*item));
+            case Stmt::Kind::Print: {
+                std::vector<std::string> rendered;
+                rendered.reserve(stmt.expression->items.size());
+                for (const auto& item : stmt.expression->items) rendered.push_back(stringify(evaluate(*item)));
+                for (const auto& item : rendered) std::cout << item;
                 if (stmt.printNewline) std::cout << '\n';
                 break;
+            }
             case Stmt::Kind::Expression:
                 (void)evaluate(*stmt.expression);
                 break;
@@ -2803,6 +3241,26 @@ namespace fs = std::filesystem;
 struct SourceLoader {
     std::unordered_set<std::string> loaded;
     std::unordered_set<std::string> active;
+    std::unordered_map<std::string, bool> loadedModuleModes;
+    // Preserve import order for actionable cycle diagnostics.
+    std::vector<std::string> activeStack;
+    std::unordered_map<std::string, std::unordered_set<std::string>> exportsByPath;
+
+    std::string cycleDescription(const std::string& repeated) const {
+        std::ostringstream out;
+        auto begin = std::find(activeStack.begin(), activeStack.end(), repeated);
+        if (begin == activeStack.end()) begin = activeStack.begin();
+        bool first = true;
+        for (auto it = begin; it != activeStack.end(); ++it) {
+            if (!first) out << " -> ";
+            out << *it;
+            first = false;
+        }
+        if (!first) out << " -> ";
+        out << repeated;
+        return out.str();
+    }
+    struct ImportSpec { bool legacy = false; std::string name; std::vector<std::string> symbols; std::vector<std::string> localSymbols; int line = 1; };
     static std::string trim(const std::string& value) {
         const auto first = value.find_first_not_of(" \t\r");
         if (first == std::string::npos) return {};
@@ -2810,125 +3268,574 @@ struct SourceLoader {
         return value.substr(first, last - first + 1);
     }
     static bool isCommentOrBlank(const std::string& line) {
-        const auto text = trim(line);
-        return text.empty() || text.rfind("//", 0) == 0;
+        const auto text = trim(line); return text.empty() || text.rfind("//", 0) == 0;
+    }
+    static std::string withoutComment(const std::string& line) {
+        bool inString = false, escaped = false;
+        for (std::size_t i = 0; i + 1 < line.size(); ++i) {
+            const char c = line[i];
+            if (inString) { if (escaped) escaped = false; else if (c == '\\') escaped = true; else if (c == '"') inString = false; }
+            else if (c == '"') inString = true;
+            else if (c == '/' && line[i + 1] == '/') return line.substr(0, i);
+        }
+        return line;
     }
     static bool parseUse(const std::string& line, std::string& name) {
-        // Import declarations are line-based, but a trailing lexer-style comment
-        // should not make an otherwise valid "use name;" declaration disappear.
-        const auto comment = line.find("//");
-        const std::string declaration = comment == std::string::npos
-            ? line : line.substr(0, comment);
-        const auto text = trim(declaration);
-        if (text.rfind("use", 0) != 0 ||
-            (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_')))
-            return false;
+        const std::string text = trim(withoutComment(line));
+        if (text.rfind("use", 0) != 0 || (text.size() > 3 && (std::isalnum(static_cast<unsigned char>(text[3])) || text[3] == '_'))) return false;
         if (text.size() < 6 || text.back() != ';') return false;
-        const auto nameText = trim(text.substr(3, text.size() - 4));
-        if (nameText.empty() ||
-            !(std::isalpha(static_cast<unsigned char>(nameText[0])) || nameText[0] == '_'))
+        const auto value = trim(text.substr(3, text.size() - 4));
+        if (value.empty() || !(std::isalpha(static_cast<unsigned char>(value[0])) || value[0] == '_')) return false;
+        for (char c : value) if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) return false;
+        name = value; return true;
+    }
+    static bool parseNamedImport(const std::string& line, ImportSpec& spec) {
+        const std::string text = trim(withoutComment(line));
+        if (text.rfind("import", 0) != 0 ||
+            (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_')))
             return false;
-        for (char c : nameText)
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_')) return false;
-        name = nameText;
+        std::size_t pos = 6;
+        auto skipSpace = [&]() {
+            while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) ++pos;
+        };
+        auto isIdentStart = [](unsigned char c) { return std::isalpha(c) || c == '_'; };
+        auto isIdentPart = [](unsigned char c) { return std::isalnum(c) || c == '_'; };
+        auto syntaxError = [&]() {
+            throw std::runtime_error("Invalid import syntax. Expected: import { name, other as alias } from a module path;");
+        };
+        auto parseIdentifier = [&]() -> std::string {
+            if (pos >= text.size() || !isIdentStart(static_cast<unsigned char>(text[pos]))) syntaxError();
+            const std::size_t begin = pos++;
+            while (pos < text.size() && isIdentPart(static_cast<unsigned char>(text[pos]))) ++pos;
+            return text.substr(begin, pos - begin);
+        };
+
+        skipSpace();
+        if (pos >= text.size() || text[pos++] != '{') syntaxError();
+        skipSpace();
+        std::unordered_set<std::string> seenLocalNames;
+        while (pos < text.size() && text[pos] != '}') {
+            const std::string exportedName = parseIdentifier();
+            skipSpace();
+            std::string localName = exportedName;
+            if (text.compare(pos, 2, "as") == 0 &&
+                (pos + 2 == text.size() || std::isspace(static_cast<unsigned char>(text[pos + 2])))) {
+                pos += 2;
+                skipSpace();
+                localName = parseIdentifier();
+                skipSpace();
+            }
+            if (!seenLocalNames.insert(localName).second)
+                throw std::runtime_error("Duplicate imported binding '" + localName + "'.");
+            spec.symbols.push_back(exportedName);
+            spec.localSymbols.push_back(localName);
+            if (pos < text.size() && text[pos] == ',') {
+                ++pos;
+                skipSpace();
+            } else if (pos < text.size() && text[pos] != '}') {
+                syntaxError();
+            }
+        }
+        if (spec.symbols.empty() || pos >= text.size() || text[pos++] != '}') syntaxError();
+        skipSpace();
+        if (text.compare(pos, 4, "from") != 0) syntaxError();
+        pos += 4;
+        skipSpace();
+        if (pos >= text.size() || text[pos++] != '"') syntaxError();
+        const std::size_t pathBegin = pos;
+        while (pos < text.size() && text[pos] != '"') {
+            if (text[pos] == '\\') syntaxError();
+            ++pos;
+        }
+        if (pos >= text.size()) syntaxError();
+        spec.name = text.substr(pathBegin, pos - pathBegin);
+        ++pos;
+        skipSpace();
+        if (pos >= text.size() || text[pos++] != ';') syntaxError();
+        skipSpace();
+        if (pos != text.size() || spec.name.empty()) syntaxError();
         return true;
     }
+    static std::unordered_set<std::string> scanExports(const std::string& source) {
+        std::unordered_set<std::string> result;
+        std::unordered_map<std::string, std::string> exportKinds;
+        std::istringstream lines(source);
+        std::string line;
+        int number = 0;
+        while (std::getline(lines, line)) {
+            ++number;
+            std::string text = trim(withoutComment(line));
+            if (text.rfind("export", 0) != 0 ||
+                (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_')))
+                continue;
+
+            text = trim(text.substr(6));
+            std::string kind = "global";
+            if (text.rfind("async", 0) == 0 &&
+                (text.size() == 5 || std::isspace(static_cast<unsigned char>(text[5])))) {
+                std::string afterAsync = trim(text.substr(5));
+                if (afterAsync.rfind("fn", 0) != 0 ||
+                    (afterAsync.size() > 2 && !std::isspace(static_cast<unsigned char>(afterAsync[2]))))
+                    throw std::runtime_error("Line " + std::to_string(number) +
+                        ": 'export' must precede a top-level function, class, or global-variable declaration.");
+                kind = "function";
+                text = trim(afterAsync.substr(2));
+            } else if (text.rfind("fn ", 0) == 0) {
+                kind = "function";
+                text = trim(text.substr(3));
+            } else if (text.rfind("class ", 0) == 0) {
+                kind = "class";
+                text = trim(text.substr(6));
+            } else if (text.rfind("abstract class ", 0) == 0) {
+                kind = "class";
+                text = trim(text.substr(15));
+            } else if (text.rfind("var ", 0) == 0) {
+                text = trim(text.substr(4));
+            } else {
+                // Also accept explicitly typed top-level globals, e.g. "export int count;".
+                std::size_t typeEnd = 0;
+                while (typeEnd < text.size() &&
+                       (std::isalnum(static_cast<unsigned char>(text[typeEnd])) || text[typeEnd] == '_')) ++typeEnd;
+                const std::size_t nameBegin = text.find_first_not_of(" \t\r", typeEnd);
+                if (typeEnd == 0 || nameBegin == std::string::npos ||
+                    !(std::isalpha(static_cast<unsigned char>(text[nameBegin])) || text[nameBegin] == '_')) {
+                    throw std::runtime_error("Line " + std::to_string(number) +
+                        ": 'export' must precede a top-level function, class, or global-variable declaration.");
+                }
+                std::size_t nameEnd = nameBegin + 1;
+                while (nameEnd < text.size() &&
+                       (std::isalnum(static_cast<unsigned char>(text[nameEnd])) || text[nameEnd] == '_')) ++nameEnd;
+                text = text.substr(nameBegin, nameEnd - nameBegin);
+            }
+
+            const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+            const std::string name = text.substr(0, end);
+            if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+                throw std::runtime_error("Line " + std::to_string(number) +
+                    ": Expected a declaration name after 'export'.");
+
+            const auto existing = exportKinds.find(name);
+            if (existing != exportKinds.end() && (existing->second != "function" || kind != "function"))
+                throw std::runtime_error("Line " + std::to_string(number) +
+                    ": Duplicate export '" + name + "'.");
+            result.insert(name);
+            exportKinds[name] = kind;
+        }
+        return result;
+    }
+    // Namespace private top-level functions in named modules. The source loader
+    // still emits a single parser input, so this lexical pass prevents private
+    // function declarations/references from entering that shared global symbol
+    // table under their original names. It deliberately leaves strings, comments,
+    // member names, and class-member declarations untouched.
+    static std::string privateModulePrefix(const std::string& canonicalPath) {
+        static constexpr char digits[] = "0123456789abcdef";
+        std::string prefix = "__nix_mod_";
+        for (unsigned char byte : canonicalPath) {
+            prefix.push_back(digits[(byte >> 4) & 0x0f]);
+            prefix.push_back(digits[byte & 0x0f]);
+        }
+        prefix += "_";
+        return prefix;
+    }
+
+    static std::string rewriteModuleSymbols(
+        const std::string& source,
+        const std::unordered_set<std::string>& moduleSymbols,
+        const std::unordered_set<std::string>& moduleClassNames,
+        const std::string& prefix,
+        const std::unordered_map<std::string, std::string>& importedBindings) {
+        if (moduleSymbols.empty() && importedBindings.empty()) return source;
+
+        std::string output;
+        output.reserve(source.size() + moduleSymbols.size() * prefix.size() + importedBindings.size() * prefix.size());
+        std::size_t i = 0;
+        int braceDepth = 0;
+        std::vector<int> classBodyDepths;
+        bool waitingForClassBody = false;
+        std::string previousToken;
+
+        auto isIdentifierStart = [](unsigned char c) {
+            return std::isalpha(c) || c == '_';
+        };
+        auto isIdentifierPart = [](unsigned char c) {
+            return std::isalnum(c) || c == '_';
+        };
+        auto isBuiltinTypeName = [](const std::string& name) {
+            static const std::unordered_set<std::string> names = {
+                "var", "void", "int", "float", "double", "number", "string",
+                "bool", "char", "long", "short", "list", "array", "map",
+                "dict", "function", "callable"
+            };
+            return names.count(name) != 0;
+        };
+
+        while (i < source.size()) {
+            const char c = source[i];
+
+            // Preserve line and block comments byte-for-byte.
+            if (c == '/' && i + 1 < source.size() && source[i + 1] == '/') {
+                const std::size_t end = source.find('\n', i);
+                if (end == std::string::npos) {
+                    output.append(source, i, std::string::npos);
+                    break;
+                }
+                output.append(source, i, end - i);
+                i = end;
+                continue;
+            }
+            if (c == '/' && i + 1 < source.size() && source[i + 1] == '*') {
+                const std::size_t end = source.find("*/", i + 2);
+                if (end == std::string::npos) {
+                    output.append(source, i, std::string::npos);
+                    break;
+                }
+                output.append(source, i, end + 2 - i);
+                i = end + 2;
+                continue;
+            }
+
+            // Keep string literals unchanged while rebinding interpolated module names.
+            if (c == '"') {
+                output.push_back(source[i++]);
+                bool escaped = false;
+                while (i < source.size()) {
+                    const bool legacyInterpolation =
+                        !escaped && source[i] == '{' && i + 2 < source.size() && source[i + 1] == '$';
+                    const bool dollarInterpolation =
+                        !escaped && source[i] == '$' && i + 2 < source.size() && source[i + 1] == '{';
+                    if (legacyInterpolation || dollarInterpolation) {
+                        const std::size_t nameBegin = i + 2;
+                        const std::size_t close = source.find('}', nameBegin);
+                        if (close == std::string::npos) {
+                            output.append(source, i, std::string::npos);
+                            i = source.size();
+                            break;
+                        }
+                        const std::string name = source.substr(nameBegin, close - nameBegin);
+                        output.append(source, i, 2);
+                        const auto imported = importedBindings.find(name);
+                        if (imported != importedBindings.end()) {
+                            output += imported->second;
+                        } else {
+                            if (moduleSymbols.count(name)) output += prefix;
+                            output += name;
+                        }
+                        output.push_back('}');
+                        i = close + 1;
+                        escaped = false;
+                        continue;
+                    }
+                    const char value = source[i++];
+                    output.push_back(value);
+                    if (escaped) escaped = false;
+                    else if (value == '\\') escaped = true;
+                    else if (value == '"') break;
+                }
+                continue;
+            }
+
+            if (isIdentifierStart(static_cast<unsigned char>(c))) {
+                const std::size_t begin = i++;
+                while (i < source.size() &&
+                       isIdentifierPart(static_cast<unsigned char>(source[i]))) ++i;
+                const std::string token = source.substr(begin, i - begin);
+                const bool inClassMemberScope =
+                    !classBodyDepths.empty() && braceDepth == classBodyDepths.back();
+                const bool isClassMemberDeclaration =
+                    inClassMemberScope &&
+                    (previousToken == "fn" || previousToken == "var" ||
+                     isBuiltinTypeName(previousToken));
+                const bool isMemberName =
+                    previousToken == "." || previousToken == "::";
+                const bool isPrivateConstructorDeclaration =
+                    inClassMemberScope && previousToken == "fn" &&
+                    moduleClassNames.count(token);
+                if (moduleSymbols.count(token) && !isMemberName &&
+                    (!isClassMemberDeclaration || isPrivateConstructorDeclaration)) {
+                    output += prefix;
+                    output += token;
+                } else if (importedBindings.count(token) && !isMemberName && !isClassMemberDeclaration) {
+                    output += importedBindings.at(token);
+                } else {
+                    output += token;
+                }
+
+                if (token == "class") waitingForClassBody = true;
+                previousToken = token;
+                continue;
+            }
+
+            if (c == '{') {
+                ++braceDepth;
+                if (waitingForClassBody) {
+                    classBodyDepths.push_back(braceDepth);
+                    waitingForClassBody = false;
+                }
+                output.push_back(c);
+                ++i;
+                continue;
+            }
+            if (c == '}') {
+                if (!classBodyDepths.empty() && classBodyDepths.back() == braceDepth)
+                    classBodyDepths.pop_back();
+                if (braceDepth > 0) --braceDepth;
+                output.push_back(c);
+                ++i;
+                previousToken = "}";
+                continue;
+            }
+            if (c == ':' && i + 1 < source.size() && source[i + 1] == ':') {
+                output += "::";
+                i += 2;
+                previousToken = "::";
+                continue;
+            }
+
+            output.push_back(c);
+            ++i;
+            if (!std::isspace(static_cast<unsigned char>(c)))
+                previousToken.assign(1, c);
+        }
+        return output;
+    }
+
     static fs::path installedLibraryRoot() {
-        if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) {
-            if (*overridePath != '\0') return fs::path(overridePath);
-        }
+        if (const char* overridePath = std::getenv("NIXSCRIPT_LIB_PATH")) if (*overridePath != '\0') return fs::path(overridePath);
 #ifdef _WIN32
-        if (const char* appData = std::getenv("APPDATA")) {
-            if (*appData != '\0') return fs::path(appData) / "NixScript" / "libraries";
-        }
-        if (const char* home = std::getenv("USERPROFILE")) {
-            if (*home != '\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
-        }
+        if (const char* appData = std::getenv("APPDATA")) if (*appData != '\0') return fs::path(appData) / "NixScript" / "libraries";
+        if (const char* home = std::getenv("USERPROFILE")) if (*home != '\0') return fs::path(home) / "AppData" / "Roaming" / "NixScript" / "libraries";
 #elif defined(__APPLE__)
-        if (const char* home = std::getenv("HOME")) {
-            if (*home != '\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
-        }
+        if (const char* home = std::getenv("HOME")) if (*home != '\0') return fs::path(home) / "Library" / "Application Support" / "NixScript" / "libraries";
 #else
-        if (const char* xdg = std::getenv("XDG_DATA_HOME")) {
-            if (*xdg != '\0') return fs::path(xdg) / "nixscript" / "libraries";
-        }
-        if (const char* home = std::getenv("HOME")) {
-            if (*home != '\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
-        }
+        if (const char* xdg = std::getenv("XDG_DATA_HOME")) if (*xdg != '\0') return fs::path(xdg) / "nixscript" / "libraries";
+        if (const char* home = std::getenv("HOME")) if (*home != '\0') return fs::path(home) / ".local" / "share" / "nixscript" / "libraries";
 #endif
         return {};
     }
     static fs::path resolve(const fs::path& importer, const std::string& name) {
-        const fs::path directory = importer.parent_path();
-        const fs::path installedRoot = installedLibraryRoot();
-        // Project-local libraries are preferred. Installed libraries live in one
-        // predictable per-user directory, overridable with NIXSCRIPT_LIB_PATH.
-        const std::vector<fs::path> candidates = {
-            directory / "lib" / (name + ".ns"),
-            directory / "libraries" / (name + ".ns"),
-            installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"),
-            directory / (name + ".ns")
-        };
-        for (const auto& candidate : candidates) {
-            if (candidate.empty()) continue;
-            std::error_code ec;
-            if (fs::is_regular_file(candidate, ec)) return candidate;
-        }
-        const std::string rootDescription = installedRoot.empty()
-            ? "the installed-library directory (set NIXSCRIPT_LIB_PATH)"
-            : installedRoot.string();
-        throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" +
-            importer.string() + "'. Searched project lib/ and libraries/ folders, beside the source, and " +
-            rootDescription + ".");
+        const fs::path directory = importer.parent_path(), installedRoot = installedLibraryRoot();
+        const bool pathLike = name.find('/') != std::string::npos || name.find('\\') != std::string::npos || name.rfind(".", 0) == 0;
+        std::vector<fs::path> candidates;
+        if (pathLike) { fs::path requested(name); if (!requested.has_extension()) requested += ".ns"; candidates.push_back(requested.is_absolute() ? requested : directory / requested); }
+        else candidates = {directory / "lib" / (name + ".ns"), directory / "libraries" / (name + ".ns"), installedRoot.empty() ? fs::path() : installedRoot / (name + ".ns"), directory / (name + ".ns")};
+        for (const auto& candidate : candidates) { if (candidate.empty()) continue; std::error_code ec; if (fs::is_regular_file(candidate, ec)) return candidate; }
+        throw std::runtime_error("Cannot resolve library '" + name + "' imported by '" + importer.string() + "'. Searched relative to the importer and project library folders, plus the installed-library directory.");
     }
-    std::string load(const fs::path& inputPath) {
-        std::error_code ec;
-        fs::path path = fs::weakly_canonical(inputPath, ec);
+    std::string load(const fs::path& inputPath, bool namedModule = false) {
+        std::error_code ec; fs::path path = fs::weakly_canonical(inputPath, ec);
         if (ec) path = fs::absolute(inputPath).lexically_normal();
         const std::string key = path.string();
-        if (active.count(key))
-            throw std::runtime_error("Circular library import detected at '" + key + "'.");
-        if (loaded.count(key)) return {};
-        std::ifstream file(path);
-        if (!file) throw std::runtime_error("Could not open source file: " + path.string());
-        std::ostringstream contents;
-        contents << file.rdbuf();
-        std::istringstream lines(contents.str());
-        std::string line;
-        std::vector<std::string> imports;
-        std::ostringstream localSource;
-        bool importSection = true;
+        if (active.count(key)) throw std::runtime_error("Circular library import detected: " + cycleDescription(key) + ".");
+        if (loaded.count(key)) {
+            const auto mode = loadedModuleModes.find(key);
+            if (mode != loadedModuleModes.end() && mode->second != namedModule)
+                throw std::runtime_error("Source file '" + key +
+                    "' is imported using both named imports and legacy 'use'; choose one import style.");
+            return {};
+        }
+        std::ifstream file(path); if (!file) throw std::runtime_error("Could not open source file: " + path.string());
+        std::ostringstream contents; contents << file.rdbuf(); const std::string source = contents.str();
+        exportsByPath[key] = scanExports(source);
+        std::istringstream lines(source); std::string line; std::vector<ImportSpec> imports; std::ostringstream localSource;
+        // Named imports share the importing module's top-level namespace. Reject
+        // collisions early instead of allowing flattened-source order to decide
+        // which declaration wins or producing a confusing parser error later.
+        std::unordered_set<std::string> importedNames;
+        std::unordered_set<std::string> localTopLevelNames;
+        std::unordered_set<std::string> moduleSymbolNames;
+        std::unordered_set<std::string> moduleClassNames;
+        std::unordered_map<std::string, std::string> importedBindings;
+        bool importSection = true; int lineNumber = 0;
+        int braceDepth = 0;
+        bool inBlockComment = false;
         while (std::getline(lines, line)) {
-            std::string library;
-            if (importSection && parseUse(line, library)) {
-                imports.push_back(library);
-                continue;
+            ++lineNumber;
+            const std::string code = trim(withoutComment(line));
+            // Track top-level declaration names before source concatenation. This
+            // prevents a local declaration from silently shadowing an imported
+            // binding. The scanner intentionally only recognizes declaration
+            // headers; the parser remains authoritative for syntax validation.
+            if (braceDepth == 0) {
+                std::string declaration = code;
+                if (declaration.rfind("export ", 0) == 0) declaration = trim(declaration.substr(7));
+                auto rememberTopLevelName = [&localTopLevelNames](const std::string& text) {
+                    if (text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    localTopLevelNames.insert(text.substr(0, end));
+                };
+                auto rememberModuleName = [&](const std::string& text) {
+                    if (!namedModule || text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string name = text.substr(0, end);
+                    if (!name.empty()) moduleSymbolNames.insert(name);
+                };
+                auto rememberModuleClassName = [&](const std::string& text) {
+                    if (!namedModule || text.empty() ||
+                        !(std::isalpha(static_cast<unsigned char>(text[0])) || text[0] == '_')) return;
+                    const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string name = text.substr(0, end);
+                    if (!name.empty()) {
+                        moduleSymbolNames.insert(name);
+                        moduleClassNames.insert(name);
+                    }
+                };
+                if (declaration.rfind("abstract class ", 0) == 0) {
+                    const std::string header = trim(declaration.substr(15));
+                    rememberTopLevelName(header);
+                    rememberModuleClassName(header);
+                } else if (declaration.rfind("class ", 0) == 0) {
+                    const std::string header = trim(declaration.substr(6));
+                    rememberTopLevelName(header);
+                    rememberModuleClassName(header);
+                } else if (declaration.rfind("async ", 0) == 0) {
+                    std::string afterAsync = trim(declaration.substr(5));
+                    if (afterAsync.rfind("fn", 0) == 0 &&
+                        (afterAsync.size() == 2 || std::isspace(static_cast<unsigned char>(afterAsync[2])))) {
+                        const std::string header = trim(afterAsync.substr(2));
+                        rememberTopLevelName(header);
+                        const auto nameEnd = header.find_first_not_of(
+                            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                        const std::string functionName = header.substr(0, nameEnd);
+                        rememberModuleName(functionName);
+                    }
+                } else if (declaration.rfind("fn ", 0) == 0) {
+                    const std::string header = trim(declaration.substr(3));
+                    rememberTopLevelName(header);
+                    const auto nameEnd = header.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
+                    const std::string functionName = header.substr(0, nameEnd);
+                    rememberModuleName(functionName);
+                } else if (declaration.rfind("var ", 0) == 0) {
+                    const std::string header = trim(declaration.substr(4));
+                    rememberTopLevelName(header);
+                    rememberModuleName(header);
+                } else if (!declaration.empty() &&
+                           declaration.rfind("use ", 0) != 0 &&
+                           declaration.rfind("import ", 0) != 0 &&
+                           declaration.rfind("nix ", 0) != 0 &&
+                           declaration.find("::") == std::string::npos) {
+                    // A pair of identifiers at top level is an explicitly typed
+                    // variable declaration (for example, "int count;").
+                    std::size_t firstEnd = 0;
+                    while (firstEnd < declaration.size() &&
+                           (std::isalnum(static_cast<unsigned char>(declaration[firstEnd])) ||
+                            declaration[firstEnd] == '_')) ++firstEnd;
+                    std::size_t secondStart = declaration.find_first_not_of(" \t\r", firstEnd);
+                    if (firstEnd != 0 && secondStart != std::string::npos &&
+                        (std::isalpha(static_cast<unsigned char>(declaration[secondStart])) ||
+                         declaration[secondStart] == '_')) {
+                        std::size_t secondEnd = secondStart;
+                        while (secondEnd < declaration.size() &&
+                               (std::isalnum(static_cast<unsigned char>(declaration[secondEnd])) ||
+                                declaration[secondEnd] == '_')) ++secondEnd;
+                        const std::string variableName = declaration.substr(secondStart, secondEnd - secondStart);
+                        rememberTopLevelName(variableName);
+                        rememberModuleName(variableName);
+                    }
+                }
             }
-            if (importSection && isCommentOrBlank(line)) {
-                localSource << line << '\n';
-                continue;
+            // Count braces outside strings and comments for top-level scanning.
+            bool inString = false, escaped = false;
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                const char c = line[i];
+                if (inBlockComment) {
+                    if (c == '*' && i + 1 < line.size() && line[i + 1] == '/') { inBlockComment = false; ++i; }
+                } else if (inString) {
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                } else if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') {
+                    break;
+                } else if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') {
+                    inBlockComment = true; ++i;
+                } else if (c == '"') {
+                    inString = true;
+                } else if (c == '{') {
+                    ++braceDepth;
+                } else if (c == '}') {
+                    --braceDepth;
+                }
             }
-            importSection = false;
+            if (importSection) {
+                std::string library;
+                if (parseUse(line, library)) { ImportSpec spec; spec.legacy = true; spec.name = library; spec.line = lineNumber; imports.push_back(std::move(spec)); continue; }
+                ImportSpec spec;
+                try {
+                    if (parseNamedImport(line, spec)) {
+                        spec.line = lineNumber;
+                        for (const auto& localName : spec.localSymbols) {
+                            if (!importedNames.insert(localName).second)
+                                throw std::runtime_error("Imported name '" + localName + "' is imported more than once in this module.");
+                        }
+                        imports.push_back(std::move(spec));
+                        continue;
+                    }
+                } catch (const std::exception& error) {
+                    throw std::runtime_error(path.string() + ":" + std::to_string(lineNumber) + ": " + error.what());
+                }
+                if (isCommentOrBlank(line)) { localSource << line << '\n'; continue; }
+                importSection = false;
+            }
+            if (code.rfind("export", 0) == 0 && (code.size() == 6 || std::isspace(static_cast<unsigned char>(code[6])))) {
+                const auto marker = line.find("export"); if (marker != std::string::npos) line.erase(marker, 6);
+            }
             localSource << line << '\n';
         }
+        for (const auto& spec : imports) {
+            if (spec.legacy) continue;
+            for (const auto& localName : spec.localSymbols) {
+                if (localTopLevelNames.count(localName))
+                    throw std::runtime_error(path.string() + ":" + std::to_string(spec.line) +
+                        ": Imported binding '" + localName + "' conflicts with a local top-level declaration.");
+            }
+        }
         active.insert(key);
+        activeStack.push_back(key);
         std::string combined;
         try {
-            for (const auto& library : imports) {
-                combined += load(resolve(path, library));
-                combined += '\n';
+            for (const auto& spec : imports) {
+                const fs::path importedPath = resolve(path, spec.name);
+                std::error_code importedEc; fs::path canonical = fs::weakly_canonical(importedPath, importedEc);
+                if (importedEc) canonical = fs::absolute(importedPath).lexically_normal();
+                const std::string importedKey = canonical.string();
+                if (!spec.legacy) {
+                    if (active.count(importedKey)) throw std::runtime_error("Circular library import detected: " + cycleDescription(importedKey) + ".");
+                    if (!exportsByPath.count(importedKey)) {
+                        std::ifstream importedFile(importedPath); if (!importedFile) throw std::runtime_error("Could not open module: " + importedPath.string());
+                        std::ostringstream importedContents; importedContents << importedFile.rdbuf(); exportsByPath[importedKey] = scanExports(importedContents.str());
+                    }
+                    for (std::size_t i = 0; i < spec.symbols.size(); ++i) {
+                        const std::string& symbol = spec.symbols[i];
+                        if (!exportsByPath.at(importedKey).count(symbol))
+                            throw std::runtime_error("Module '" + spec.name + "' does not export '" + symbol + "'.");
+                        importedBindings[spec.localSymbols[i]] = privateModulePrefix(importedKey) + symbol;
+                    }
+                }
+                // Legacy "use" libraries keep their original flat/global
+                // compatibility semantics. Relative named imports opt into private
+                // module-function namespacing.
+                combined += load(importedPath, !spec.legacy); combined += '\n';
             }
-        } catch (...) {
+        } catch (const std::exception& error) {
             active.erase(key);
-            throw;
+            if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
+            throw std::runtime_error(path.string() + ": " + error.what());
         }
         active.erase(key);
+        if (!activeStack.empty() && activeStack.back() == key) activeStack.pop_back();
+        const std::string localText = localSource.str();
+        const std::string moduleSource = (namedModule || !importedBindings.empty())
+            ? rewriteModuleSymbols(localText, moduleSymbolNames, moduleClassNames, privateModulePrefix(key), importedBindings)
+            : localText;
         loaded.insert(key);
-        combined += localSource.str();
+        loadedModuleModes[key] = namedModule;
+        combined += moduleSource;
         return combined;
     }
 };
-
 #ifndef NIX_ANDROID
 // The package manager trusts one fixed, team-maintained GitHub registry.
 // The index contains "name MAJOR.MINOR.PATCH" entries; package URLs are

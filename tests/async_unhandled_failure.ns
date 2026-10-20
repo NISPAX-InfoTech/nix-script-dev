@@ -1,0 +1,7 @@
+async fn broken() {
+    return missing;
+}
+
+nix main() {
+    broken(); // Discarding the task must not hide its failure.
+}

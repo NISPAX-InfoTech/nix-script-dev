@@ -22,6 +22,13 @@ jobs:
       - name: Build interpreter
         run: cmake --build build --config Release --parallel
 
+      - name: Run C++ runtime unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run 100,000 distinct generated language regression programs
+        shell: bash
+        run: python3 tests/regression_corpus.py --nix ./build/nix --small-per-feature 3570 --large-count 40
+
       - name: Run existing example and verify output
         shell: bash
         run: |
@@ -99,6 +106,73 @@ jobs:
             exit 1
           fi
           grep -q "Circular library import detected" import-test/circular.log
+          grep -E -q "left\.ns.*right\.ns.*left\.ns" import-test/circular.log || {
+            echo "Circular import diagnostic did not include the complete import chain" >&2
+            cat import-test/circular.log >&2
+            exit 1
+          }
+
+          # Named imports must use the same cycle detection and useful path diagnostics.
+          cat > import-test/lib/left.ns <<'EOF'
+          import { right } from "./right";
+          export fn left() { return 1; }
+          EOF
+          cat > import-test/lib/right.ns <<'EOF'
+          import { left } from "./left";
+          export fn right() { return 2; }
+          EOF
+          cat > import-test/named_circular.ns <<'EOF'
+          import { left } from "./lib/left";
+          nix main() {
+              println(left());
+          }
+          EOF
+          if ./build/nix import-test/named_circular.ns >import-test/named_circular.log 2>&1; then
+            echo "A named-import circular dependency unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "Circular library import detected" import-test/named_circular.log
+          grep -E -q "left\.ns.*right\.ns.*left\.ns" import-test/named_circular.log || {
+            echo "Named-import cycle diagnostic did not include the complete import chain" >&2
+            cat import-test/named_circular.log >&2
+            exit 1
+          }
+
+          cat > import-test/lib/first.ns <<'EOF'
+          export fn shared() { return 1; }
+          EOF
+          cat > import-test/lib/second.ns <<'EOF'
+          export fn shared() { return 2; }
+          EOF
+          cat > import-test/duplicate_import.ns <<'EOF'
+          import { shared } from "./lib/first";
+          import { shared } from "./lib/second";
+          nix main() {
+              println(shared());
+          }
+          EOF
+          if ./build/nix import-test/duplicate_import.ns >import-test/duplicate_import.log 2>&1; then
+            echo "Duplicate named imports unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q "Imported name 'shared' is imported more than once" import-test/duplicate_import.log
+
+          mkdir -p module-test
+          cat > module-test/math.ns <<'EOF'
+          export fn add(a, b) { return a + b; }
+          EOF
+          cat > module-test/local_conflict.ns <<'EOF'
+          import { add } from "./math";
+          fn add(a, b) { return a - b; }
+          nix main() {
+              println(add(20, 22));
+          }
+          EOF
+          if ./build/nix module-test/local_conflict.ns >module-test/local_conflict.log 2>&1; then
+              echo "An imported name conflicting with a local function unexpectedly succeeded" >&2
+              exit 1
+          fi
+          grep -q "conflicts with a local top-level declaration" module-test/local_conflict.log
 
       - name: Test official library install and updates
         shell: bash
@@ -301,6 +375,61 @@ jobs:
             echo "Unexpected output from examples/input.ns" >&2
             exit 1
           fi
+
+      - name: Test named module imports and export validation
+        shell: bash
+        run: |
+          mkdir -p module-test
+          cat > module-test/math.ns <<'EOF'
+          export fn add(a, b) { return a + b; }
+          fn internal_value() { return 999; }
+          EOF
+          cat > module-test/main.ns <<'EOF'
+          import { add } from "./math";
+          nix main() {
+              println(add(20, 22));
+          }
+          EOF
+          actual="$(./build/nix module-test/main.ns)"
+          [[ "$actual" == "42" ]] || { echo "Named module import failed: $actual" >&2; exit 1; }
+
+          cat > module-test/missing_export.ns <<'EOF'
+          import { internal_value } from "./math";
+          nix main() {
+              println(internal_value());
+          }
+          EOF
+          if ./build/nix module-test/missing_export.ns >module-test/missing.log 2>&1; then
+              echo "Importing a non-exported symbol unexpectedly succeeded" >&2
+              exit 1
+          fi
+          grep -q "does not export 'internal_value'" module-test/missing.log
+
+          cat > module-test/nested.ns <<'EOF'
+          import { add } from "./math.ns";
+          nix main() {
+              println(add(1, 2));
+          }
+          EOF
+          actual="$(./build/nix module-test/nested.ns)"
+          [[ "$actual" == "3" ]] || { echo "Explicit .ns module path failed: $actual" >&2; exit 1; }
+
+          cat > module-test/async_math.ns <<'EOF'
+          export async fn twice(value) { return value * 2; }
+          EOF
+          cat > module-test/async_main.ns <<'EOF'
+          import { twice } from "./async_math";
+          nix main() {
+              var answer = await twice(21);
+              println("async-export=", answer);
+          }
+          EOF
+          actual="$(./build/nix module-test/async_main.ns)"
+          [[ "$actual" == "async-export=42" ]] || { echo "Named async module import failed: $actual" >&2; exit 1; }
+
+      - name: Test module-private function isolation
+        shell: bash
+        run: bash tests/module_namespace_test.sh ./build/nix
 
       - name: Run broad language stress and negative regression suite
         shell: bash
