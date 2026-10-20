@@ -36,6 +36,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - `repeat(count) { ... }` and C-style `for` loops, including `i++`/`i--`
 - `if` / `elif` / `else if` / `else`
 - `uin()` string input, direct input into an existing variable, and typed numeric/boolean input
+- File handling built-ins: `readFile`, `writeFile`, `appendFile`, `fileExists`, `deleteFile`, `listFiles`, and `createDirectory`
 - Native string helpers: `isUpper()`, `isLower()`, `toUpper()`, `toLower()`, `isSpace()`
 - Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
 - C++-style classes, fields, overloaded constructors/methods, destructors, public/private/protected access, multiple inheritance, static members, and `ClassName::member`
@@ -93,3 +94,4 @@ The CLI uses `curl` for HTTPS downloads. Installed libraries share the standard 
 The initial package format supports single-file libraries and version tracking. Dependency installation and cryptographic package signatures are future improvements.
 
 See [LANGUAGE.md](LANGUAGE.md) for syntax notes and limitations.
+
