@@ -152,4 +152,50 @@ grep -q "both named imports and legacy 'use'" "$ROOT/mixed-mode.log" || {
     exit 1
 }
 
+cat > "$ROOT/modules/overloads.ns" <<'EOF'
+export fn convert(int value) { return value + 1; }
+export fn convert(string value) { return value + "!"; }
+EOF
+
+cat > "$ROOT/exported_overloads.ns" <<'EOF'
+import { convert as convertValue } from "./modules/overloads";
+nix main() {
+    println(convertValue(41));
+    println(convertValue("ok"));
+}
+EOF
+overload_actual="$("$NIX" "$ROOT/exported_overloads.ns")"
+overload_expected="$(printf '42
+ok!')"
+if [[ "$overload_actual" != "$overload_expected" ]]; then
+    echo "Exported overload set failed across a named module boundary." >&2
+    echo "Expected: [$overload_expected]" >&2
+    echo "Actual:   [$overload_actual]" >&2
+    exit 1
+fi
+
+cat > "$ROOT/modules/once.ns" <<'EOF'
+var initCount = 0;
+initCount = initCount + 1;
+export fn initRuns() { return initCount; }
+EOF
+
+cat > "$ROOT/reimport_once.ns" <<'EOF'
+import { initRuns as first } from "./modules/once";
+import { initRuns as second } from "./modules/once";
+nix main() {
+    println(first());
+    println(second());
+}
+EOF
+once_actual="$("$NIX" "$ROOT/reimport_once.ns")"
+once_expected="$(printf '1
+1')"
+if [[ "$once_actual" != "$once_expected" ]]; then
+    echo "A module imported twice did not initialize exactly once." >&2
+    echo "Expected: [$once_expected]" >&2
+    echo "Actual:   [$once_actual]" >&2
+    exit 1
+fi
+
 echo "Module private-function isolation passed."
