@@ -175,8 +175,7 @@ if [[ "$overload_actual" != "$overload_expected" ]]; then
 fi
 
 cat > "$ROOT/modules/once.ns" <<'EOF'
-var initCount = 0;
-initCount = initCount + 1;
+var initCount = 1;
 export fn initRuns() { return initCount; }
 EOF
 
