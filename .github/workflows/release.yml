@@ -112,8 +112,8 @@ jobs:
           install -m 0644 README.md LANGUAGE.md "$root/usr/share/doc/nixscript/"
           cp -R examples/. "$root/usr/share/nixscript/examples/"
           install -m 0644 installer/linux/nixscript.sh "$root/etc/profile.d/nixscript.sh"
-          fpm -s dir -t deb -n nixscript -v "$version" --architecture amd64 --description "NixScript programming language interpreter" --maintainer "NISPAX InfoTech" --url "https://github.com/NISPAX-InfoTech/nix-script-dev" --after-install "$GITHUB_WORKSPACE/installer/linux/postinst.sh" -C "$root" usr etc -p "$GITHUB_WORKSPACE/dist/nixscript-linux-x64.deb"
-          fpm -s dir -t rpm -n nixscript -v "$base_version" --iteration "$rpm_iteration" --architecture x86_64 --description "NixScript programming language interpreter" --maintainer "NISPAX InfoTech" --url "https://github.com/NISPAX-InfoTech/nix-script-dev" --after-install "$GITHUB_WORKSPACE/installer/linux/postinst.sh" -C "$root" usr etc -p "$GITHUB_WORKSPACE/dist/nixscript-linux-x64.rpm"
+          fpm -s dir -t deb -n nixscript -v "$version" --architecture amd64 --description "NixScript programming language interpreter" --maintainer "NISPAX InfoTech" --url "https://github.com/NISPAX-InfoTech/nix-script-dev" --after-install "$GITHUB_WORKSPACE/installer/linux/postinst.sh" -p "$GITHUB_WORKSPACE/dist/nixscript-linux-x64.deb" -C "$root" usr etc
+          fpm -s dir -t rpm -n nixscript -v "$base_version" --iteration "$rpm_iteration" --architecture x86_64 --description "NixScript programming language interpreter" --maintainer "NISPAX InfoTech" --url "https://github.com/NISPAX-InfoTech/nix-script-dev" --after-install "$GITHUB_WORKSPACE/installer/linux/postinst.sh" -p "$GITHUB_WORKSPACE/dist/nixscript-linux-x64.rpm" -C "$root" usr etc
       - name: Package macOS PKG
         if: runner.os == 'macOS'
         shell: bash
