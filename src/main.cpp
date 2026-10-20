@@ -2187,25 +2187,7 @@ private:
         else if (!suspended) context.yield();
     }
 
-    void validateAsyncFunction(const Stmt& function, int line) const {
-        for (const auto& stmt : function.body) {
-            if (stmt.kind == Stmt::Kind::For && statementContainsAwait(stmt))
-                runtimeError(line, "await in a for-loop is not supported yet; move the await into a separate statement.");
-            if (stmt.kind == Stmt::Kind::If) {
-                for (const auto& child : stmt.body)
-                    if (statementContainsAwait(child))
-                        runtimeError(line, "await inside an if/else body is not supported yet; await in the condition is supported.");
-                for (const auto& child : stmt.elseBody)
-                    if (statementContainsAwait(child))
-                        runtimeError(line, "await inside an if/else body is not supported yet; await in the condition is supported.");
-            }
-            if (stmt.kind == Stmt::Kind::Repeat) {
-                for (const auto& child : stmt.body)
-                    if (statementContainsAwait(child))
-                        runtimeError(line, "await inside a repeat body is not supported yet; await in the repeat count is supported.");
-            }
-        }
-    }
+    // Async control flow is handled by the resumable cursor machine above.
     Value callFunction(const Stmt& function, const std::vector<Value>& args, int line) {
         if (function.isAsync) {
             // runAsyncFrame keeps nested block and loop cursors across suspension.
