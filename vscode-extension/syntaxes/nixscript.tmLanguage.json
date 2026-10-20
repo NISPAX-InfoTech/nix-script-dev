@@ -1,0 +1,32 @@
+{
+  "scopeName": "source.nixscript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [{ "name": "comment.line.double-slash.nixscript", "match": "//.*$" }]
+    },
+    "strings": {
+      "name": "string.quoted.double.nixscript",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "name": "constant.character.escape.nixscript", "match": "\\\\." }]
+    },
+    "keywords": {
+      "name": "keyword.control.nixscript",
+      "match": "\\b(nix|fn|async|await|var|class|public|private|protected|static|return|if|elif|else|for|repeat|while|true|false|null|this|use|import|export|from|as|new|delete)\\b"
+    },
+    "numbers": {
+      "name": "constant.numeric.nixscript",
+      "match": "\\b\\d+(?:\\.\\d+)?\\b"
+    },
+    "functions": {
+      "patterns": [{ "name": "support.function.nixscript", "match": "\\b(println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\\b(?=\\s*\\()" }]
+    }
+  }
+}

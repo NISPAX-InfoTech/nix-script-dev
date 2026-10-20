@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="NixScript" Manufacturer="NISPAX" Version="1.0.0.1" UpgradeCode="9e07a4ef-0ac1-4a5c-9a0d-2f57e95f16b8" Language="1033" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer NixScript version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="NixScript">
+        <File Id="NixExe" Source="$(var.BuildDir)\nix.exe" KeyPath="yes" />
+        <File Id="Readme" Source="$(var.BuildDir)\README.md" />
+        <File Id="LanguageRef" Source="$(var.BuildDir)\LANGUAGE.md" />
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="NixScript CLI" Level="1">
+      <ComponentRef Id="NixExe" />
+    </Feature>
+  </Package>
+</Wix>
