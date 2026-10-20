@@ -3375,23 +3375,41 @@ struct SourceLoader {
         return true;
     }
     static std::unordered_set<std::string> scanExports(const std::string& source) {
-        std::unordered_set<std::string> result; std::istringstream lines(source); std::string line; int number = 0;
+        std::unordered_set<std::string> result;
+        std::unordered_map<std::string, std::string> exportKinds;
+        std::istringstream lines(source);
+        std::string line;
+        int number = 0;
         while (std::getline(lines, line)) {
-            ++number; std::string text = trim(withoutComment(line));
-            if (text.rfind("export", 0) != 0 || (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_'))) continue;
+            ++number;
+            std::string text = trim(withoutComment(line));
+            if (text.rfind("export", 0) != 0 ||
+                (text.size() > 6 && (std::isalnum(static_cast<unsigned char>(text[6])) || text[6] == '_')))
+                continue;
+
             text = trim(text.substr(6));
+            std::string kind = "global";
             if (text.rfind("async", 0) == 0 &&
                 (text.size() == 5 || std::isspace(static_cast<unsigned char>(text[5])))) {
                 std::string afterAsync = trim(text.substr(5));
                 if (afterAsync.rfind("fn", 0) != 0 ||
                     (afterAsync.size() > 2 && !std::isspace(static_cast<unsigned char>(afterAsync[2]))))
-                    throw std::runtime_error("Line " + std::to_string(number) + ": 'export' must precede a top-level function, class, or global-variable declaration.");
+                    throw std::runtime_error("Line " + std::to_string(number) +
+                        ": 'export' must precede a top-level function, class, or global-variable declaration.");
+                kind = "function";
                 text = trim(afterAsync.substr(2));
-            } else if (text.rfind("fn ", 0) == 0) text = trim(text.substr(3));
-            else if (text.rfind("class ", 0) == 0) text = trim(text.substr(6));
-            else if (text.rfind("abstract class ", 0) == 0) text = trim(text.substr(15));
-            else if (text.rfind("var ", 0) == 0) text = trim(text.substr(4));
-            else {
+            } else if (text.rfind("fn ", 0) == 0) {
+                kind = "function";
+                text = trim(text.substr(3));
+            } else if (text.rfind("class ", 0) == 0) {
+                kind = "class";
+                text = trim(text.substr(6));
+            } else if (text.rfind("abstract class ", 0) == 0) {
+                kind = "class";
+                text = trim(text.substr(15));
+            } else if (text.rfind("var ", 0) == 0) {
+                text = trim(text.substr(4));
+            } else {
                 // Also accept explicitly typed top-level globals, e.g. "export int count;".
                 std::size_t typeEnd = 0;
                 while (typeEnd < text.size() &&
@@ -3407,10 +3425,19 @@ struct SourceLoader {
                        (std::isalnum(static_cast<unsigned char>(text[nameEnd])) || text[nameEnd] == '_')) ++nameEnd;
                 text = text.substr(nameBegin, nameEnd - nameBegin);
             }
+
             const auto end = text.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_");
             const std::string name = text.substr(0, end);
-            if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) throw std::runtime_error("Line " + std::to_string(number) + ": Expected a declaration name after 'export'.");
-            if (!result.insert(name).second) throw std::runtime_error("Line " + std::to_string(number) + ": Duplicate export '" + name + "'.");
+            if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_'))
+                throw std::runtime_error("Line " + std::to_string(number) +
+                    ": Expected a declaration name after 'export'.");
+
+            const auto existing = exportKinds.find(name);
+            if (existing != exportKinds.end() && (existing->second != "function" || kind != "function"))
+                throw std::runtime_error("Line " + std::to_string(number) +
+                    ": Duplicate export '" + name + "'.");
+            result.insert(name);
+            exportKinds[name] = kind;
         }
         return result;
     }
