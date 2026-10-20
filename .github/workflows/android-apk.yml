@@ -12,50 +12,82 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build debug APK
+    name: Build and verify Android APK
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
       - name: Install Android build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.2.12479018"
-
-      - name: Set up Python for official artwork
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install artwork tooling
         run: python -m pip install --disable-pip-version-check Pillow
-
       - name: Prepare official wolf artwork
         run: python tools/prepare_brand_assets.py
-
-      - name: Build debug APK
+      - name: Check signing configuration
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "${KEYSTORE_BASE64:-}" && -n "${KEYSTORE_PASSWORD:-}" && -n "${KEY_ALIAS:-}" && -n "${KEY_PASSWORD:-}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nixscript-release.jks"
+            echo "::add-mask::$KEYSTORE_PASSWORD"
+            echo "::add-mask::$KEY_PASSWORD"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build signed beta APK
+        if: steps.signing.outputs.available == 'true'
+        working-directory: android-ide
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/nixscript-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon --stacktrace assembleRelease
+      - name: Verify signed APK
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          APK="android-ide/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+      - name: Build debug fallback APK
+        if: steps.signing.outputs.available != 'true'
         working-directory: android-ide
         run: gradle --no-daemon --stacktrace assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Stage APK and checksum
+        shell: bash
+        env:
+          SIGNED: ${{ steps.signing.outputs.available }}
+        run: |
+          mkdir -p dist
+          if [[ "$SIGNED" == "true" ]]; then
+            cp android-ide/app/build/outputs/apk/release/app-release.apk dist/nixscript-android.apk
+            echo "APK signing: configured release keystore" > dist/APK-SIGNING.txt
+          else
+            cp android-ide/app/build/outputs/apk/debug/app-debug.apk dist/nixscript-android-debug.apk
+            echo "APK signing: Android debug key (preview only)" > dist/APK-SIGNING.txt
+          fi
+          sha256sum dist/*.apk > dist/SHA256-APK.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: nixscript-android-debug
-          path: android-ide/app/build/outputs/apk/debug/app-debug.apk
+          name: nixscript-android-${{ steps.signing.outputs.available == 'true' && 'signed-beta' || 'debug-preview' }}
+          path: dist/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
