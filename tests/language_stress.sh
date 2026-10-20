@@ -551,6 +551,21 @@ nix main() {
 }
 NS
 
+run_ok input_into_implicit_class_field $'Enter a value: Ada\n' $'Ada\n' <<'NS'
+class Test {
+public:
+    var x;
+    Test() {
+        print("Enter a value: ");
+        uin(x);
+        println(x);
+    }
+};
+nix main() {
+    Test t;
+}
+NS
+
 echo "=== Classes, methods, inheritance, and access control ==="
 
 run_ok object_identity_and_aliasing $'false\ntrue\n' <<'NS'

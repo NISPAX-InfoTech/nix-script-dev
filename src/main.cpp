@@ -1126,6 +1126,10 @@ public:
         maps_.clear();
     }
 
+    void setInputProvider(std::function<std::string()> provider) {
+        inputProvider_ = std::move(provider);
+    }
+
     void run(const std::vector<Stmt>& statements) {
         functions_.clear();
         functionDeclarations_.clear();
@@ -1160,6 +1164,7 @@ private:
     std::unordered_map<std::string, std::vector<const Stmt*>> functions_;
     std::unordered_map<std::string, std::vector<const Stmt*>> functionDeclarations_;
     std::string currentClass_;
+    std::function<std::string()> inputProvider_;
 
     [[noreturn]] void runtimeError(int line, const std::string& message) const {
         throw std::runtime_error("Line " + std::to_string(line) + ": " + message);
@@ -1394,6 +1399,19 @@ private:
     bool exists(const std::string& name) const {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it)
             if (it->find(name) != it->end()) return true;
+
+        // In a method or constructor, an unqualified field name such as
+        // uin(value) refers to the current object's field as well.
+        if (!currentClass_.empty()) {
+            for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                auto thisIt = scope->find("this");
+                if (thisIt == scope->end()) continue;
+                const auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second);
+                if (!instance || !*instance) continue;
+                ClassMember* member = findMember((*instance)->klass, name);
+                if (member && member->kind == ClassMember::Kind::Field) return true;
+            }
+        }
         return false;
     }
     void declare(const std::string& name, Value value, int line) {
@@ -2242,7 +2260,14 @@ private:
     Value inputValue(const std::string& prompt, const std::string& type, int line) {
         if (!prompt.empty()) { std::cout << prompt; std::cout.flush(); }
         std::string input;
-        if (!std::getline(std::cin, input)) input.clear();
+        if (inputProvider_) {
+            input = inputProvider_();
+            // Native terminal input normally echoes what was typed. Preserve
+            // that convention in Android's dialog-backed input as well.
+            std::cout << input << '\n';
+        } else if (!std::getline(std::cin, input)) {
+            input.clear();
+        }
         if (type == "string" || type == "char" || type.empty()) return input;
         if (type == "bool") {
             if (input == "true" || input == "1") return true;
@@ -2493,9 +2518,28 @@ private:
                     exists(expr.items[0]->name)) {
                     const std::string target = expr.items[0]->name;
                     Value current = std::monostate{};
+                    bool foundTarget = false;
                     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
                         auto found = it->find(target);
-                        if (found != it->end()) { current = found->second; break; }
+                        if (found != it->end()) {
+                            current = found->second;
+                            foundTarget = true;
+                            break;
+                        }
+                    }
+                    if (!foundTarget && !currentClass_.empty()) {
+                        for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+                            auto thisIt = scope->find("this");
+                            if (thisIt == scope->end()) continue;
+                            const auto* instance = std::get_if<std::shared_ptr<Instance>>(&thisIt->second);
+                            if (!instance || !*instance) continue;
+                            ClassMember* member = findMember((*instance)->klass, target);
+                            if (member && member->kind == ClassMember::Kind::Field) {
+                                current = getMember(*instance, target, expr.line);
+                                foundTarget = true;
+                                break;
+                            }
+                        }
                     }
                     if (std::holds_alternative<double>(current)) type = "number";
                     else if (std::holds_alternative<bool>(current)) type = "bool";

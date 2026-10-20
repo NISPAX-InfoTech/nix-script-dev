@@ -1,6 +1,7 @@
 package com.nixscript.ide;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -14,11 +15,15 @@ import java.util.regex.Pattern;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends Activity {
     private EditText editor;
@@ -26,6 +31,7 @@ public class MainActivity extends Activity {
     private LinearLayout outputPanel;
     private int bg = Color.rgb(48,48,48), bar = Color.rgb(36,36,36), text = Color.rgb(215,215,215);
     private boolean applyingHighlight = false;
+    private boolean executing = false;
     private final int keywordColor = Color.rgb(224, 151, 91);
     private final int stringColor = Color.rgb(143, 194, 125);
     private final int numberColor = Color.rgb(129, 183, 231);
@@ -232,11 +238,88 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    // Called synchronously by the native interpreter while a program is running.
+    // The interpreter runs on a worker thread, so the UI thread remains free to
+    // display this dialog and the user can enter input without deadlocking.
+    private String requestNixInput(String programOutput) {
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<String> response = new AtomicReference<>("");
+
+        runOnUiThread(() -> {
+            EditText inputBox = new EditText(MainActivity.this);
+            inputBox.setSingleLine(true);
+            inputBox.setInputType(InputType.TYPE_CLASS_TEXT);
+            inputBox.setHint("Enter input");
+
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("NixScript input")
+                    .setMessage(programOutput == null || programOutput.trim().isEmpty()
+                            ? "Your program is waiting for input." : programOutput)
+                    .setView(inputBox)
+                    .setPositiveButton("Submit", null)
+                    .setNegativeButton("Cancel", (d, which) -> {
+                        response.set("");
+                        completed.countDown();
+                    })
+                    .create();
+
+            dialog.setOnShowListener(ignored -> {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                    response.set(inputBox.getText().toString());
+                    completed.countDown();
+                    dialog.dismiss();
+                });
+                inputBox.requestFocus();
+                Window window = dialog.getWindow();
+                if (window != null) {
+                    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+                            | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                }
+            });
+            dialog.setOnCancelListener(ignored -> {
+                response.set("");
+                completed.countDown();
+            });
+            dialog.show();
+        });
+
+        try {
+            if (!completed.await(10, TimeUnit.MINUTES)) return "";
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return "";
+        }
+        return response.get();
+    }
+
     private void execute() {
+        if (executing) return;
+        executing = true;
         status.setText("Running…");
-        String result = runNixScript(editor.getText().toString());
-        output.setText(result == null || result.isEmpty() ? "Program finished successfully." : result);
-        status.setText("Finished");
-        ((View)outputPanel.getParent()).requestLayout();
+        output.setText("");
+
+        final String source = editor.getText().toString();
+        Thread worker = new Thread(() -> {
+            final String result;
+            try {
+                result = runNixScript(source);
+            } catch (Throwable error) {
+                runOnUiThread(() -> {
+                    output.setText("NixScript error: " + error.getMessage());
+                    status.setText("Error");
+                    executing = false;
+                    ((View)outputPanel.getParent()).requestLayout();
+                });
+                return;
+            }
+            runOnUiThread(() -> {
+                output.setText(result == null || result.isEmpty()
+                        ? "Program finished successfully." : result);
+                status.setText("Finished");
+                executing = false;
+                ((View)outputPanel.getParent()).requestLayout();
+            });
+        }, "NixScript-runner");
+        worker.start();
     }
 }
