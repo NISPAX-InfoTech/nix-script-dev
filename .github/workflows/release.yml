@@ -305,4 +305,10 @@ jobs:
             echo "Missing NIXSCRIPT_RELEASE_TOKEN secret with Contents: read/write access to $RELEASE_REPOSITORY." >&2
             exit 1
           fi
-          gh release create "$TAG" release-assets/* --repo "$RELEASE_REPOSITORY" --target main --title "NixScript $TAG" --generate-notes
+          if gh release view "$TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; replacing matching assets."
+            gh release upload "$TAG" release-assets/* --repo "$RELEASE_REPOSITORY" --clobber
+          else
+            echo "Creating release $TAG with installer assets."
+            gh release create "$TAG" release-assets/* --repo "$RELEASE_REPOSITORY" --target main --title "NixScript $TAG" --generate-notes
+          fi
