@@ -5,13 +5,15 @@
     <MediaTemplate EmbedCab="yes" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="NixScript">
-        <File Id="NixExe" Source="$(var.BuildDir)\nix.exe" KeyPath="yes" />
-        <File Id="Readme" Source="$(var.BuildDir)\README.md" />
-        <File Id="LanguageRef" Source="$(var.BuildDir)\LANGUAGE.md" />
+        <Component Id="NixScriptFiles" Guid="*">
+          <File Id="NixExe" Source="$(var.BuildDir)\nix.exe" KeyPath="yes" />
+          <File Id="Readme" Source="$(var.BuildDir)\README.md" />
+          <File Id="LanguageRef" Source="$(var.BuildDir)\LANGUAGE.md" />
+        </Component>
       </Directory>
     </StandardDirectory>
     <Feature Id="MainFeature" Title="NixScript CLI" Level="1">
-      <ComponentRef Id="NixExe" />
+      <ComponentRef Id="NixScriptFiles" />
     </Feature>
   </Package>
 </Wix>
