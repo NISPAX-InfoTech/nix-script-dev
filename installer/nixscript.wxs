@@ -16,7 +16,7 @@
             <File Id="HelloExample" Source="$(var.BuildDir)\examples\hello.ns" KeyPath="yes" />
           </Component>
         </Directory>
-        <Component Id="NixScriptFiles" Guid="*">
+        <Component Id="NixScriptFiles" Guid="{D1F70E32-4A96-4A68-B571-1D61101A219F}">
           <File Id="NixExe" Source="$(var.BuildDir)\nix.exe" KeyPath="yes" />
           <File Id="Readme" Source="$(var.BuildDir)\README.md" />
           <File Id="LanguageReference" Source="$(var.BuildDir)\LANGUAGE.md" />
