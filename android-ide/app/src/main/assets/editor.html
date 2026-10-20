@@ -29,9 +29,36 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);c
 .symbols{background:#292929;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 2px calc(3px + env(safe-area-inset-bottom));flex-shrink:0;border-top:1px solid #414141}
 .symbols button{height:42px;color:#c8c8c8;background:transparent;border:0;font-size:19px;padding:0}
 @media(max-width:500px){.top{padding-left:18px;padding-right:16px;gap:17px}.brand{font-size:25px}.status{font-size:16px}.action{font-size:18px}.editor-wrap{font-size:20px}#gutter{width:47px;padding-right:7px}.symbols button{height:38px;font-size:17px}}
+
+:root{--bg:#202124;--bar:#202124;--text:#e2e2e2;--muted:#9aa0a6;--orange:#e5a15b;--blue:#8ab4f8;--green:#81c995}
+html,body{height:100%;height:100dvh}
+#app{height:100%;height:100dvh;min-height:0}
+.top{height:54px;min-height:54px;padding:0 12px 0 14px;gap:10px}
+.brand{font-size:21px;line-height:1}
+.status{font-size:12px;margin-top:3px}
+.action{font-size:14px;padding:8px 0 8px 7px}
+#menu{top:52px}
+.editor-wrap{font-size:15px;line-height:1.45}
+#gutter{width:32px;padding:4px 5px 8px 0;line-height:1.45}
+#highlight,#code{padding:4px 8px 18px 8px;line-height:1.45}
+#code{z-index:1}
+.symbols{grid-template-columns:repeat(7,minmax(0,1fr));padding:2px 2px calc(2px + env(safe-area-inset-bottom));}
+.symbols button{height:29px;font-size:14px}
+#output{font-size:13px}
+#splash{position:fixed;inset:0;z-index:100;background:#17191d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;transition:opacity .25s ease}
+.splash-mark{width:64px;height:64px;border:2px solid #e5a15b;border-radius:18px;display:grid;place-items:center;color:#e5a15b;font-size:42px;font-weight:700;letter-spacing:-5px;padding-right:5px}
+.splash-name{font-size:26px;color:#f1f3f4}
+.splash-progress{width:90px;height:3px;background:#35383f;overflow:hidden;margin-top:8px;border-radius:3px}
+.splash-progress:after{content:"";display:block;width:45%;height:100%;background:#e5a15b;animation:loading .9s ease-in-out infinite alternate}
+@keyframes loading{from{transform:translateX(0)}to{transform:translateX(125%)}}
+.splash-copy{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));font-size:10px;line-height:1.6;color:#9297a1}
+body.keyboard-open .top{height:46px;min-height:46px}
+body.keyboard-open .symbols button{height:25px}
+@media(max-width:500px){.top{padding-left:10px;padding-right:10px;gap:8px}.brand{font-size:19px}.status{font-size:11px}.action{font-size:13px}.editor-wrap{font-size:14px}#gutter{width:29px}.symbols button{height:27px;font-size:13px}}
+
 </style>
 </head>
-<body><div id="app">
+<body><div id="splash"><div class="splash-mark">N</div><div class="splash-name">NixScript</div><div class="splash-progress"></div><div class="splash-copy">Copyright © 2026 NISPAX InfoTech, India.<br>All rights reserved.</div></div><div id="app">
 <header class="top"><div class="brand">NixScript<span class="status" id="status">Ready</span></div><button class="action" id="run">RUN</button><button class="action" id="menuButton">MENU</button></header>
 <div id="menu">
 <button id="newFile">New file</button><button id="saveFile">Download .ns file</button><button id="loadFile">Open .ns file</button><button id="clearOutput">Clear output</button><button id="about">About NixScript</button><input id="filePicker" type="file" accept=".ns,.txt,text/plain" hidden>
@@ -65,4 +92,46 @@ document.getElementById('clearOutput').onclick=()=>{outputText.textContent='';ou
 document.getElementById('closeOutput').onclick=()=>output.classList.remove('visible');
 document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\nWrite and run .ns programs on your device.';menu.style.display='none'};
 paint();
+
+/* Robust highlighting: tokenize source before escaping; never regex-rewrite generated HTML. */
+function paint(){
+ const src=code.value;
+ const re=/\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b(?:nix|fn|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\b|\b(?:println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g;
+ let out='',last=0,m;
+ while((m=re.exec(src))!==null){
+  out+=escapeHtml(src.slice(last,m.index));
+  const t=m[0];let cls='kw';
+  if(t.startsWith('//'))cls='comment';
+  else if(t[0]==='"'||t[0]==="'")cls='str';
+  else if(/^\d/.test(t))cls='num';
+  else if(/^(println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)$/.test(t))cls='fn';
+  out+='<span class="'+cls+'">'+escapeHtml(t)+'</span>';last=re.lastIndex;
+ }
+ out+=escapeHtml(src.slice(last));
+ highlight.innerHTML=out+'\n';
+ gutter.textContent=Array.from({length:Math.max(1,src.split('\n').length)},(_,i)=>i+1).join('\n');
+ syncScroll();
+}
+/* Smart typing works in Android WebView too, not only hardware keyboards. */
+code.addEventListener('beforeinput',function(e){
+ if(e.isComposing||e.inputType!=='insertText'||!e.data)return;
+ const pairs={'{':'}','(':')','[':']','"':'"',"'":"'"};const ch=e.data;
+ const p=code.selectionStart,q=code.selectionEnd,v=code.value;
+ if(pairs[ch]){
+  e.preventDefault();code.setRangeText(ch+pairs[ch],p,q,'end');code.selectionStart=code.selectionEnd=p+1;paint();status.textContent='Edited';return;
+ }
+ if(['}',')',']','"',"'"].includes(ch)&&p===q&&v[p]===ch){e.preventDefault();code.selectionStart=code.selectionEnd=p+1;return}
+ if(ch==='\n'){
+  e.preventDefault();const line=v.slice(0,p).split('\n').pop();let indent=(line.match(/^\s*/)||[''])[0];
+  if(v[p-1]==='}')indent=indent.slice(0,Math.max(0,indent.length-4));
+  const inner=v[p-1]==='{'&&v[p]==='}';const ins=inner?'\n'+indent+'    '+'\n'+indent:'\n'+indent+(v[p-1]==='{'?'    ':'');
+  code.setRangeText(ins,p,q,'end');
+  if(inner)code.selectionStart=code.selectionEnd=p+1+indent.length+4;
+  paint();status.textContent='Edited';return;
+ }
+});
+code.addEventListener('focus',()=>document.body.classList.add('keyboard-open'));
+code.addEventListener('blur',()=>document.body.classList.remove('keyboard-open'));
+window.addEventListener('load',()=>setTimeout(()=>{const splash=document.getElementById('splash');if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),280)}},700));
+
 </script></body></html>
