@@ -30,7 +30,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
           fetch-depth: 0
       - name: Verify release source is on main
         if: github.event_name != 'pull_request'
@@ -165,7 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -185,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
