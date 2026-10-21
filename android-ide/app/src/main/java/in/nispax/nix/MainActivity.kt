@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Insets
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
@@ -46,12 +47,16 @@ class MainActivity : Activity() {
             addJavascriptInterface(EditorBridge(), "Nix")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setOnApplyWindowInsetsListener { view, insets ->
-                    // Keep the WebView inside system bars only. The WebView's visualViewport
-                    // resizes with the IME; adding ime.bottom here double-counts keyboard height
-                    // and pushes the bottom editor controls beneath Android navigation.
-                    val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                    view.setPadding(0, bars.top, 0, bars.bottom)
-                    insets
+                    // Android 15 enforces edge-to-edge for targetSdk 35. Apply system-bar and
+                    // cutout spacing here, then zero only those handled inset types before
+                    // forwarding to WebView. WebView must still receive IME insets so its
+                    // visual viewport can resize when the keyboard opens.
+                    val safeTypes = WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                    val safe = insets.getInsets(safeTypes)
+                    view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                    WindowInsets.Builder(insets)
+                        .setInsets(safeTypes, Insets.NONE)
+                        .build()
                 }
             }
             loadUrl("file:///android_asset/editor.html")
