@@ -11,13 +11,13 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);c
 body{overscroll-behavior:none}
 button,input,textarea{font:inherit}
 button{touch-action:manipulation}
-#app{height:var(--app-height);width:100%;display:flex;flex-direction:column;background:var(--bg);min-height:0;overflow:hidden}
-.top{height:64px;min-height:64px;display:flex;align-items:center;gap:8px;padding:4px 10px 4px 14px;background:var(--bar);border-bottom:1px solid #34363a;z-index:5}
-.brand{flex:1;min-width:0;font-size:21px;line-height:1.15;font-weight:500;letter-spacing:-.2px}
+#app{position:absolute;top:var(--viewport-top,0px);left:0;right:0;height:var(--app-height);width:100%;display:flex;flex-direction:column;background:var(--bg);min-height:0;overflow:hidden}
+.top{height:60px;min-height:60px;display:flex;align-items:center;gap:6px;padding:4px 8px 4px 10px;background:var(--bar);border-bottom:1px solid #34363a;z-index:5}
+.brand{flex:1;min-width:0;font-size:19px;line-height:1.15;font-weight:500;letter-spacing:-.2px}
 .status{display:block;font-size:12px;line-height:1.25;font-weight:400;color:#aeb2b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw}
-.action{height:46px;min-width:56px;padding:0 13px;border:1px solid #46494f;border-radius:9px;background:#303238;color:#f5f5f5;font-size:14px;font-weight:700;letter-spacing:.25px;flex-shrink:0}
-#run{background:#e5a15b;border-color:#e5a15b;color:#17191d;min-width:62px}
-#menuButton{min-width:64px}
+.action{height:42px;min-width:50px;padding:0 9px;border:1px solid #46494f;border-radius:9px;background:#303238;color:#f5f5f5;font-size:13px;font-weight:700;letter-spacing:.15px;flex-shrink:0}
+#run{background:#e5a15b;border-color:#e5a15b;color:#17191d;min-width:52px}
+#menuButton{min-width:56px}
 .action:active{filter:brightness(1.15)}
 #menu{display:none;position:absolute;z-index:30;right:8px;top:66px;width:min(260px,calc(100vw - 16px));padding:6px;background:#292a2d;border:1px solid #4b4d52;border-radius:12px;box-shadow:0 8px 28px #0008}
 #menu button{display:block;width:100%;min-height:46px;text-align:left;color:#eee;background:transparent;border:0;border-radius:7px;padding:11px 13px;font-size:15px}
@@ -30,7 +30,8 @@ button{touch-action:manipulation}
 #code{position:absolute;inset:0;width:100%;height:100%;resize:none;border:0;outline:0;background:transparent;color:transparent;caret-color:#fff;-webkit-text-fill-color:transparent;overflow:auto;white-space:pre;tab-size:4;z-index:1}
 #code::selection{background:#597a9a88}
 .kw{color:var(--orange)}.num{color:var(--blue)}.str{color:var(--green)}.comment{color:#969ba4}.fn{color:#b5a0d5}
-.symbols{background:#292a2d;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 3px 4px;flex-shrink:0;border-top:1px solid #414348;z-index:4}
+.symbols{background:#292a2d;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:2px 3px 3px;flex-shrink:0;border-top:1px solid #414348;z-index:4}
+.symbols button{height:32px!important;font-size:14px}
 .symbols button{height:36px;min-width:0;color:#c8cbd1;background:transparent;border:0;border-radius:5px;font-size:16px;padding:0;touch-action:manipulation}
 .symbols button:active{background:#46484e}
 #splash{position:fixed;inset:0;z-index:100;background:#17191d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;text-align:center;transition:opacity .22s ease}
@@ -40,9 +41,9 @@ button{touch-action:manipulation}
 .splash-progress:after{content:"";display:block;width:46%;height:100%;background:var(--orange);animation:loading .8s ease-in-out infinite alternate}
 .splash-copy{position:absolute;bottom:18px;font-size:10px;line-height:1.6;color:#9297a1}
 @keyframes loading{from{transform:translateX(0)}to{transform:translateX(118%)}}
-#terminalPage{display:none;position:fixed;inset:0;width:100%;height:var(--app-height);min-height:0;flex-direction:column;overflow:hidden;background:#111316;z-index:50;font-family:"Roboto Mono","Droid Sans Mono",monospace}
-.term-head{height:62px;min-height:62px;background:#202226;display:flex;align-items:center;padding:5px 12px;gap:10px;border-bottom:1px solid #393b40;font-family:Roboto,Arial,sans-serif}
-#backToEditor{height:44px;min-width:84px;padding:0 10px;background:#303238;color:#eee;border:1px solid #4a4d53;border-radius:8px;font-size:13px;font-weight:600}
+#terminalPage{display:none;position:absolute;inset:var(--viewport-top,0px) 0 auto;width:100%;height:var(--app-height);min-height:0;flex-direction:column;overflow:hidden;background:#111316;z-index:50;font-family:"Roboto Mono","Droid Sans Mono",monospace}
+.term-head{height:56px;min-height:56px;background:#202226;display:flex;align-items:center;padding:4px 9px;gap:8px;border-bottom:1px solid #393b40;font-family:Roboto,Arial,sans-serif}
+#backToEditor{height:40px;min-width:72px;padding:0 8px;background:#303238;color:#eee;border:1px solid #4a4d53;border-radius:8px;font-size:12px;font-weight:600}
 .term-title{min-width:0;flex:1}
 .term-title strong{display:block;font:600 16px/1.25 Roboto,Arial,sans-serif;color:#e6e6e6}
 .term-title span{display:block;font:12px/1.3 Roboto,Arial,sans-serif;color:#aeb2b8;margin-top:2px}
@@ -51,13 +52,13 @@ button{touch-action:manipulation}
 .term-command{color:#e5a15b}
 #termOutput{display:block;margin-top:12px;color:#e2e4e8;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
 #termState{color:#9aa0a6;margin-top:16px;font-family:Roboto,Arial,sans-serif;font-size:13px;white-space:normal}
-.term-footer{flex-shrink:0;background:#202226;border-top:1px solid #393b40;padding:12px 13px calc(12px + env(safe-area-inset-bottom))}
+.term-footer{flex-shrink:0;background:#202226;border-top:1px solid #393b40;padding:10px 12px max(30px,env(safe-area-inset-bottom))}
 #exitMessage{font:13px/1.5 Roboto,Arial,sans-serif;color:#b7bcc4;margin:0 0 9px}
 .exit-row{display:flex;gap:8px;align-items:center}
 .exit-prefix{color:var(--green);font-size:17px}
 #exitInput{flex:1;min-width:0;height:44px;border:1px solid #4a4d53;border-radius:8px;background:#111316;color:#f1f3f4;padding:0 11px;outline:none;font:14px "Roboto Mono",monospace}
 #exitInput:focus{border-color:var(--orange)}
-#exitButton{height:44px;min-width:62px;padding:0 11px;background:var(--orange);border:0;border-radius:8px;color:#17191d;font:700 13px Roboto,Arial,sans-serif}
+#exitButton{height:42px;min-width:58px;padding:0 9px;background:var(--orange);border:0;border-radius:8px;color:#17191d;font:700 12px Roboto,Arial,sans-serif}
 #aboutDialog{display:none;position:fixed;inset:0;z-index:80;background:#0009;align-items:center;justify-content:center;padding:24px}
 .about-card{width:100%;max-width:340px;padding:20px;background:#292a2d;border:1px solid #4a4d53;border-radius:14px;box-shadow:0 10px 32px #0007}
 .about-card h2{margin:0 0 10px;font-size:20px;font-weight:600}
@@ -68,8 +69,12 @@ button{touch-action:manipulation}
  .editor-wrap{font-size:14px}#gutter{width:30px;padding-right:5px}#highlight,#code{padding-left:7px;padding-right:7px}
  .symbols button{height:34px;font-size:14px}.term-scroll{font-size:13px;padding:14px 12px}
 }
-body.keyboard-open .top{height:60px;min-height:60px}
-body.keyboard-open .symbols button{height:32px}
+body.keyboard-open .top{height:54px;min-height:54px}
+body.keyboard-open .symbols button{height:28px!important}
+body.keyboard-open .term-footer{padding-bottom:max(34px,env(safe-area-inset-bottom))}
+body.keyboard-open .term-head{height:52px;min-height:52px}
+body.keyboard-open #exitInput,body.keyboard-open #exitButton{height:38px}
+body.keyboard-open .term-scroll{padding-top:10px;padding-bottom:10px}
 </style>
 </head>
 <body>
@@ -148,9 +153,15 @@ function paint(){
 function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+'px)';gutter.scrollTop=code.scrollTop}
 function updateKeyboardViewport(){
  const vv=window.visualViewport;
- let h=window.innerHeight;
- if(vv&&vv.height>0)h=Math.min(h,vv.height);
+ const h=vv&&vv.height>0?vv.height:window.innerHeight;
+ const top=vv&&Number.isFinite(vv.offsetTop)?vv.offsetTop:0;
  document.documentElement.style.setProperty('--app-height',Math.max(180,Math.round(h))+'px');
+ document.documentElement.style.setProperty('--viewport-top',Math.max(0,Math.round(top))+'px');
+}
+function updateKeyboardState(){
+ const vv=window.visualViewport;
+ const open=!!(vv&&window.innerHeight-vv.height>140);
+ document.body.classList.toggle('keyboard-open',open);
 }
 code.addEventListener('input',()=>{paint();status.textContent='Edited'});
 code.addEventListener('focus',()=>{document.body.classList.add('keyboard-open');if(window.Nix&&window.Nix.showKeyboard)window.Nix.showKeyboard()});
@@ -272,9 +283,12 @@ document.getElementById('clearOutput').addEventListener('click',()=>{menu.style.
 document.getElementById('about').addEventListener('click',()=>{menu.style.display='none';document.getElementById('aboutDialog').style.display='flex'});
 document.getElementById('closeAbout').addEventListener('click',()=>document.getElementById('aboutDialog').style.display='none');
 document.getElementById('aboutDialog').addEventListener('click',e=>{if(e.target.id==='aboutDialog')e.currentTarget.style.display='none'});
-window.addEventListener('resize',updateKeyboardViewport);
-if(window.visualViewport)window.visualViewport.addEventListener('resize',updateKeyboardViewport);
-updateKeyboardViewport();paint();
+window.addEventListener('resize',()=>{updateKeyboardViewport();updateKeyboardState()});
+if(window.visualViewport){
+ window.visualViewport.addEventListener('resize',()=>{updateKeyboardViewport();updateKeyboardState()});
+ window.visualViewport.addEventListener('scroll',updateKeyboardViewport);
+}
+updateKeyboardViewport();updateKeyboardState();paint();
 window.addEventListener('load',()=>{setTimeout(()=>{const splash=document.getElementById('splash');if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),240)}},650)});
 </script>
 </body>
