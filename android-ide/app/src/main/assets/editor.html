@@ -11,7 +11,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);c
 body{overscroll-behavior:none}
 button,input,textarea{font:inherit}
 button{touch-action:manipulation}
-#app{position:absolute;top:var(--viewport-top,0px);left:0;right:0;height:var(--app-height);width:100%;display:flex;flex-direction:column;background:var(--bg);min-height:0;overflow:hidden}
+#app{position:absolute;top:0;left:0;right:0;height:var(--app-height);width:100%;display:flex;flex-direction:column;background:var(--bg);min-height:0;overflow:hidden}
 .top{height:60px;min-height:60px;display:flex;align-items:center;gap:6px;padding:4px 8px 4px 10px;background:var(--bar);border-bottom:1px solid #34363a;z-index:5}
 .brand{flex:1;min-width:0;font-size:19px;line-height:1.15;font-weight:500;letter-spacing:-.2px}
 .status{display:block;font-size:12px;line-height:1.25;font-weight:400;color:#aeb2b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw}
@@ -41,7 +41,7 @@ button{touch-action:manipulation}
 .splash-progress:after{content:"";display:block;width:46%;height:100%;background:var(--orange);animation:loading .8s ease-in-out infinite alternate}
 .splash-copy{position:absolute;bottom:18px;font-size:10px;line-height:1.6;color:#9297a1}
 @keyframes loading{from{transform:translateX(0)}to{transform:translateX(118%)}}
-#terminalPage{display:none;position:absolute;inset:var(--viewport-top,0px) 0 auto;width:100%;height:var(--app-height);min-height:0;flex-direction:column;overflow:hidden;background:#111316;z-index:50;font-family:"Roboto Mono","Droid Sans Mono",monospace}
+#terminalPage{display:none;position:absolute;inset:0 0 auto;width:100%;height:var(--app-height);min-height:0;flex-direction:column;overflow:hidden;background:#111316;z-index:50;font-family:"Roboto Mono","Droid Sans Mono",monospace}
 .term-head{height:56px;min-height:56px;background:#202226;display:flex;align-items:center;padding:4px 9px;gap:8px;border-bottom:1px solid #393b40;font-family:Roboto,Arial,sans-serif}
 #backToEditor{height:40px;min-width:72px;padding:0 8px;background:#303238;color:#eee;border:1px solid #4a4d53;border-radius:8px;font-size:12px;font-weight:600}
 .term-title{min-width:0;flex:1}
@@ -154,9 +154,7 @@ function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+
 function updateKeyboardViewport(){
  const vv=window.visualViewport;
  const h=vv&&vv.height>0?vv.height:window.innerHeight;
- const top=vv&&Number.isFinite(vv.offsetTop)?vv.offsetTop:0;
  document.documentElement.style.setProperty('--app-height',Math.max(180,Math.round(h))+'px');
- document.documentElement.style.setProperty('--viewport-top',Math.max(0,Math.round(top))+'px');
 }
 function updateKeyboardState(){
  const vv=window.visualViewport;
