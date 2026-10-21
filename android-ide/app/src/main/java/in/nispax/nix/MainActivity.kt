@@ -49,8 +49,9 @@ class MainActivity : Activity() {
                 setOnApplyWindowInsetsListener { view, insets ->
                     // Android 15 enforces edge-to-edge for targetSdk 35. Apply system-bar and
                     // cutout spacing here, then zero only those handled inset types before
-                    // forwarding to WebView. WebView must still receive IME insets so its
-                    // visual viewport can resize when the keyboard opens.
+                    // forwarding to WebView. Returning the original system-bar insets would
+                    // let WebView apply the same safe area again. WebView must still receive
+                    // IME insets so its visual viewport can resize when the keyboard opens.
                     val safeTypes = WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
                     val safe = insets.getInsets(safeTypes)
                     view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
