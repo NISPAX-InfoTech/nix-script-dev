@@ -4,10 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color
-import android.graphics.Insets
-import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -28,13 +25,6 @@ class MainActivity : Activity() {
         window.navigationBarColor = Color.rgb(17, 19, 22)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        // Android 15 enforces edge-to-edge for targetSdk 35. Apply the insets ourselves
-        // so the editor header never renders underneath the status icons and the
-        // symbol toolbar remains inside the visible area above the IME.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-        }
-
         editor = WebView(this).apply {
             setBackgroundColor(Color.rgb(32, 33, 36))
             isFocusable = true
@@ -45,21 +35,6 @@ class MainActivity : Activity() {
             webChromeClient = WebChromeClient()
             webViewClient = WebViewClient()
             addJavascriptInterface(EditorBridge(), "Nix")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setOnApplyWindowInsetsListener { view, insets ->
-                    // Android 15 enforces edge-to-edge for targetSdk 35. Apply system-bar and
-                    // cutout spacing here, then zero only those handled inset types before
-                    // forwarding to WebView. Returning the original system-bar insets would
-                    // let WebView apply the same safe area again. WebView must still receive
-                    // IME insets so its visual viewport can resize when the keyboard opens.
-                    val safeTypes = WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
-                    val safe = insets.getInsets(safeTypes)
-                    view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
-                    WindowInsets.Builder(insets)
-                        .setInsets(safeTypes, Insets.NONE)
-                        .build()
-                }
-            }
             loadUrl("file:///android_asset/editor.html")
         }
         setContentView(editor)
