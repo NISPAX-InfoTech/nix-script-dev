@@ -46,9 +46,11 @@ class MainActivity : Activity() {
             addJavascriptInterface(EditorBridge(), "Nix")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setOnApplyWindowInsetsListener { view, insets ->
+                    // Keep the WebView inside system bars only. The WebView's visualViewport
+                    // resizes with the IME; adding ime.bottom here double-counts keyboard height
+                    // and pushes the bottom editor controls beneath Android navigation.
                     val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                    val ime = insets.getInsets(WindowInsets.Type.ime())
-                    view.setPadding(0, bars.top, 0, maxOf(bars.bottom, ime.bottom))
+                    view.setPadding(0, bars.top, 0, bars.bottom)
                     insets
                 }
             }
