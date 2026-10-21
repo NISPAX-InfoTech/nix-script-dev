@@ -2,101 +2,134 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="theme-color" content="#242424">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#202124">
 <style>
-:root{color-scheme:dark;--bg:#303030;--bar:#242424;--text:#d5d5d5;--muted:#888;--orange:#d88743;--blue:#82b6e7;--green:#83b66b}
+:root{color-scheme:dark;--bg:#202124;--panel:#292a2d;--bar:#252629;--text:#e2e2e2;--muted:#9aa0a6;--orange:#e5a15b;--blue:#8ab4f8;--green:#81c995;--app-height:100dvh}
 *{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Roboto,"Arial",sans-serif}
-#app{height:100%;height:100dvh;display:flex;flex-direction:column;background:var(--bg)}
-.top{height:76px;min-height:76px;background:var(--bar);display:flex;align-items:center;padding:0 22px 0 27px;gap:22px}
-.brand{flex:1;min-width:0;font-size:29px;line-height:1.05;font-weight:400;letter-spacing:-.5px}
-.status{font-size:19px;display:block;color:#bcbcbc;margin-top:7px;letter-spacing:0;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.action{border:0;background:transparent;color:#f5f5f5;font-size:21px;font-weight:400;padding:12px 0 12px 14px}
-#menu{display:none;position:absolute;z-index:10;right:8px;top:65px;min-width:205px;padding:6px;background:#252525;border:1px solid #555;box-shadow:0 8px 24px #0009}
-#menu button{display:block;width:100%;text-align:left;color:#eee;background:transparent;border:0;padding:14px;font-size:15px}
-#menu button:active,.symbols button:active{background:#444}
-.editor-wrap{flex:1;min-height:0;position:relative;display:flex;overflow:hidden;font:25px/1.56 "Roboto Mono","Droid Sans Mono",monospace}
-#gutter{width:64px;flex-shrink:0;text-align:right;padding:4px 8px 8px 0;color:#888;white-space:pre;overflow:hidden;user-select:none;border-right:1px solid #555;line-height:1.56}
-#edit{flex:1;min-width:0;position:relative;overflow:hidden}
-#highlight,#code{margin:0;padding:4px 12px 24px 0;font:inherit;line-height:1.56;letter-spacing:0;white-space:pre;tab-size:4}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Roboto,Arial,sans-serif}
+body{overscroll-behavior:none}
+button,input,textarea{font:inherit}
+button{touch-action:manipulation}
+#app{height:var(--app-height);width:100%;display:flex;flex-direction:column;background:var(--bg);min-height:0;overflow:hidden}
+.top{height:64px;min-height:64px;display:flex;align-items:center;gap:8px;padding:4px 10px 4px 14px;background:var(--bar);border-bottom:1px solid #34363a;z-index:5}
+.brand{flex:1;min-width:0;font-size:21px;line-height:1.15;font-weight:500;letter-spacing:-.2px}
+.status{display:block;font-size:12px;line-height:1.25;font-weight:400;color:#aeb2b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw}
+.action{height:46px;min-width:56px;padding:0 13px;border:1px solid #46494f;border-radius:9px;background:#303238;color:#f5f5f5;font-size:14px;font-weight:700;letter-spacing:.25px;flex-shrink:0}
+#run{background:#e5a15b;border-color:#e5a15b;color:#17191d;min-width:62px}
+#menuButton{min-width:64px}
+.action:active{filter:brightness(1.15)}
+#menu{display:none;position:absolute;z-index:30;right:8px;top:66px;width:min(260px,calc(100vw - 16px));padding:6px;background:#292a2d;border:1px solid #4b4d52;border-radius:12px;box-shadow:0 8px 28px #0008}
+#menu button{display:block;width:100%;min-height:46px;text-align:left;color:#eee;background:transparent;border:0;border-radius:7px;padding:11px 13px;font-size:15px}
+#menu button:active{background:#414348}
+.editor-wrap{flex:1;min-height:0;position:relative;display:flex;overflow:hidden;background:var(--bg);font:15px/1.5 "Roboto Mono","Droid Sans Mono",monospace}
+#gutter{width:34px;flex-shrink:0;text-align:right;padding:7px 6px 10px 0;color:#92959c;white-space:pre;overflow:hidden;user-select:none;border-right:1px solid #424449;line-height:1.5}
+#edit{flex:1;min-width:0;min-height:0;position:relative;overflow:hidden}
+#highlight,#code{margin:0;padding:7px 10px 24px 9px;font:inherit;line-height:1.5;letter-spacing:0;white-space:pre;tab-size:4}
 #highlight{pointer-events:none;min-height:100%;color:var(--text);overflow:visible}
-#code{position:absolute;inset:0;width:100%;height:100%;resize:none;border:0;outline:0;background:transparent;color:transparent;caret-color:#fff;-webkit-text-fill-color:transparent;overflow:auto;white-space:pre;tab-size:4}
+#code{position:absolute;inset:0;width:100%;height:100%;resize:none;border:0;outline:0;background:transparent;color:transparent;caret-color:#fff;-webkit-text-fill-color:transparent;overflow:auto;white-space:pre;tab-size:4;z-index:1}
 #code::selection{background:#597a9a88}
-.kw{color:var(--orange)}.num{color:var(--blue)}.str{color:var(--green)}.comment{color:#8b8b8b}.fn{color:#b5a0d5}
-#output{display:none;max-height:30%;flex-shrink:0;overflow:auto;background:#282828;border-top:1px solid #4a4a4a;padding:10px 14px;font:16px/1.5 "Roboto Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-#output.visible{display:block}.output-head{display:flex;justify-content:space-between;color:#aaa;font:13px Arial,sans-serif;margin-bottom:8px}
-.symbols{background:#292929;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 2px calc(3px + env(safe-area-inset-bottom));flex-shrink:0;border-top:1px solid #414141}
-.symbols button{height:42px;color:#c8c8c8;background:transparent;border:0;font-size:19px;padding:0}
-@media(max-width:500px){.top{padding-left:18px;padding-right:16px;gap:17px}.brand{font-size:25px}.status{font-size:16px}.action{font-size:18px}.editor-wrap{font-size:20px}#gutter{width:47px;padding-right:7px}.symbols button{height:38px;font-size:17px}}
-
-:root{--bg:#202124;--bar:#202124;--text:#e2e2e2;--muted:#9aa0a6;--orange:#e5a15b;--blue:#8ab4f8;--green:#81c995}
-html,body{height:100%;height:100dvh}
-#app{height:100%;height:100dvh;min-height:0}
-.top{height:54px;min-height:54px;padding:0 12px 0 14px;gap:10px}
-.brand{font-size:21px;line-height:1}
-.status{font-size:12px;margin-top:3px}
-.action{font-size:14px;padding:8px 0 8px 7px}
-#menu{top:52px}
-.editor-wrap{font-size:15px;line-height:1.45}
-#gutter{width:32px;padding:4px 5px 8px 0;line-height:1.45}
-#highlight,#code{padding:4px 8px 18px 8px;line-height:1.45}
-#code{z-index:1}
-.symbols{grid-template-columns:repeat(7,minmax(0,1fr));padding:2px 2px calc(2px + env(safe-area-inset-bottom));}
-.symbols button{height:29px;font-size:14px}
-#output{font-size:13px}
-#splash{position:fixed;inset:0;z-index:100;background:#17191d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;transition:opacity .25s ease}
-.splash-mark{width:64px;height:64px;border:2px solid #e5a15b;border-radius:18px;display:grid;place-items:center;color:#e5a15b;font-size:42px;font-weight:700;letter-spacing:-5px;padding-right:5px}
-.splash-name{font-size:26px;color:#f1f3f4}
-.splash-progress{width:90px;height:3px;background:#35383f;overflow:hidden;margin-top:8px;border-radius:3px}
-.splash-progress:after{content:"";display:block;width:45%;height:100%;background:#e5a15b;animation:loading .9s ease-in-out infinite alternate}
-@keyframes loading{from{transform:translateX(0)}to{transform:translateX(125%)}}
-.splash-copy{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));font-size:10px;line-height:1.6;color:#9297a1}
-body.keyboard-open .top{height:46px;min-height:46px}
-body.keyboard-open .symbols button{height:25px}
-@media(max-width:500px){.top{padding-left:10px;padding-right:10px;gap:8px}.brand{font-size:19px}.status{font-size:11px}.action{font-size:13px}.editor-wrap{font-size:14px}#gutter{width:29px}.symbols button{height:27px;font-size:13px}}
-
+.kw{color:var(--orange)}.num{color:var(--blue)}.str{color:var(--green)}.comment{color:#969ba4}.fn{color:#b5a0d5}
+.symbols{background:#292a2d;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:3px 3px 4px;flex-shrink:0;border-top:1px solid #414348;z-index:4}
+.symbols button{height:36px;min-width:0;color:#c8cbd1;background:transparent;border:0;border-radius:5px;font-size:16px;padding:0;touch-action:manipulation}
+.symbols button:active{background:#46484e}
+#splash{position:fixed;inset:0;z-index:100;background:#17191d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;text-align:center;transition:opacity .22s ease}
+.splash-mark{width:76px;height:76px;border:2px solid var(--orange);border-radius:21px;display:grid;place-items:center;color:var(--orange);font-size:28px;font-weight:800;letter-spacing:-1.2px}
+.splash-name{font-size:27px;color:#f1f3f4;letter-spacing:-.35px}
+.splash-progress{width:94px;height:4px;background:#35383f;overflow:hidden;margin-top:8px;border-radius:3px}
+.splash-progress:after{content:"";display:block;width:46%;height:100%;background:var(--orange);animation:loading .8s ease-in-out infinite alternate}
+.splash-copy{position:absolute;bottom:18px;font-size:10px;line-height:1.6;color:#9297a1}
+@keyframes loading{from{transform:translateX(0)}to{transform:translateX(118%)}}
+#terminalPage{display:none;position:fixed;inset:0;width:100%;height:var(--app-height);min-height:0;flex-direction:column;overflow:hidden;background:#111316;z-index:50;font-family:"Roboto Mono","Droid Sans Mono",monospace}
+.term-head{height:62px;min-height:62px;background:#202226;display:flex;align-items:center;padding:5px 12px;gap:10px;border-bottom:1px solid #393b40;font-family:Roboto,Arial,sans-serif}
+#backToEditor{height:44px;min-width:84px;padding:0 10px;background:#303238;color:#eee;border:1px solid #4a4d53;border-radius:8px;font-size:13px;font-weight:600}
+.term-title{min-width:0;flex:1}
+.term-title strong{display:block;font:600 16px/1.25 Roboto,Arial,sans-serif;color:#e6e6e6}
+.term-title span{display:block;font:12px/1.3 Roboto,Arial,sans-serif;color:#aeb2b8;margin-top:2px}
+.term-dot{width:9px;height:9px;border-radius:50%;background:#81c995;flex-shrink:0}
+.term-scroll{flex:1;min-height:0;overflow:auto;padding:18px 15px 22px;color:#d5ded6;font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.term-command{color:#e5a15b}
+#termOutput{display:block;margin-top:12px;color:#e2e4e8;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
+#termState{color:#9aa0a6;margin-top:16px;font-family:Roboto,Arial,sans-serif;font-size:13px;white-space:normal}
+.term-footer{flex-shrink:0;background:#202226;border-top:1px solid #393b40;padding:12px 13px calc(12px + env(safe-area-inset-bottom))}
+#exitMessage{font:13px/1.5 Roboto,Arial,sans-serif;color:#b7bcc4;margin:0 0 9px}
+.exit-row{display:flex;gap:8px;align-items:center}
+.exit-prefix{color:var(--green);font-size:17px}
+#exitInput{flex:1;min-width:0;height:44px;border:1px solid #4a4d53;border-radius:8px;background:#111316;color:#f1f3f4;padding:0 11px;outline:none;font:14px "Roboto Mono",monospace}
+#exitInput:focus{border-color:var(--orange)}
+#exitButton{height:44px;min-width:62px;padding:0 11px;background:var(--orange);border:0;border-radius:8px;color:#17191d;font:700 13px Roboto,Arial,sans-serif}
+#aboutDialog{display:none;position:fixed;inset:0;z-index:80;background:#0009;align-items:center;justify-content:center;padding:24px}
+.about-card{width:100%;max-width:340px;padding:20px;background:#292a2d;border:1px solid #4a4d53;border-radius:14px;box-shadow:0 10px 32px #0007}
+.about-card h2{margin:0 0 10px;font-size:20px;font-weight:600}
+.about-card p{font-size:14px;line-height:1.6;color:#c1c5cc}
+.about-card button{height:42px;width:100%;margin-top:6px;background:#e5a15b;color:#17191d;border:0;border-radius:8px;font-weight:700}
+@media(max-width:380px){
+ .top{padding-left:9px;padding-right:8px;gap:5px}.brand{font-size:19px}.status{font-size:11px}.action{padding:0 9px;min-width:51px;font-size:13px}#run{min-width:55px}#menuButton{min-width:58px}
+ .editor-wrap{font-size:14px}#gutter{width:30px;padding-right:5px}#highlight,#code{padding-left:7px;padding-right:7px}
+ .symbols button{height:34px;font-size:14px}.term-scroll{font-size:13px;padding:14px 12px}
+}
+body.keyboard-open .top{height:60px;min-height:60px}
+body.keyboard-open .symbols button{height:32px}
 </style>
 </head>
-<body><div id="splash"><div class="splash-mark">N</div><div class="splash-name">NixScript</div><div class="splash-progress"></div><div class="splash-copy">Copyright © 2026 NISPAX InfoTech, India.<br>All rights reserved.</div></div><div id="app">
-<header class="top"><div class="brand">NixScript<span class="status" id="status">Ready</span></div><button class="action" id="run">RUN</button><button class="action" id="menuButton">MENU</button></header>
-<div id="menu">
-<button id="newFile">New file</button><button id="saveFile">Download .ns file</button><button id="loadFile">Open .ns file</button><button id="clearOutput">Clear output</button><button id="about">About NixScript</button><input id="filePicker" type="file" accept=".ns,.txt,text/plain" hidden>
+<body>
+<div id="splash">
+ <div class="splash-mark">.NS</div><div class="splash-name">NixScript</div><div class="splash-progress"></div>
+ <div class="splash-copy">Copyright © 2026 NISPAX InfoTech, India.<br>All rights reserved.</div>
 </div>
-<section class="editor-wrap"><div id="gutter">1</div><div id="edit"><pre id="highlight" aria-hidden="true"></pre><textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="NixScript code"></textarea></div></section>
-<section id="runtime-input" style="display:none;flex-shrink:0;padding:10px 14px;background:#303030;border-top:1px solid #4a4a4a"><label for="stdin" style="display:block;color:#aaa;font:13px Arial,sans-serif;margin-bottom:6px">PROGRAM INPUT · one value per line</label><textarea id="stdin" rows="2" placeholder="Values for uin() go here" style="box-sizing:border-box;width:100%;resize:vertical;background:#202020;color:#eee;border:1px solid #555;border-radius:3px;padding:8px;font:16px/1.4 monospace"></textarea></section>
-<section id="output"><div class="output-head"><span>OUTPUT</span><button id="closeOutput" style="background:none;border:0;color:#aaa">CLOSE</button></div><div id="outputText"></div></section>
-<nav class="symbols">
-<button data-insert="    " title="Indent">Tab</button><button data-insert="{}">{}</button><button data-insert="&quot;&quot;">“”</button><button data-insert=";">;</button><button data-insert="()">↶</button><button data-insert="⇧">⇧</button><button data-insert="↻">↻</button>
-<button data-insert="=">=</button><button data-insert="\">\</button><button data-insert="&amp;">&amp;</button><button data-insert=",">,</button><button data-insert="←">⇦</button><button data-insert="↓">↓</button><button data-insert="→">⇨</button>
-</nav></div>
+<div id="app">
+ <header class="top">
+  <div class="brand">NixScript<span class="status" id="status">Ready</span></div>
+  <button class="action" id="run" type="button">RUN</button><button class="action" id="menuButton" type="button">MENU</button>
+ </header>
+ <div id="menu">
+  <button id="newFile" type="button">New file</button><button id="saveFile" type="button">Download .ns file</button><button id="loadFile" type="button">Open .ns file</button><button id="programInput" type="button">Set program input (uin)</button><button id="clearOutput" type="button">Clear terminal output</button><button id="about" type="button">About NixScript</button>
+  <input id="filePicker" type="file" accept=".ns,.txt,text/plain" hidden>
+ </div>
+ <section class="editor-wrap"><div id="gutter">1</div><div id="edit"><pre id="highlight" aria-hidden="true"></pre><textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="NixScript code"></textarea></div></section>
+ <nav class="symbols" aria-label="Code editing toolbar">
+  <button data-insert="tab" title="Indent">Tab</button><button data-insert="braces" title="Braces">{}</button><button data-insert="quotes" title="Quotes">“”</button><button data-insert=";" title="Semicolon">;</button><button data-insert="parens" title="Parentheses">()</button><button data-action="up" title="Move up">↑</button><button data-action="refresh" title="Refresh highlighting">↻</button>
+  <button data-insert="=" title="Equals">=</button><button data-insert="backslash" title="Backslash">\</button><button data-insert="&" title="Ampersand">&amp;</button><button data-insert="," title="Comma">,</button><button data-action="left" title="Move left">←</button><button data-action="down" title="Move down">↓</button><button data-action="right" title="Move right">→</button>
+ </nav>
+</div>
+<section id="terminalPage" aria-label="Program terminal">
+ <header class="term-head">
+  <button id="backToEditor" type="button">‹ EDITOR</button>
+  <div class="term-title"><strong>Terminal</strong><span id="termSubtitle">Preparing program…</span></div><span class="term-dot" id="termDot"></span>
+ </header>
+ <div class="term-scroll" id="termScroll">
+  <div class="term-command">$ nix run main.ns</div><pre id="termOutput">Preparing program…</pre><div id="termState">Running…</div>
+ </div>
+ <form class="term-footer" id="exitForm" style="display:none">
+  <div id="exitMessage">Process exited. Enter anything to exit.</div>
+  <div class="exit-row"><span class="exit-prefix">&gt;</span><input id="exitInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter anything to exit" aria-label="Enter anything to exit"><button id="exitButton" type="submit">EXIT ↵</button></div>
+ </form>
+</section>
+<div id="aboutDialog"><div class="about-card"><h2>NixScript</h2><p>NixScript IDE 1.0.0-beta.1<br>Write and run readable .ns programs on your device.</p><p>Copyright © 2026 NISPAX InfoTech, India. All rights reserved.</p><button id="closeAbout" type="button">GOT IT</button></div></div>
 <script>
-const runtimeInput=document.getElementById('stdin'),runtimeInputPanel=document.getElementById('runtime-input');
-const code=document.getElementById('code'),highlight=document.getElementById('highlight'),gutter=document.getElementById('gutter'),output=document.getElementById('output'),outputText=document.getElementById('outputText'),status=document.getElementById('status'),menu=document.getElementById('menu');
+const code=document.getElementById('code');
+const highlight=document.getElementById('highlight');
+const gutter=document.getElementById('gutter');
+const status=document.getElementById('status');
+const menu=document.getElementById('menu');
+const terminalPage=document.getElementById('terminalPage');
+const termOutput=document.getElementById('termOutput');
+const termState=document.getElementById('termState');
+const termSubtitle=document.getElementById('termSubtitle');
+const termDot=document.getElementById('termDot');
+const termScroll=document.getElementById('termScroll');
+const exitForm=document.getElementById('exitForm');
+const exitInput=document.getElementById('exitInput');
+let stdinValues='';
+let lastRunOutput='';
+let isRunning=false;
 const starter='nix main() {\n    println("Hello from NixScript!");\n    var answer = 40 + 2;\n    println(answer);\n}\n';
-code.value=starter;code.setAttribute('autocapitalize','off');code.setAttribute('autocomplete','off');code.setAttribute('autocorrect','off');code.setAttribute('inputmode','text');
-function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function paint(){let s=escapeHtml(code.value);s=s.replace(/(\/\/.*)$/gm,'<span class="comment">$1</span>');s=s.replace(/(&quot;.*?&quot;)/g,'<span class="str">$1</span>');s=s.replace(/\b(nix|fn|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\b/g,'<span class="kw">$1</span>');s=s.replace(/\b(println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g,'<span class="fn">$1</span>');s=s.replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="num">$1</span>');highlight.innerHTML=s+'\n';gutter.textContent=Array.from({length:Math.max(1,code.value.split('\n').length)},(_,i)=>i+1).join('\n');syncScroll()}
-function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+'px)';gutter.scrollTop=code.scrollTop}
-code.addEventListener('input',()=>{paint();status.textContent='Edited';updateRuntimeInput()});code.addEventListener('focus',()=>{if(window.Nix&&window.Nix.showKeyboard)window.Nix.showKeyboard()});code.addEventListener('scroll',syncScroll);
-code.addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();insertText('    ')}if(e.key==='Enter'){const p=code.selectionStart,line=code.value.slice(0,p).split('\n').pop(),indent=(line.match(/^\s*/)||[''])[0];if(indent){e.preventDefault();insertText('\n'+indent)}}});
-function insertText(text){const a=code.selectionStart,b=code.selectionEnd;code.setRangeText(text,a,b,'end');code.focus();paint()}
-document.querySelectorAll('[data-insert]').forEach(b=>b.addEventListener('click',()=>{const v=b.getAttribute('data-insert');if(['⇧','↻','←','↓','→'].includes(v))return;insertText(v.replace(/&amp;/g,'&').replace(/&quot;/g,'"'))}));
-document.getElementById('run').addEventListener('click',()=>{status.textContent='Running…';output.classList.add('visible');outputText.textContent='';menu.style.display='none';setTimeout(()=>{try{const result=window.Nix.run(code.value,runtimeInput?runtimeInput.value:'');outputText.textContent=result;status.textContent='Finished'}catch(e){outputText.textContent=String(e);status.textContent='Error'}},20)});
-document.getElementById('menuButton').onclick=()=>menu.style.display=menu.style.display==='block'?'none':'block';
-document.getElementById('newFile').onclick=()=>{code.value='nix main() {\n    \n}\n';paint();status.textContent='New file';menu.style.display='none'};
-document.getElementById('saveFile').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([code.value],{type:'text/plain'}));a.download='main.ns';a.click();URL.revokeObjectURL(a.href);menu.style.display='none'};
-document.getElementById('loadFile').onclick=()=>document.getElementById('filePicker').click();
-document.getElementById('filePicker').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{code.value=String(r.result);paint();status.textContent=f.name};r.readAsText(f);menu.style.display='none'};
-document.getElementById('clearOutput').onclick=()=>{outputText.textContent='';output.classList.remove('visible');menu.style.display='none'};
-document.getElementById('closeOutput').onclick=()=>output.classList.remove('visible');
-document.getElementById('about').onclick=()=>{output.classList.add('visible');outputText.textContent='NixScript IDE\nWrite and run .ns programs on your device.';menu.style.display='none'};
-paint();
+code.value=starter;
 
-/* Robust highlighting: tokenize source before escaping; never regex-rewrite generated HTML. */
+function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function paint(){
  const src=code.value;
- const re=/\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b(?:nix|fn|main|var|class|public|private|protected|static|return|if|else|for|repeat|true|false|null|this|use)\b|\b(?:println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g;
+ const re=/\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b(?:nix|fn|main|var|class|public|private|protected|static|return|if|elif|else|for|repeat|while|true|false|null|this|use|new|delete)\b|\b(?:println|print|uin|sqrt|sq|pow|abs|floor|ceil|round|isUpper|isLower|toUpper|toLower|isSpace)\b/g;
  let out='',last=0,m;
  while((m=re.exec(src))!==null){
   out+=escapeHtml(src.slice(last,m.index));
@@ -112,26 +145,137 @@ function paint(){
  gutter.textContent=Array.from({length:Math.max(1,src.split('\n').length)},(_,i)=>i+1).join('\n');
  syncScroll();
 }
-/* Smart typing works in Android WebView too, not only hardware keyboards. */
-code.addEventListener('beforeinput',function(e){
- if(e.isComposing||e.inputType!=='insertText'||!e.data)return;
- const pairs={'{':'}','(':')','[':']','"':'"',"'":"'"};const ch=e.data;
- const p=code.selectionStart,q=code.selectionEnd,v=code.value;
- if(pairs[ch]){
-  e.preventDefault();code.setRangeText(ch+pairs[ch],p,q,'end');code.selectionStart=code.selectionEnd=p+1;paint();status.textContent='Edited';return;
- }
- if(['}',')',']','"',"'"].includes(ch)&&p===q&&v[p]===ch){e.preventDefault();code.selectionStart=code.selectionEnd=p+1;return}
- if(ch==='\n'){
-  e.preventDefault();const line=v.slice(0,p).split('\n').pop();let indent=(line.match(/^\s*/)||[''])[0];
-  if(v[p-1]==='}')indent=indent.slice(0,Math.max(0,indent.length-4));
-  const inner=v[p-1]==='{'&&v[p]==='}';const ins=inner?'\n'+indent+'    '+'\n'+indent:'\n'+indent+(v[p-1]==='{'?'    ':'');
-  code.setRangeText(ins,p,q,'end');
-  if(inner)code.selectionStart=code.selectionEnd=p+1+indent.length+4;
-  paint();status.textContent='Edited';return;
- }
-});
-code.addEventListener('focus',()=>document.body.classList.add('keyboard-open'));
+function syncScroll(){highlight.style.transform='translateY('+(-code.scrollTop)+'px');gutter.scrollTop=code.scrollTop}
+function updateKeyboardViewport(){
+ const vv=window.visualViewport;
+ let h=window.innerHeight;
+ if(vv&&vv.height>0)h=Math.min(h,vv.height);
+ document.documentElement.style.setProperty('--app-height',Math.max(180,Math.round(h))+'px');
+}
+code.addEventListener('input',()=>{paint();status.textContent='Edited'});
+code.addEventListener('focus',()=>{document.body.classList.add('keyboard-open');if(window.Nix&&window.Nix.showKeyboard)window.Nix.showKeyboard()});
 code.addEventListener('blur',()=>document.body.classList.remove('keyboard-open'));
-window.addEventListener('load',()=>setTimeout(()=>{const splash=document.getElementById('splash');if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),280)}},700));
-
-</script></body></html>
+code.addEventListener('scroll',syncScroll);
+function replaceSelection(text,caretOffset){
+ const a=code.selectionStart,b=code.selectionEnd;
+ code.setRangeText(text,a,b,'end');
+ if(typeof caretOffset==='number')code.selectionStart=code.selectionEnd=a+caretOffset;
+ paint();
+}
+function insertNewline(){
+ const p=code.selectionStart,q=code.selectionEnd,v=code.value;
+ const lineStart=v.lastIndexOf('\n',Math.max(0,p-1))+1;
+ const before=v.slice(lineStart,p);
+ const base=(before.match(/^\s*/)||[''])[0];
+ const trimmed=before.trim();
+ const next=v.slice(q).match(/^\s*(.)/);
+ const opens=trimmed.endsWith('{')||trimmed.endsWith('(')||trimmed.endsWith('[');
+ if(opens&&next&&['}',')',']'].includes(next[1])){
+  const inner=base+'    ';
+  code.setRangeText('\n'+inner+'\n'+base,p,q,'end');
+  code.selectionStart=code.selectionEnd=p+1+inner.length;
+ }else{
+  const indent=opens?base+'    ':base;
+  code.setRangeText('\n'+indent,p,q,'end');
+ }
+ paint();status.textContent='Edited';
+}
+code.addEventListener('keydown',e=>{
+ if(e.key==='Tab'){e.preventDefault();replaceSelection('    ');status.textContent='Edited';return}
+ if(e.key==='Enter'){e.preventDefault();insertNewline();return}
+ if(e.key==='Escape'){code.blur()}
+});
+code.addEventListener('beforeinput',e=>{
+ if(e.isComposing)return;
+ if(e.inputType==='insertLineBreak'||e.inputType==='insertParagraph'){e.preventDefault();insertNewline();return}
+ if(e.inputType!=='insertText'||!e.data||e.data.length!==1)return;
+ const pairs={'{':'}','(':')','[':']','"':'"',"'":"'"};const ch=e.data,p=code.selectionStart,q=code.selectionEnd,v=code.value;
+ if(pairs[ch]){e.preventDefault();const selected=v.slice(p,q);code.setRangeText(ch+selected+pairs[ch],p,q,'end');code.selectionStart=p+1;code.selectionEnd=p+1+selected.length;paint();status.textContent='Edited';return}
+ if(['}',')',']','"',"'"].includes(ch)&&p===q&&v[p]===ch){e.preventDefault();code.selectionStart=code.selectionEnd=p+1}
+});
+function moveCursor(direction){
+ const s=code.value,p=code.selectionStart,q=code.selectionEnd;
+ if(direction==='left'){const n=Math.max(0,p-1);code.setSelectionRange(n,n)}
+ else if(direction==='right'){const n=Math.min(s.length,q+1);code.setSelectionRange(n,n)}
+ else{
+  const pos=q,lineStart=s.lastIndexOf('\n',Math.max(0,pos-1))+1,col=pos-lineStart;
+  if(direction==='up'&&lineStart>0){const prevEnd=lineStart-1,prevStart=s.lastIndexOf('\n',Math.max(0,prevEnd-1))+1;const n=Math.min(prevStart+col,prevEnd);code.setSelectionRange(n,n)}
+  if(direction==='down'){const lineEnd=s.indexOf('\n',pos);if(lineEnd>=0){const nextStart=lineEnd+1,nextEnd=s.indexOf('\n',nextStart),n=Math.min(nextStart+col,nextEnd<0?s.length:nextEnd);code.setSelectionRange(n,n)}}
+ }
+ code.focus();
+}
+function insertPair(open,close){
+ const p=code.selectionStart,q=code.selectionEnd,v=code.value,selected=v.slice(p,q);
+ code.setRangeText(open+selected+close,p,q,'end');
+ code.selectionStart=p+1;code.selectionEnd=p+1+selected.length;paint();
+}
+document.querySelectorAll('.symbols [data-insert]').forEach(b=>b.addEventListener('click',()=>{
+ const kind=b.getAttribute('data-insert');
+ if(kind==='tab')replaceSelection('    ');
+ else if(kind==='braces')insertPair('{','}');
+ else if(kind==='quotes')insertPair('"','"');
+ else if(kind==='parens')insertPair('(',')');
+ else if(kind==='backslash')replaceSelection('\\');
+ else replaceSelection(kind);
+ status.textContent='Edited';code.focus();
+}));
+document.querySelectorAll('.symbols [data-action]').forEach(b=>b.addEventListener('click',()=>{
+ const action=b.getAttribute('data-action');
+ if(action==='refresh')paint();else moveCursor(action);
+}));
+function openTerminal(){
+ if(isRunning)return;
+ isRunning=true;menu.style.display='none';document.getElementById('aboutDialog').style.display='none';
+ code.blur();
+ if(window.Nix&&window.Nix.hideKeyboard)window.Nix.hideKeyboard();
+ document.body.classList.remove('keyboard-open');
+ document.getElementById('app').style.display='none';
+ terminalPage.style.display='flex';
+ termOutput.textContent='';termState.textContent='Running…';termSubtitle.textContent='Running main.ns';termDot.style.background='#e5a15b';
+ exitForm.style.display='none';exitInput.value='';
+ termScroll.scrollTop=0;status.textContent='Running…';
+ setTimeout(()=>{
+  let result='';
+  try{
+   if(window.Nix&&window.Nix.run)result=window.Nix.run(code.value,stdinValues);
+   else result='NixScript runtime bridge is unavailable.';
+  }catch(e){result='NixScript error: '+String(e)}
+  lastRunOutput=result||'Program finished successfully.';
+  termOutput.textContent=lastRunOutput;
+  termState.textContent='Process exited. Enter anything to exit.';
+  termSubtitle.textContent='Process finished';termDot.style.background='#81c995';
+  exitForm.style.display='block';status.textContent='Finished';
+  termScroll.scrollTop=termScroll.scrollHeight;
+  exitInput.focus();
+  if(window.Nix&&window.Nix.showKeyboard)window.Nix.showKeyboard();
+ },60);
+}
+function exitTerminal(){
+ if(window.Nix&&window.Nix.hideKeyboard)window.Nix.hideKeyboard();
+ exitInput.blur();terminalPage.style.display='none';document.getElementById('app').style.display='flex';
+ isRunning=false;status.textContent='Ready';
+}
+document.getElementById('run').addEventListener('click',openTerminal);
+document.getElementById('backToEditor').addEventListener('click',()=>exitTerminal());
+exitForm.addEventListener('submit',e=>{e.preventDefault();exitTerminal()});
+document.getElementById('menuButton').addEventListener('click',()=>{menu.style.display=menu.style.display==='block'?'none':'block'});
+document.getElementById('newFile').addEventListener('click',()=>{code.value='nix main() {\n    \n}\n';paint();status.textContent='New file';menu.style.display='none'});
+document.getElementById('saveFile').addEventListener('click',()=>{const a=document.createElement('a');const url=URL.createObjectURL(new Blob([code.value],{type:'text/plain'}));a.href=url;a.download='main.ns';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);menu.style.display='none'});
+document.getElementById('loadFile').addEventListener('click',()=>{document.getElementById('filePicker').click();menu.style.display='none'});
+document.getElementById('filePicker').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{code.value=String(r.result||'');paint();status.textContent=f.name};r.readAsText(f);e.target.value=''});
+document.getElementById('programInput').addEventListener('click',()=>{
+ menu.style.display='none';
+ const value=window.prompt('Provide program input for uin(), one value per line. Leave blank when not needed.',stdinValues);
+ if(value!==null){stdinValues=value;status.textContent='Program input set'}
+});
+document.getElementById('clearOutput').addEventListener('click',()=>{menu.style.display='none';lastRunOutput='';window.alert('Terminal output will be cleared on the next run.')});
+document.getElementById('about').addEventListener('click',()=>{menu.style.display='none';document.getElementById('aboutDialog').style.display='flex'});
+document.getElementById('closeAbout').addEventListener('click',()=>document.getElementById('aboutDialog').style.display='none');
+document.getElementById('aboutDialog').addEventListener('click',e=>{if(e.target.id==='aboutDialog')e.currentTarget.style.display='none'});
+window.addEventListener('resize',updateKeyboardViewport);
+if(window.visualViewport)window.visualViewport.addEventListener('resize',updateKeyboardViewport);
+updateKeyboardViewport();paint();
+window.addEventListener('load',()=>{setTimeout(()=>{const splash=document.getElementById('splash');if(splash){splash.style.opacity='0';setTimeout(()=>splash.remove(),240)}},650)});
+</script>
+</body>
+</html>
