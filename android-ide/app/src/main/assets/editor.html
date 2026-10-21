@@ -160,12 +160,21 @@ function updateKeyboardViewport(){
 }
 function updateKeyboardState(){
  const vv=window.visualViewport;
- const open=!!(vv&&window.innerHeight-vv.height>140);
- document.body.classList.toggle('keyboard-open',open);
+ const active=document.activeElement;
+ const editableFocused=active===code||active===exitInput||
+  (active instanceof HTMLInputElement)||(active instanceof HTMLTextAreaElement);
+ const viewportSuggestsKeyboard=!!(vv&&vv.height>0&&window.innerHeight-vv.height>120);
+ document.body.classList.toggle('keyboard-open',editableFocused||viewportSuggestsKeyboard);
+}
+function refreshVisibleViewport(){
+ updateKeyboardViewport();
+ updateKeyboardState();
+ requestAnimationFrame(()=>{updateKeyboardViewport();updateKeyboardState()});
+ setTimeout(()=>{updateKeyboardViewport();updateKeyboardState()},180);
 }
 code.addEventListener('input',()=>{paint();status.textContent='Edited'});
 code.addEventListener('focus',()=>{document.body.classList.add('keyboard-open');if(window.Nix&&window.Nix.showKeyboard)window.Nix.showKeyboard()});
-code.addEventListener('blur',()=>document.body.classList.remove('keyboard-open'));
+code.addEventListener('blur',()=>{requestAnimationFrame(updateKeyboardState);setTimeout(updateKeyboardState,120)});
 code.addEventListener('scroll',syncScroll);
 function replaceSelection(text,caretOffset){
  const a=code.selectionStart,b=code.selectionEnd;
@@ -283,9 +292,11 @@ document.getElementById('clearOutput').addEventListener('click',()=>{menu.style.
 document.getElementById('about').addEventListener('click',()=>{menu.style.display='none';document.getElementById('aboutDialog').style.display='flex'});
 document.getElementById('closeAbout').addEventListener('click',()=>document.getElementById('aboutDialog').style.display='none');
 document.getElementById('aboutDialog').addEventListener('click',e=>{if(e.target.id==='aboutDialog')e.currentTarget.style.display='none'});
-window.addEventListener('resize',()=>{updateKeyboardViewport();updateKeyboardState()});
+window.addEventListener('resize',refreshVisibleViewport);
+window.addEventListener('focusin',refreshVisibleViewport);
+window.addEventListener('focusout',()=>setTimeout(refreshVisibleViewport,80));
 if(window.visualViewport){
- window.visualViewport.addEventListener('resize',()=>{updateKeyboardViewport();updateKeyboardState()});
+ window.visualViewport.addEventListener('resize',refreshVisibleViewport);
  window.visualViewport.addEventListener('scroll',updateKeyboardViewport);
 }
 updateKeyboardViewport();updateKeyboardState();paint();
