@@ -1,0 +1,5 @@
+// CASE 17: insert() rejects fractional positions.
+nix main() {
+    var items = {};
+    items.insert(0.5, 1);
+}
