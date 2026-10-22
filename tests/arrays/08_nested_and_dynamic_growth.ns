@@ -1,0 +1,10 @@
+// CASE 08: Arrays can grow, shrink, and contain nested arrays.
+nix main() {
+    var items = {};
+    repeat(5) { items.push(items.len()); }
+    var nested = {items, {7, 8}};
+    println(items.len());
+    println(nested.get(1).get(0));
+    println(items.pop());
+    println(items.len());
+}
