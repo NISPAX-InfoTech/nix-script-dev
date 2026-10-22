@@ -1,0 +1,10 @@
+// CASE 02: push() appends and pop() removes and returns the last element.
+nix main() {
+    var items = {};
+    items.push(10);
+    items.push("x");
+    println(items.len());
+    println(items.pop());
+    println(items.pop());
+    println(items.isEmpty());
+}
