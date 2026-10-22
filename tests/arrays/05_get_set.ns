@@ -1,6 +1,8 @@
 // CASE 05: get(pos) reads and set(pos, value) replaces an existing element.
 nix main() {
-    var items = {10, 20};
+    var items = {};
+    items.push(10);
+    items.push(20);
     println(items.get(0));
     items.set(1, 99);
     println(items.get(1));
