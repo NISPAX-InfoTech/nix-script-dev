@@ -1,0 +1,5 @@
+// CASE 09: Negative, fractional, and out-of-range indexes fail with a runtime error.
+nix main() {
+    var items = {1, 2};
+    println(items.get(-1));
+}
