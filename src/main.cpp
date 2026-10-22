@@ -2462,13 +2462,24 @@ private:
                         const Value& b = args[0];
                         bool equal = false;
                         if (a.index() == b.index()) {
-                            if (std::holds_alternative<std::monostate>(a)) equal = true;
+                            if (std::holds_alternative<UninitializedValue>(a) ||
+                                std::holds_alternative<std::monostate>(a)) equal = true;
                             else if (isNumber(a)) equal = std::get<double>(a) == std::get<double>(b);
                             else if (const auto* av = std::get_if<std::string>(&a)) equal = *av == std::get<std::string>(b);
                             else if (const auto* av = std::get_if<bool>(&a)) equal = *av == std::get<bool>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<Instance>>(&a)) equal = *av == std::get<std::shared_ptr<Instance>>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<ClassDef>>(&a)) equal = *av == std::get<std::shared_ptr<ClassDef>>(b);
                             else if (const auto* av = std::get_if<std::shared_ptr<ArrayValue>>(&a)) equal = *av == std::get<std::shared_ptr<ArrayValue>>(b);
                             else if (const auto* av = std::get_if<std::shared_ptr<MapValue>>(&a)) equal = *av == std::get<std::shared_ptr<MapValue>>(b);
-                            else if (const auto* av = std::get_if<std::shared_ptr<Instance>>(&a)) equal = *av == std::get<std::shared_ptr<Instance>>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<FunctionValue>>(&a)) {
+                                const auto& other = std::get<std::shared_ptr<FunctionValue>>(b);
+                                equal = *av == other || ((*av) && other && (*av)->name == other->name);
+                            } else if (const auto* av = std::get_if<std::shared_ptr<BoundMethod>>(&a)) {
+                                const auto& other = std::get<std::shared_ptr<BoundMethod>>(b);
+                                equal = *av == other ||
+                                        ((*av) && other && (*av)->instance == other->instance &&
+                                         (*av)->klass == other->klass && (*av)->member == other->member);
+                            }
                         }
                         if (equal) return method == "contains" ? Value(true) : Value(static_cast<double>(i));
                     }
