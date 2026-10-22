@@ -2,7 +2,12 @@
 nix main() {
     var items = {};
     repeat(5) { items.push(items.len()); }
-    var nested = {items, {7, 8}};
+    var child = {};
+    child.push(7);
+    child.push(8);
+    var nested = {};
+    nested.push(items);
+    nested.push(child);
     println(items.len());
     println(nested.get(1).get(0));
     println(items.pop());
