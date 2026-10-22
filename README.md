@@ -40,7 +40,7 @@ On Windows, the executable may be at `build/Debug/nix.exe` or `build/Release/nix
 - Native math helpers: `sqrt()`, `sq()`, `pow()`, `abs()`, `floor()`, `ceil()`, and `round()`
 - C++-style classes, fields, overloaded constructors/methods, destructors, public/private/protected access, multiple inheritance, static members, and `ClassName::member`
 - `this`, typed parameters for overload selection, `return`, in-class and out-of-class method definitions, and base-constructor initializer lists
-- Dynamic arrays/lists with literals, nested values, checked indexing/assignment, `.length`, `push`, `append`, and `pop`
+- Dynamic arrays with empty-literal syntax `var items = {};`, nested values, checked indexing/assignment, and exactly these methods: `push`, `pop`, `len`, `insert`, `remove`, `get`, `set`, `isEmpty`, `indexOf`, `clear`, and `contains`
 - Dictionary/map literals, ordered key/value storage, primitive key normalization, indexed and dot-property access, and `get`/`set`/`has`/`remove`/`clear`
 - First-class function values and callbacks, including bound instance methods and selected built-ins
 - `\n` and `\t` string escapes; `//` line comments and parser/runtime errors with line numbers
