@@ -1,0 +1,5 @@
+// CASE 14: The unapproved array .length property is rejected; use len().
+nix main() {
+    var items = {};
+    println(items.length);
+}
