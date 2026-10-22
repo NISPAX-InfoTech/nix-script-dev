@@ -1053,9 +1053,9 @@ private:
         }
         if (match(TokenKind::LeftBrace)) {
             auto expr = std::make_unique<Expr>();
-            expr->kind = Expr::Kind::MapLiteral;
+            expr->kind = check(TokenKind::RightBrace) ? Expr::Kind::ArrayLiteral : Expr::Kind::MapLiteral;
             expr->line = token.line;
-            if (!check(TokenKind::RightBrace)) {
+            if (expr->kind == Expr::Kind::MapLiteral) {
                 do {
                     std::string key;
                     if (match(TokenKind::String)) key = previous().text;
@@ -1351,7 +1351,7 @@ private:
         static const std::vector<std::string> names = {
             "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
             "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-            "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
+            "len", "keys", "values", "hasKey", "removeKey"
         };
         return std::find(names.begin(), names.end(), name) != names.end();
     }
@@ -1493,7 +1493,6 @@ private:
                 Value objectValue = evaluate(*expr.left);
                 if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&objectValue)) {
                     if (!*array) runtimeError(expr.line, "Invalid array value.");
-                    if (expr.name == "length") return static_cast<double>((*array)->elements.size());
                     runtimeError(expr.line, "Array has no member '" + expr.name + "'.");
                 }
                 if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&objectValue)) {
@@ -2416,21 +2415,66 @@ private:
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
             if (auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&receiver)) {
                 if (!*array) runtimeError(expr.line, "Invalid array value.");
-                if (expr.left->name == "push" || expr.left->name == "append") {
-                    if (args.size() != 1)
-                        runtimeError(expr.line, "Array." + expr.left->name + "() expects 1 argument.");
+                const std::string& method = expr.left->name;
+                auto need = [&](std::size_t n) {
+                    if (args.size() != n) runtimeError(expr.line, "Array." + method + "() expects " + std::to_string(n) + " argument(s).");
+                };
+                auto index = [&](const Value& value) -> std::size_t {
+                    return checkedArrayIndex(value, *array, expr.line);
+                };
+                if (method == "push") {
+                    need(1);
                     (*array)->elements.push_back(args[0]);
-                    if (expr.left->name == "push") return static_cast<double>((*array)->elements.size());
-                    return std::monostate{};
+                    return static_cast<double>((*array)->elements.size());
                 }
-                if (expr.left->name == "pop") {
-                    if (!args.empty()) runtimeError(expr.line, "Array.pop() expects no arguments.");
+                if (method == "pop") {
+                    need(0);
                     if ((*array)->elements.empty()) runtimeError(expr.line, "Cannot pop from an empty array.");
                     Value value = std::move((*array)->elements.back());
                     (*array)->elements.pop_back();
                     return value;
                 }
-                runtimeError(expr.line, "Array has no method '" + expr.left->name + "'.");
+                if (method == "len") { need(0); return static_cast<double>((*array)->elements.size()); }
+                if (method == "isEmpty") { need(0); return (*array)->elements.empty(); }
+                if (method == "clear") { need(0); (*array)->elements.clear(); return std::monostate{}; }
+                if (method == "get") { need(1); return (*array)->elements[index(args[0])]; }
+                if (method == "set") { need(2); (*array)->elements[index(args[0])] = args[1]; return std::monostate{}; }
+                if (method == "insert") {
+                    need(2);
+                    if (!isNumber(args[0])) runtimeError(expr.line, "Array.insert() position must be a non-negative whole number.");
+                    double pos = std::get<double>(args[0]);
+                    if (!std::isfinite(pos) || pos < 0 || std::floor(pos) != pos || pos > (*array)->elements.size())
+                        runtimeError(expr.line, "Array.insert() position is out of range.");
+                    (*array)->elements.insert((*array)->elements.begin() + static_cast<std::size_t>(pos), args[1]);
+                    return std::monostate{};
+                }
+                if (method == "remove") {
+                    need(1);
+                    const auto pos = index(args[0]);
+                    Value removed = (*array)->elements[pos];
+                    (*array)->elements.erase((*array)->elements.begin() + pos);
+                    return removed;
+                }
+                if (method == "contains" || method == "indexOf") {
+                    need(1);
+                    for (std::size_t i = 0; i < (*array)->elements.size(); ++i) {
+                        const Value& a = (*array)->elements[i];
+                        const Value& b = args[0];
+                        bool equal = false;
+                        if (a.index() == b.index()) {
+                            if (std::holds_alternative<std::monostate>(a)) equal = true;
+                            else if (isNumber(a)) equal = std::get<double>(a) == std::get<double>(b);
+                            else if (const auto* av = std::get_if<std::string>(&a)) equal = *av == std::get<std::string>(b);
+                            else if (const auto* av = std::get_if<bool>(&a)) equal = *av == std::get<bool>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<ArrayValue>>(&a)) equal = *av == std::get<std::shared_ptr<ArrayValue>>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<MapValue>>(&a)) equal = *av == std::get<std::shared_ptr<MapValue>>(b);
+                            else if (const auto* av = std::get_if<std::shared_ptr<Instance>>(&a)) equal = *av == std::get<std::shared_ptr<Instance>>(b);
+                        }
+                        if (equal) return method == "contains" ? Value(true) : Value(static_cast<double>(i));
+                    }
+                    return method == "contains" ? Value(false) : Value(-1.0);
+                }
+                runtimeError(expr.line, "Array has no method '" + method + "'.");
             }
             if (auto* map = std::get_if<std::shared_ptr<MapValue>>(&receiver)) {
                 if (!*map) runtimeError(expr.line, "Invalid map value.");
@@ -2516,7 +2560,7 @@ private:
             static const std::vector<std::string> builtins = {
                 "sqrt", "sq", "pow", "abs", "floor", "ceil", "round",
                 "isUpper", "isLower", "isSpace", "toUpper", "toLower",
-                "len", "push", "append", "pop", "keys", "values", "hasKey", "removeKey"
+                "len", "keys", "values", "hasKey", "removeKey"
             };
             std::vector<Value> args;
             for (const auto& item : expr.items) args.push_back(evaluate(*item));
@@ -2583,28 +2627,7 @@ private:
             need(1);
             if (const auto* textValue = std::get_if<std::string>(&args[0]))
                 return static_cast<double>(textValue->size());
-            if (const auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]))
-                return *array ? static_cast<double>((*array)->elements.size()) : 0.0;
-            if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]))
-                return *map ? static_cast<double>((*map)->entries.size()) : 0.0;
-            runtimeError(line, "len() expects a string, array, or map.");
-        }
-        if (name == "push" || name == "append") {
-            need(2);
-            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
-            if (!array || !*array) runtimeError(line, name + "() expects an array as its first argument.");
-            (*array)->elements.push_back(args[1]);
-            if (name == "push") return static_cast<double>((*array)->elements.size());
-            return std::monostate{};
-        }
-        if (name == "pop") {
-            need(1);
-            auto* array = std::get_if<std::shared_ptr<ArrayValue>>(&args[0]);
-            if (!array || !*array) runtimeError(line, "pop() expects an array.");
-            if ((*array)->elements.empty()) runtimeError(line, "Cannot pop from an empty array.");
-            Value result = std::move((*array)->elements.back());
-            (*array)->elements.pop_back();
-            return result;
+            runtimeError(line, "len() is not an array function; use array.len().");
         }
         if (name == "keys" || name == "values") {
             need(1);
