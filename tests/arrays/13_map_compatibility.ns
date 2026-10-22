@@ -1,0 +1,9 @@
+// CASE 13: Non-empty brace map literals and map methods still work after empty braces become arrays.
+nix main() {
+    var profile = {name: "Nix", level: 2};
+    println(profile.get("name"));
+    profile.set("level", 3);
+    println(profile.get("level"));
+    profile.clear();
+    println(profile.length);
+}
