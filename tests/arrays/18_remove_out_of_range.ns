@@ -1,0 +1,6 @@
+// CASE 18: remove() rejects an index equal to the array length.
+nix main() {
+    var items = {};
+    items.push(1);
+    items.remove(1);
+}
