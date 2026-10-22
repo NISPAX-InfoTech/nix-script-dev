@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -21,6 +22,10 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep this WebView inside the system-bar-safe content area; do not inherit
+        // fullscreen/layout-behind-bars flags from an OEM theme or previous UI state.
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         window.statusBarColor = Color.rgb(32, 33, 36)
         window.navigationBarColor = Color.rgb(17, 19, 22)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)

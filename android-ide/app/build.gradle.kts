@@ -10,8 +10,8 @@ android {
         applicationId = "in.nispax.nix"
         minSdk = 24
         targetSdk = 34
-        versionCode = 10001
-        versionName = "1.0.0-beta.1"
+        versionCode = 10002
+        versionName = "1.0.0-beta.2"
         externalNativeBuild { cmake { cppFlags += "-std=c++17"; arguments += "-DNIX_ANDROID=1" } }
     }
     signingConfigs {

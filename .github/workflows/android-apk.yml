@@ -97,7 +97,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.NIXSCRIPT_RELEASE_TOKEN }}
           RELEASE_REPOSITORY: NISPAX-InfoTech/nix-script
-          TAG: v1.0.0-beta.1
+          TAG: v1.0.0-beta.2
         shell: bash
         run: |
           set -euo pipefail
@@ -105,5 +105,9 @@ jobs:
             echo "Missing NIXSCRIPT_RELEASE_TOKEN secret; cannot update the official release." >&2
             exit 1
           fi
-          gh release view "$TAG" --repo "$RELEASE_REPOSITORY" >/dev/null
+          if ! gh release view "$TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$RELEASE_REPOSITORY" \
+              --title "NixScript $TAG" \
+              --notes "NixScript Android beta update: corrected Android system-bar-safe viewport handling and keyboard resizing."
+          fi
           gh release upload "$TAG" dist/* --repo "$RELEASE_REPOSITORY" --clobber
