@@ -1,0 +1,12 @@
+// CASE 03: insert(pos, value) inserts at the start, middle, and end.
+nix main() {
+    var items = {10, 30};
+    items.insert(0, 5);
+    items.insert(2, 20);
+    items.insert(items.len(), 40);
+    println(items.get(0));
+    println(items.get(1));
+    println(items.get(2));
+    println(items.get(3));
+    println(items.get(4));
+}
