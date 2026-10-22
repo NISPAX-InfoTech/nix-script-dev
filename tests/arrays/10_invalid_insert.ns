@@ -1,5 +1,6 @@
 // CASE 10: insert() rejects positions beyond the end of the array.
 nix main() {
-    var items = {1};
+    var items = {};
+    items.push(1);
     items.insert(2, 9);
 }
