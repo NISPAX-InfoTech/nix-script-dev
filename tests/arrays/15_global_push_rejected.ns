@@ -1,0 +1,5 @@
+// CASE 15: The unapproved global push(array, value) alias is rejected; use array.push(value).
+nix main() {
+    var items = {};
+    push(items, 1);
+}
