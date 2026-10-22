@@ -32,19 +32,19 @@ check_error() {
   echo "PASS $file (expected error)"
 }
 
-check_output tests/arrays/01_empty_dynamic_array.ns $'0\\ntrue\\n'
-check_output tests/arrays/02_push_pop.ns $'2\\nx\\n10\\ntrue\\n'
-check_output tests/arrays/03_insert_positions.ns $'5\\n10\\n20\\n30\\n40\\n'
-check_output tests/arrays/04_remove_positions.ns $'20\\n2\\n30\\n'
-check_output tests/arrays/05_get_set.ns $'10\\n99\\n'
-check_output tests/arrays/06_contains_index_of.ns $'true\\nfalse\\n0\\n-1\\n'
-check_output tests/arrays/07_clear.ns $'0\\ntrue\\n4\\n'
-check_output tests/arrays/08_nested_and_dynamic_growth.ns $'5\\n7\\n4\\n4\\n'
+check_output tests/arrays/01_empty_dynamic_array.ns $'0\ntrue\n'
+check_output tests/arrays/02_push_pop.ns $'2\nx\n10\ntrue\n'
+check_output tests/arrays/03_insert_positions.ns $'5\n10\n20\n30\n40\n'
+check_output tests/arrays/04_remove_positions.ns $'20\n2\n30\n'
+check_output tests/arrays/05_get_set.ns $'10\n99\n'
+check_output tests/arrays/06_contains_index_of.ns $'true\nfalse\n0\n-1\n'
+check_output tests/arrays/07_clear.ns $'0\ntrue\n4\n'
+check_output tests/arrays/08_nested_and_dynamic_growth.ns $'5\n7\n4\n4\n'
 check_error tests/arrays/09_invalid_index.ns "Array index must be a non-negative whole number."
 check_error tests/arrays/10_invalid_insert.ns "Array.insert() position is out of range."
 check_error tests/arrays/11_wrong_arity.ns "Array.push() expects 1 argument(s)."
 check_error tests/arrays/12_extra_aliases_rejected.ns "Array has no method 'append'."
-check_output tests/arrays/13_map_compatibility.ns $'Nix\\n3\\n0\\n'
+check_output tests/arrays/13_map_compatibility.ns $'Nix\n3\n0\n'
 check_error tests/arrays/14_length_property_rejected.ns "Array has no member 'length'."
 check_error tests/arrays/15_global_push_rejected.ns "Unknown function 'push'."
 check_error tests/arrays/16_empty_pop_error.ns "Cannot pop from an empty array."
