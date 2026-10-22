@@ -1,0 +1,5 @@
+// CASE 16: pop() on an empty array fails clearly without corrupting the array.
+nix main() {
+    var items = {};
+    items.pop();
+}
