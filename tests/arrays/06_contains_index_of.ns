@@ -1,6 +1,10 @@
 // CASE 06: contains(value) and indexOf(value) use value equality; missing values return false and -1.
 nix main() {
-    var items = {10, "ten", true, 10};
+    var items = {};
+    items.push(10);
+    items.push("ten");
+    items.push(true);
+    items.push(10);
     println(items.contains("ten"));
     println(items.contains(false));
     println(items.indexOf(10));
