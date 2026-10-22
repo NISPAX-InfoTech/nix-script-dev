@@ -1,6 +1,9 @@
 // CASE 04: remove(pos) removes the requested element and shifts later elements left.
 nix main() {
-    var items = {10, 20, 30};
+    var items = {};
+    items.push(10);
+    items.push(20);
+    items.push(30);
     println(items.remove(1));
     println(items.len());
     println(items.get(1));
