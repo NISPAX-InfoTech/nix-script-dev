@@ -1,0 +1,9 @@
+// CASE 07: clear() removes all elements and leaves a valid empty dynamic array.
+nix main() {
+    var items = {1, 2, 3};
+    items.clear();
+    println(items.len());
+    println(items.isEmpty());
+    items.push(4);
+    println(items.get(0));
+}
