@@ -22,6 +22,10 @@ jobs:
       - name: Build interpreter
         run: cmake --build build --config Release --parallel
 
+      - name: Test approved dynamic array API
+        shell: bash
+        run: bash tests/arrays/run.sh ./build/nix
+
       - name: Run existing example and verify output
         shell: bash
         run: |
