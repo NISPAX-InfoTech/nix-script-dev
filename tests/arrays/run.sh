@@ -44,6 +44,13 @@ check_error tests/arrays/09_invalid_index.ns "Array index must be a non-negative
 check_error tests/arrays/10_invalid_insert.ns "Array.insert() position is out of range."
 check_error tests/arrays/11_wrong_arity.ns "Array.push() expects 1 argument(s)."
 check_error tests/arrays/12_extra_aliases_rejected.ns "Array has no method 'append'."
-check_output tests/arrays/13_map_compatibility.ns $'Nix\n3\n0\n'
+check_output tests/arrays/13_map_compatibility.ns 
+echo "All array regression cases passed."
+Nix\n3\n0\n'
+check_error tests/arrays/14_length_property_rejected.ns "Array has no member 'length'."
+check_error tests/arrays/15_global_push_rejected.ns "Unknown function 'push'."
+check_error tests/arrays/16_empty_pop_error.ns "Cannot pop from an empty array."
+check_error tests/arrays/17_insert_fractional_position.ns "Array.insert() position is out of range."
+check_error tests/arrays/18_remove_out_of_range.ns "Array index is out of range."
 
 echo "All array regression cases passed."
