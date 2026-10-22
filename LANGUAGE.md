@@ -267,22 +267,24 @@ for (var i = 0; i < 10; i = i + 1) {
 }
 ```
 
-## Arrays and lists
+## Arrays
 
-Array literals create mutable dynamic lists. Arrays can contain mixed values or nested arrays, and assigning an array to another variable shares the same mutable array.
+Dynamic arrays are mutable and can grow or shrink. The empty literal `{}` creates a dynamic array, for example `var items = {};`. Non-empty brace literals such as `{name: "Nix"}` remain map literals; `[]` array literals remain supported. Arrays can contain mixed values and nested arrays. Assigning an array to another variable shares the same mutable array.
 
-```ns
-var numbers = [10, 20, 30];
-numbers[1] = 42;
-numbers.push(40);   // returns the new length
-numbers.append(50); // returns null
-println(numbers[1]);
-println(numbers.length);
-println(len(numbers));
-println(numbers.pop());
-```
+The complete supported array method list is:
+- `push(value)`: append one value to the end.
+- `pop()`: remove and return the last value; an empty array is an error.
+- `len()`: return the number of elements.
+- `insert(pos, value)`: insert before `pos`; positions from zero through the current length are valid.
+- `remove(pos)`: remove and return the element at `pos`.
+- `get(pos)`: return the element at `pos`.
+- `set(pos, value)`: replace the element at `pos`.
+- `isEmpty()`: return whether the array has no elements.
+- `indexOf(value)`: return the first matching index, or `-1` when not found.
+- `clear()`: remove all elements.
+- `contains(value)`: return whether an equal value exists.
 
-Indexes must be non-negative whole numbers and must be in range; invalid indexes produce a line-numbered runtime error. `push`/`append` add one element, while `pop` removes and returns the final element. The equivalent built-ins are `push(array, value)`, `append(array, value)`, and `pop(array)`. Strings also support `len(string)`. Fixed-size typed declarations such as `int values[10]` are not implemented yet.
+Indexes must be non-negative whole numbers and within range. `insert` additionally permits a position equal to the current length. Invalid positions and incorrect argument counts produce runtime errors. There are no array aliases: `append`, the `.length` property, and global array helpers such as `push(array, value)` are not supported. The general global `len(string)` helper remains available for strings only. Fixed-size typed declarations such as `int values[10]` are not implemented yet.
 
 ## Multi-paradigm direction
 
