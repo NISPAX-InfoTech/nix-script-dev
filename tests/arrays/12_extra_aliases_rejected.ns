@@ -1,0 +1,5 @@
+// CASE 12: Unapproved array aliases append(), .length, and global push() are rejected.
+nix main() {
+    var items = {};
+    items.append(1);
+}
