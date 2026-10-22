@@ -1,0 +1,6 @@
+// CASE 01: Empty braces create a dynamic array; len() and isEmpty() report its state.
+nix main() {
+    var items = {};
+    println(items.len());
+    println(items.isEmpty());
+}
