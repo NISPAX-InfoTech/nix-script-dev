@@ -1053,8 +1053,15 @@ private:
         }
         if (match(TokenKind::LeftBrace)) {
             auto expr = std::make_unique<Expr>();
+            // Empty braces are the canonical empty dynamic-array literal.
+            // Use {:} when an empty map is needed.
             expr->kind = check(TokenKind::RightBrace) ? Expr::Kind::ArrayLiteral : Expr::Kind::MapLiteral;
             expr->line = token.line;
+            if (match(TokenKind::Colon)) {
+                expr->kind = Expr::Kind::MapLiteral;
+                consume(TokenKind::RightBrace, "Expected '}' after empty map literal.");
+                return expr;
+            }
             if (expr->kind == Expr::Kind::MapLiteral) {
                 do {
                     std::string key;
