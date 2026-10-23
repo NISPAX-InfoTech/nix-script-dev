@@ -2564,6 +2564,615 @@ fi
 echo "PASS: $passed language regressions."
 77\n5\ntrue\n' <<'NS'
 nix main() {
+    var values = [1, 2, 3];
+    var alias = values;
+    alias.set(1, 8);
+    values.push(4);
+    values.push(5);
+    alias.set(0, 77);
+    println(values.get(0));
+    println(values.len());
+    println(values.contains(8));
+}
+NS
+
+run_ok nested_array_literals_and_iteration $'2\n5\n[1, [2, 3], null]\n' <<'NS'
+nix main() {
+    var values = [1, [2, 3], null];
+    println(values[1][0]);
+    println(values[1][1] + 2);
+    println(values);
+}
+NS
+
+run_ok array_pop_and_builtin_length  <<'NS'
+nix main() {
+    var values = [1, 2, 3];
+    println(len(values));
+    println(values.push(4));
+    println(values.pop());
+    println(pop(values));
+    println(len("abc"));
+}
+NS
+
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
+}
+NS
+
+run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[1]);
+}
+NS
+
+run_error array_fractional_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[0.5]);
+}
+NS
+
+run_error array_negative_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[-1]);
+}
+NS
+
+run_error index_non_array_value "Indexing requires an array or map value" <<'NS'
+nix main() {
+    var value = "hello";
+    println(value[0]);
+}
+NS
+
+run_error array_pop_empty "Cannot pop from an empty array" <<'NS'
+nix main() {
+    var values = [];
+    values.pop();
+}
+NS
+
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
+fn increment(int value) {
+    return value + 1;
+}
+fn doubleIt(int value) {
+    return value * 2;
+}
+fn apply(function callback, int value) {
+    return callback(value);
+}
+fn applyAgain(function callback, int value) {
+    return apply(callback, value);
+}
+nix main() {
+    var callback = increment;
+    println(callback(3));
+    println(apply(doubleIt, 5));
+    println(apply(callback, 9));
+    println(applyAgain(doubleIt, 6));
+    println(apply(abs, -3));
+}
+NS
+
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello " + name;
+    }
+};
+fn apply(function callback, string value) {
+    return callback(value);
+}
+nix main() {
+    var greeter = Greeter();
+    var callback = greeter.greet;
+    println(apply(callback, "Alex"));
+}
+NS
+
+run_ok callable_value_in_array $'6\n' <<'NS'
+fn increment(int value) { return value + 1; }
+fn doubleIt(int value) { return value * 2; }
+nix main() {
+    var callbacks = [increment, doubleIt];
+    println(callbacks[1](3));
+}
+NS
+
+run_error non_callable_variable "This expression is not callable" <<'NS'
+nix main() {
+    var value = 12;
+    value();
+}
+NS
+
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].len());
+}
+NS
+
+echo "=== Dictionaries and maps ==="
+
+run_ok map_literals_indexing_properties_and_mutation $'Alex\n32\n4\ntrue\n{"name": Alex, "age": 32, "active": true, "city": Goa}\n' <<'NS'
+nix main() {
+    var user = {"name": "Alex", age: 31, "active": true};
+    user["age"] = 32;
+    user.city = "Goa";
+    println(user["name"]);
+    println(user.age);
+    println(user.length);
+    println(user.has("active"));
+    println(user);
+}
+NS
+
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n9\n3\ntrue\nfalse\n{"b": 9, "c": 3}\n' <<'NS'
+nix main() {
+    var data = {a: 1, b: 2};
+    println(len(data));
+    println(data.keys());
+    println(values(data));
+    data.set("c", 3);
+    data["b"] = 9;
+    println(data["b"]);
+    println(data.get("c"));
+    println(data.remove("a"));
+    println(data.has("missing"));
+    println(data);
+}
+NS
+
+run_ok map_numeric_and_boolean_keys_are_canonicalized $'five\nbool\n2\n' <<'NS'
+nix main() {
+    var data = {5: "five", true: "bool"};
+    println(data[5]);
+    println(data[true]);
+    println(data.length);
+}
+NS
+
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[42, 4]\n' <<'NS'
+nix main() {
+    var data = {items: [3, 4], metadata: {version: 1}};
+    data.items[0] = 42;
+    println(data.items[0]);
+    println(data["items"]);
+}
+NS
+
+run_ok map_missing_keys_return_null_and_clear $'null\ntrue\n0\n' <<'NS'
+nix main() {
+    var data = {x: 1};
+    println(data["missing"]);
+    data.clear();
+    println(data.length == 0);
+    println(len(data));
+}
+NS
+
+run_ok map_cycle_stringification_is_safe $'{"self": {...}}\n' <<'NS'
+nix main() {
+    var data = {:};
+    data["self"] = data;
+    println(data);
+}
+NS
+
+run_error map_rejects_array_keys "Map keys must be strings, numbers, booleans, or null" <<'NS'
+nix main() {
+    var data = {:};
+    println(data[[1]]);
+}
+NS
+
+run_error map_length_is_read_only "Map.length is read-only" <<'NS'
+nix main() {
+    var data = {:};
+    data.length = 4;
+}
+NS
+
+run_ok map_owns_objects_and_destroys_them_at_scope_exit $'inside\nmap item destroyed\nafter\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn dropMap() {
+    var data = {item: MapItem()};
+    println("inside");
+}
+nix main() {
+    dropMap();
+    println("after");
+}
+NS
+
+run_ok returned_map_preserves_object_lifetime $'returned\nmap item destroyed\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn makeMap() {
+    var data = {nested: {item: MapItem()}};
+    return data;
+}
+nix main() {
+    var kept = makeMap();
+    println("returned");
+}
+NS
+
+run_file_ok maps_example examples/maps.ns $'NixScript Language\n2026\n[readable, multi-paradigm, general-purpose]\n4\n[name, year, tags, status]\n[NixScript Language, 2026, [readable, multi-paradigm, general-purpose], experimental]\ntrue\nnull\n3\n'
+
+run_ok map_null_boolean_keys_and_duplicate_key_overwrite $'nil\nyes\nupdated\n4\n' <<'NS'
+nix main() {
+    var data = {null: "nil", false: "no", true: "yes", label: "original"};
+    println(data[null]);
+    println(data[true]);
+    data.label = "updated";
+    println(data["label"]);
+    println(data.length);
+}
+NS
+
+run_ok map_literal_duplicate_keys_keep_one_entry $'last\n1\n' <<'NS'
+nix main() {
+    var data = {key: "first", key: "last"};
+    println(data.key);
+    println(data.length);
+}
+NS
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+3\n4\n4\n3\n3\n' <<'NS'
+nix main() {
+    var values = {1, 2, 3};
+    println(values.len());
+    println(values.push(4));
+    println(values.pop());
+    println(values.pop());
+    println(len("abc"));
+}
+NS
+
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
+}
+NS
+
+run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[1]);
+}
+NS
+
+run_error array_fractional_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[0.5]);
+}
+NS
+
+run_error array_negative_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[-1]);
+}
+NS
+
+run_error index_non_array_value "Indexing requires an array or map value" <<'NS'
+nix main() {
+    var value = "hello";
+    println(value[0]);
+}
+NS
+
+run_error array_pop_empty "Cannot pop from an empty array" <<'NS'
+nix main() {
+    var values = [];
+    values.pop();
+}
+NS
+
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
+fn increment(int value) {
+    return value + 1;
+}
+fn doubleIt(int value) {
+    return value * 2;
+}
+fn apply(function callback, int value) {
+    return callback(value);
+}
+fn applyAgain(function callback, int value) {
+    return apply(callback, value);
+}
+nix main() {
+    var callback = increment;
+    println(callback(3));
+    println(apply(doubleIt, 5));
+    println(apply(callback, 9));
+    println(applyAgain(doubleIt, 6));
+    println(apply(abs, -3));
+}
+NS
+
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello " + name;
+    }
+};
+fn apply(function callback, string value) {
+    return callback(value);
+}
+nix main() {
+    var greeter = Greeter();
+    var callback = greeter.greet;
+    println(apply(callback, "Alex"));
+}
+NS
+
+run_ok callable_value_in_array $'6\n' <<'NS'
+fn increment(int value) { return value + 1; }
+fn doubleIt(int value) { return value * 2; }
+nix main() {
+    var callbacks = [increment, doubleIt];
+    println(callbacks[1](3));
+}
+NS
+
+run_error non_callable_variable "This expression is not callable" <<'NS'
+nix main() {
+    var value = 12;
+    value();
+}
+NS
+
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].len());
+}
+NS
+
+echo "=== Dictionaries and maps ==="
+
+run_ok map_literals_indexing_properties_and_mutation $'Alex\n32\n4\ntrue\n{"name": Alex, "age": 32, "active": true, "city": Goa}\n' <<'NS'
+nix main() {
+    var user = {"name": "Alex", age: 31, "active": true};
+    user["age"] = 32;
+    user.city = "Goa";
+    println(user["name"]);
+    println(user.age);
+    println(user.length);
+    println(user.has("active"));
+    println(user);
+}
+NS
+
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n9\n3\ntrue\nfalse\n{"b": 9, "c": 3}\n' <<'NS'
+nix main() {
+    var data = {a: 1, b: 2};
+    println(len(data));
+    println(data.keys());
+    println(values(data));
+    data.set("c", 3);
+    data["b"] = 9;
+    println(data["b"]);
+    println(data.get("c"));
+    println(data.remove("a"));
+    println(data.has("missing"));
+    println(data);
+}
+NS
+
+run_ok map_numeric_and_boolean_keys_are_canonicalized $'five\nbool\n2\n' <<'NS'
+nix main() {
+    var data = {5: "five", true: "bool"};
+    println(data[5]);
+    println(data[true]);
+    println(data.length);
+}
+NS
+
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[42, 4]\n' <<'NS'
+nix main() {
+    var data = {items: [3, 4], metadata: {version: 1}};
+    data.items[0] = 42;
+    println(data.items[0]);
+    println(data["items"]);
+}
+NS
+
+run_ok map_missing_keys_return_null_and_clear $'null\ntrue\n0\n' <<'NS'
+nix main() {
+    var data = {x: 1};
+    println(data["missing"]);
+    data.clear();
+    println(data.length == 0);
+    println(len(data));
+}
+NS
+
+run_ok map_cycle_stringification_is_safe $'{"self": {...}}\n' <<'NS'
+nix main() {
+    var data = {:};
+    data["self"] = data;
+    println(data);
+}
+NS
+
+run_error map_rejects_array_keys "Map keys must be strings, numbers, booleans, or null" <<'NS'
+nix main() {
+    var data = {:};
+    println(data[[1]]);
+}
+NS
+
+run_error map_length_is_read_only "Map.length is read-only" <<'NS'
+nix main() {
+    var data = {:};
+    data.length = 4;
+}
+NS
+
+run_ok map_owns_objects_and_destroys_them_at_scope_exit $'inside\nmap item destroyed\nafter\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn dropMap() {
+    var data = {item: MapItem()};
+    println("inside");
+}
+nix main() {
+    dropMap();
+    println("after");
+}
+NS
+
+run_ok returned_map_preserves_object_lifetime $'returned\nmap item destroyed\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn makeMap() {
+    var data = {nested: {item: MapItem()}};
+    return data;
+}
+nix main() {
+    var kept = makeMap();
+    println("returned");
+}
+NS
+
+run_file_ok maps_example examples/maps.ns $'NixScript Language\n2026\n[readable, multi-paradigm, general-purpose]\n4\n[name, year, tags, status]\n[NixScript Language, 2026, [readable, multi-paradigm, general-purpose], experimental]\ntrue\nnull\n3\n'
+
+run_ok map_null_boolean_keys_and_duplicate_key_overwrite $'nil\nyes\nupdated\n4\n' <<'NS'
+nix main() {
+    var data = {null: "nil", false: "no", true: "yes", label: "original"};
+    println(data[null]);
+    println(data[true]);
+    data.label = "updated";
+    println(data["label"]);
+    println(data.length);
+}
+NS
+
+run_ok map_literal_duplicate_keys_keep_one_entry $'last\n1\n' <<'NS'
+nix main() {
+    var data = {key: "first", key: "last"};
+    println(data.key);
+    println(data.length);
+}
+NS
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+77\n5\ntrue\n' <<'NS'
+nix main() {
     var values = {1, 2, 3};
     var alias = values;
     alias.set(1, 8);
@@ -2585,7 +3194,584 @@ nix main() {
 }
 NS
 
-run_ok array_pop_and_builtin_length $'3\n4\n4\n3\n3\n' <<'NS'
+run_ok array_pop_and_builtin_length 
+
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
+}
+NS
+
+run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[1]);
+}
+NS
+
+run_error array_fractional_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[0.5]);
+}
+NS
+
+run_error array_negative_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[-1]);
+}
+NS
+
+run_error index_non_array_value "Indexing requires an array or map value" <<'NS'
+nix main() {
+    var value = "hello";
+    println(value[0]);
+}
+NS
+
+run_error array_pop_empty "Cannot pop from an empty array" <<'NS'
+nix main() {
+    var values = [];
+    values.pop();
+}
+NS
+
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
+fn increment(int value) {
+    return value + 1;
+}
+fn doubleIt(int value) {
+    return value * 2;
+}
+fn apply(function callback, int value) {
+    return callback(value);
+}
+fn applyAgain(function callback, int value) {
+    return apply(callback, value);
+}
+nix main() {
+    var callback = increment;
+    println(callback(3));
+    println(apply(doubleIt, 5));
+    println(apply(callback, 9));
+    println(applyAgain(doubleIt, 6));
+    println(apply(abs, -3));
+}
+NS
+
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello " + name;
+    }
+};
+fn apply(function callback, string value) {
+    return callback(value);
+}
+nix main() {
+    var greeter = Greeter();
+    var callback = greeter.greet;
+    println(apply(callback, "Alex"));
+}
+NS
+
+run_ok callable_value_in_array $'6\n' <<'NS'
+fn increment(int value) { return value + 1; }
+fn doubleIt(int value) { return value * 2; }
+nix main() {
+    var callbacks = [increment, doubleIt];
+    println(callbacks[1](3));
+}
+NS
+
+run_error non_callable_variable "This expression is not callable" <<'NS'
+nix main() {
+    var value = 12;
+    value();
+}
+NS
+
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].len());
+}
+NS
+
+echo "=== Dictionaries and maps ==="
+
+run_ok map_literals_indexing_properties_and_mutation $'Alex\n32\n4\ntrue\n{"name": Alex, "age": 32, "active": true, "city": Goa}\n' <<'NS'
+nix main() {
+    var user = {"name": "Alex", age: 31, "active": true};
+    user["age"] = 32;
+    user.city = "Goa";
+    println(user["name"]);
+    println(user.age);
+    println(user.length);
+    println(user.has("active"));
+    println(user);
+}
+NS
+
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n9\n3\ntrue\nfalse\n{"b": 9, "c": 3}\n' <<'NS'
+nix main() {
+    var data = {a: 1, b: 2};
+    println(len(data));
+    println(data.keys());
+    println(values(data));
+    data.set("c", 3);
+    data["b"] = 9;
+    println(data["b"]);
+    println(data.get("c"));
+    println(data.remove("a"));
+    println(data.has("missing"));
+    println(data);
+}
+NS
+
+run_ok map_numeric_and_boolean_keys_are_canonicalized $'five\nbool\n2\n' <<'NS'
+nix main() {
+    var data = {5: "five", true: "bool"};
+    println(data[5]);
+    println(data[true]);
+    println(data.length);
+}
+NS
+
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[42, 4]\n' <<'NS'
+nix main() {
+    var data = {items: [3, 4], metadata: {version: 1}};
+    data.items[0] = 42;
+    println(data.items[0]);
+    println(data["items"]);
+}
+NS
+
+run_ok map_missing_keys_return_null_and_clear $'null\ntrue\n0\n' <<'NS'
+nix main() {
+    var data = {x: 1};
+    println(data["missing"]);
+    data.clear();
+    println(data.length == 0);
+    println(len(data));
+}
+NS
+
+run_ok map_cycle_stringification_is_safe $'{"self": {...}}\n' <<'NS'
+nix main() {
+    var data = {:};
+    data["self"] = data;
+    println(data);
+}
+NS
+
+run_error map_rejects_array_keys "Map keys must be strings, numbers, booleans, or null" <<'NS'
+nix main() {
+    var data = {:};
+    println(data[[1]]);
+}
+NS
+
+run_error map_length_is_read_only "Map.length is read-only" <<'NS'
+nix main() {
+    var data = {:};
+    data.length = 4;
+}
+NS
+
+run_ok map_owns_objects_and_destroys_them_at_scope_exit $'inside\nmap item destroyed\nafter\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn dropMap() {
+    var data = {item: MapItem()};
+    println("inside");
+}
+nix main() {
+    dropMap();
+    println("after");
+}
+NS
+
+run_ok returned_map_preserves_object_lifetime $'returned\nmap item destroyed\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn makeMap() {
+    var data = {nested: {item: MapItem()}};
+    return data;
+}
+nix main() {
+    var kept = makeMap();
+    println("returned");
+}
+NS
+
+run_file_ok maps_example examples/maps.ns $'NixScript Language\n2026\n[readable, multi-paradigm, general-purpose]\n4\n[name, year, tags, status]\n[NixScript Language, 2026, [readable, multi-paradigm, general-purpose], experimental]\ntrue\nnull\n3\n'
+
+run_ok map_null_boolean_keys_and_duplicate_key_overwrite $'nil\nyes\nupdated\n4\n' <<'NS'
+nix main() {
+    var data = {null: "nil", false: "no", true: "yes", label: "original"};
+    println(data[null]);
+    println(data[true]);
+    data.label = "updated";
+    println(data["label"]);
+    println(data.length);
+}
+NS
+
+run_ok map_literal_duplicate_keys_keep_one_entry $'last\n1\n' <<'NS'
+nix main() {
+    var data = {key: "first", key: "last"};
+    println(data.key);
+    println(data.length);
+}
+NS
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+3\n4\n4\n3\n3\n' <<'NS'
+nix main() {
+    var values = {1, 2, 3};
+    println(values.len());
+    println(values.push(4));
+    println(values.pop());
+    println(values.pop());
+    println(len("abc"));
+}
+NS
+
+run_ok array_index_increment $'12\n' <<'NS'
+nix main() {
+    var values = [11];
+    values[0]++;
+    println(values[0]);
+}
+NS
+
+run_ok stringify_circular_array_safely $'[[...]]\n' <<'NS'
+nix main() {
+    var values = [null];
+    values[0] = values;
+    println(values);
+}
+NS
+
+run_error array_index_out_of_bounds "Array index is out of range" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[1]);
+}
+NS
+
+run_error array_fractional_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[0.5]);
+}
+NS
+
+run_error array_negative_index "Array index must be a non-negative whole number" <<'NS'
+nix main() {
+    var values = [7];
+    println(values[-1]);
+}
+NS
+
+run_error index_non_array_value "Indexing requires an array or map value" <<'NS'
+nix main() {
+    var value = "hello";
+    println(value[0]);
+}
+NS
+
+run_error array_pop_empty "Cannot pop from an empty array" <<'NS'
+nix main() {
+    var values = [];
+    values.pop();
+}
+NS
+
+run_ok first_class_functions_and_callbacks $'4\n10\n10\n12\n3\n' <<'NS'
+fn increment(int value) {
+    return value + 1;
+}
+fn doubleIt(int value) {
+    return value * 2;
+}
+fn apply(function callback, int value) {
+    return callback(value);
+}
+fn applyAgain(function callback, int value) {
+    return apply(callback, value);
+}
+nix main() {
+    var callback = increment;
+    println(callback(3));
+    println(apply(doubleIt, 5));
+    println(apply(callback, 9));
+    println(applyAgain(doubleIt, 6));
+    println(apply(abs, -3));
+}
+NS
+
+run_ok bound_method_callbacks $'Hello Alex\n' <<'NS'
+class Greeter {
+public:
+    fn greet(string name) {
+        return "Hello " + name;
+    }
+};
+fn apply(function callback, string value) {
+    return callback(value);
+}
+nix main() {
+    var greeter = Greeter();
+    var callback = greeter.greet;
+    println(apply(callback, "Alex"));
+}
+NS
+
+run_ok callable_value_in_array $'6\n' <<'NS'
+fn increment(int value) { return value + 1; }
+fn doubleIt(int value) { return value * 2; }
+nix main() {
+    var callbacks = [increment, doubleIt];
+    println(callbacks[1](3));
+}
+NS
+
+run_error non_callable_variable "This expression is not callable" <<'NS'
+nix main() {
+    var value = 12;
+    value();
+}
+NS
+
+run_file_ok collection_example examples/collections.ns $'[10, 25, 30, 40, 50]\n5\n5\n50\n30\n'
+run_file_ok callback_example examples/callbacks.ns $'12\n14\n9\nHello, NixScript!\n'
+
+run_ok array_owned_objects_destroyed_at_scope_exit $'inside\nwatch destroyed\nafter\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeAndDrop() {
+    var items = [Watch()];
+    println("inside");
+}
+nix main() {
+    makeAndDrop();
+    println("after");
+}
+NS
+
+run_ok returned_array_preserves_object_lifetime $'returned\n1\nwatch destroyed\n' <<'NS'
+class Watch {
+    ~Watch() {
+        println("watch destroyed");
+    }
+};
+fn makeItems() {
+    var items = [[Watch()]];
+    return items;
+}
+nix main() {
+    var kept = makeItems();
+    println("returned");
+    println(kept[0].len());
+}
+NS
+
+echo "=== Dictionaries and maps ==="
+
+run_ok map_literals_indexing_properties_and_mutation $'Alex\n32\n4\ntrue\n{"name": Alex, "age": 32, "active": true, "city": Goa}\n' <<'NS'
+nix main() {
+    var user = {"name": "Alex", age: 31, "active": true};
+    user["age"] = 32;
+    user.city = "Goa";
+    println(user["name"]);
+    println(user.age);
+    println(user.length);
+    println(user.has("active"));
+    println(user);
+}
+NS
+
+run_ok map_keys_values_remove_and_set $'2\n[a, b]\n[1, 2]\n9\n3\ntrue\nfalse\n{"b": 9, "c": 3}\n' <<'NS'
+nix main() {
+    var data = {a: 1, b: 2};
+    println(len(data));
+    println(data.keys());
+    println(values(data));
+    data.set("c", 3);
+    data["b"] = 9;
+    println(data["b"]);
+    println(data.get("c"));
+    println(data.remove("a"));
+    println(data.has("missing"));
+    println(data);
+}
+NS
+
+run_ok map_numeric_and_boolean_keys_are_canonicalized $'five\nbool\n2\n' <<'NS'
+nix main() {
+    var data = {5: "five", true: "bool"};
+    println(data[5]);
+    println(data[true]);
+    println(data.length);
+}
+NS
+
+run_ok map_nested_in_arrays_and_arrays_in_maps $'42\n[42, 4]\n' <<'NS'
+nix main() {
+    var data = {items: [3, 4], metadata: {version: 1}};
+    data.items[0] = 42;
+    println(data.items[0]);
+    println(data["items"]);
+}
+NS
+
+run_ok map_missing_keys_return_null_and_clear $'null\ntrue\n0\n' <<'NS'
+nix main() {
+    var data = {x: 1};
+    println(data["missing"]);
+    data.clear();
+    println(data.length == 0);
+    println(len(data));
+}
+NS
+
+run_ok map_cycle_stringification_is_safe $'{"self": {...}}\n' <<'NS'
+nix main() {
+    var data = {:};
+    data["self"] = data;
+    println(data);
+}
+NS
+
+run_error map_rejects_array_keys "Map keys must be strings, numbers, booleans, or null" <<'NS'
+nix main() {
+    var data = {:};
+    println(data[[1]]);
+}
+NS
+
+run_error map_length_is_read_only "Map.length is read-only" <<'NS'
+nix main() {
+    var data = {:};
+    data.length = 4;
+}
+NS
+
+run_ok map_owns_objects_and_destroys_them_at_scope_exit $'inside\nmap item destroyed\nafter\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn dropMap() {
+    var data = {item: MapItem()};
+    println("inside");
+}
+nix main() {
+    dropMap();
+    println("after");
+}
+NS
+
+run_ok returned_map_preserves_object_lifetime $'returned\nmap item destroyed\n' <<'NS'
+class MapItem {
+    ~MapItem() {
+        println("map item destroyed");
+    }
+};
+fn makeMap() {
+    var data = {nested: {item: MapItem()}};
+    return data;
+}
+nix main() {
+    var kept = makeMap();
+    println("returned");
+}
+NS
+
+run_file_ok maps_example examples/maps.ns $'NixScript Language\n2026\n[readable, multi-paradigm, general-purpose]\n4\n[name, year, tags, status]\n[NixScript Language, 2026, [readable, multi-paradigm, general-purpose], experimental]\ntrue\nnull\n3\n'
+
+run_ok map_null_boolean_keys_and_duplicate_key_overwrite $'nil\nyes\nupdated\n4\n' <<'NS'
+nix main() {
+    var data = {null: "nil", false: "no", true: "yes", label: "original"};
+    println(data[null]);
+    println(data[true]);
+    data.label = "updated";
+    println(data["label"]);
+    println(data.length);
+}
+NS
+
+run_ok map_literal_duplicate_keys_keep_one_entry $'last\n1\n' <<'NS'
+nix main() {
+    var data = {key: "first", key: "last"};
+    println(data.key);
+    println(data.length);
+}
+NS
+
+if [ "$failed" -ne 0 ]; then
+    echo "FAILED: $failed language regression(s); $passed passed." >&2
+    exit 1
+fi
+echo "PASS: $passed language regressions."
+3\n4\n4\n3\n3\n' <<'NS'
 nix main() {
     var values = [1, 2, 3];
     println(len(values));
