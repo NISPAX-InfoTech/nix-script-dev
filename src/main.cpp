@@ -2645,7 +2645,11 @@ private:
             need(1);
             if (const auto* textValue = std::get_if<std::string>(&args[0]))
                 return static_cast<double>(textValue->size());
-            runtimeError(line, "len() is not an array function; use array.len().");
+            if (const auto* map = std::get_if<std::shared_ptr<MapValue>>(&args[0]))
+                return *map ? static_cast<double>((*map)->entries.size()) : 0.0;
+            if (std::holds_alternative<std::shared_ptr<ArrayValue>>(args[0]))
+                runtimeError(line, "len() does not accept arrays; use array.len().");
+            runtimeError(line, "len() expects a string or map.");
         }
         if (name == "keys" || name == "values") {
             need(1);
