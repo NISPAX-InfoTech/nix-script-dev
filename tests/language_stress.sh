@@ -2267,7 +2267,19 @@ NS
 
 echo "=== Core collections and callable values ==="
 
-run_ok mutable_arrays_and_safe_indexing 
+run_ok mutable_arrays_and_safe_indexing $'77\n5\ntrue\n' <<'NS'
+nix main() {
+    var values = [1, 2, 3];
+    var alias = values;
+    alias.set(1, 8);
+    values.push(4);
+    values.push(5);
+    alias.set(0, 77);
+    println(values.get(0));
+    println(values.len());
+    println(values.contains(8));
+}
+NS
 
 run_ok nested_array_literals_and_iteration $'2\n5\n[1, [2, 3], null]\n' <<'NS'
 nix main() {
@@ -2278,7 +2290,16 @@ nix main() {
 }
 NS
 
-run_ok array_pop_and_builtin_length 
+run_ok array_pop_and_builtin_length $'3\n4\n4\n3\n3\n' <<'NS'
+nix main() {
+    var values = [1, 2, 3];
+    println(values.len());
+    println(values.push(4));
+    println(values.pop());
+    println(values.pop());
+    println(len("abc"));
+}
+NS
 
 run_ok array_index_increment $'12\n' <<'NS'
 nix main() {
